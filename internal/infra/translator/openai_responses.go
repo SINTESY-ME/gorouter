@@ -13,13 +13,13 @@ import (
 func init() {
 	register(domain.FormatOpenAI, domain.FormatResponses, pair{
 		translateRequest:        translateOpenAIToResponsesRequest,
-		translateResponseJSON:   translateResponsesToOpenAIResponseJSON,
-		translateResponseStream: responsesStreamToOpenAI,
+		translateResponseJSON:   translateOpenAIToResponsesResponseJSON,
+		translateResponseStream: openAIStreamToResponses,
 	})
 	register(domain.FormatResponses, domain.FormatOpenAI, pair{
 		translateRequest:        translateResponsesToOpenAIRequest,
-		translateResponseJSON:   translateOpenAIToResponsesResponseJSON,
-		translateResponseStream: openAIStreamToResponses,
+		translateResponseJSON:   translateResponsesToOpenAIResponseJSON,
+		translateResponseStream: responsesStreamToOpenAI,
 	})
 }
 
