@@ -1,0 +1,40 @@
+services:
+  gorouter:
+    build: .
+    image: gorouter:latest
+    network_mode: host
+    environment:
+      GOROUTER_PORT: "20128"
+      GOROUTER_HOME: /data
+      GOROUTER_DB_DRIVER: postgres
+      GOROUTER_DB_DSN: "postgres://gorouter:${POSTGRES_PASSWORD:-gorouter}@127.0.0.1:5432/gorouter?sslmode=disable"
+      GOROUTER_KEY_SECRET: ${GOROUTER_KEY_SECRET:-}
+      GOROUTER_REQUIRE_KEY: "true"
+      GOROUTER_DASHBOARD_TOKEN: ${GOROUTER_DASHBOARD_TOKEN:-}
+    volumes:
+      - gorouter-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: gorouter
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gorouter}
+      POSTGRES_DB: gorouter
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gorouter -d gorouter"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  gorouter-data:
+  postgres-data:

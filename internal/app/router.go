@@ -1,0 +1,642 @@
+// Package app holds the application services (use cases). Each service is a
+// thin orchestrator that depends only on domain ports; infrastructure adapters
+// are injected at the composition root.
+package app
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/jhon/gorouter/internal/domain"
+)
+
+// RouterService is the core use case: take a chat request (in OpenAI format),
+// route it to the right upstream(s), and return the response.
+type RouterService struct {
+	Combos      domain.ComboRepo
+	Connections domain.ConnectionRepo
+	Executor    domain.Executor
+	Translator  domain.Translator
+	Usage       domain.UsageRepo
+
+	// comboRotation is in-memory state for round-robin combo strategy.
+	// Not persisted; rotation resets on process restart (acceptable).
+	rotationMu sync.Mutex
+	rotation   map[string]int
+
+	// Health tracks per-(combo, model) failures so that subsequent requests
+	// skip unhealthy models and a background probe restores them when they
+	// recover. Not persisted; resets on process restart.
+	Health *HealthTracker
+}
+
+// NewRouterService constructs a RouterService with the round-robin state
+// initialised. Use this rather than a bare struct literal.
+func NewRouterService(combos domain.ComboRepo, conns domain.ConnectionRepo, exec domain.Executor, tr domain.Translator, usage domain.UsageRepo) *RouterService {
+	return &RouterService{
+		Combos:      combos,
+		Connections: conns,
+		Executor:    exec,
+		Translator:  tr,
+		Usage:       usage,
+		rotation:    map[string]int{},
+		Health:      NewHealthTracker(),
+	}
+}
+
+// RouteChat handles a chat/completions request. The body is in OpenAI format
+// (our canonical). modelStr is the model extracted by the handler so we
+// avoid a second json.Unmarshal on the hot path. apiKey is the client-facing
+// key (for usage tracking); empty when key auth is not required.
+func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr string, stream bool, apiKey string) (*RouterResponse, error) {
+	modelID, ok := domain.SplitModelID(modelStr)
+	if ok {
+		return s.routeSingle(ctx, modelID, body, stream, apiKey, "")
+	}
+	combo, err := s.Combos.GetByName(ctx, modelStr)
+	if err == domain.ErrNotFound {
+		return nil, fmt.Errorf("model %q not found", modelStr)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.routeCombo(ctx, combo, body, stream, apiKey, "")
+}
+
+// RoutePassthrough routes a non-chat endpoint (embeddings, images) to a
+// single upstream connection. The body stays in OpenAI format — no
+// translation is applied. Combos are supported via model-name lookup just
+// like chat. endpoint is "embeddings" or "images/generations".
+func (s *RouterService) RoutePassthrough(ctx context.Context, body []byte, modelStr string, endpoint string, apiKey string, contentType string) (*RouterResponse, error) {
+	modelID, ok := domain.SplitModelID(modelStr)
+	if ok {
+		return s.routeSingle(ctx, modelID, body, false, apiKey, endpoint, contentType)
+	}
+	combo, err := s.Combos.GetByName(ctx, modelStr)
+	if err == domain.ErrNotFound {
+		return nil, fmt.Errorf("model %q not found", modelStr)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.routeCombo(ctx, combo, body, false, apiKey, endpoint, contentType)
+}
+
+// RouterResponse is what the HTTP handler receives. It is either a buffered
+// JSON body (non-stream) or a ReadCloser yielding SSE (stream). The caller
+// must close Body if non-nil.
+type RouterResponse struct {
+	StatusCode  int
+	Headers     http.Header
+	Body        io.ReadCloser
+	Stream      bool
+	Provider    string
+	Model       string
+	ConnectionID string
+}
+
+func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, endpoint string, contentType ...string) (*RouterResponse, error) {
+	start := time.Now()
+	ct := ""
+	if len(contentType) > 0 {
+		ct = contentType[0]
+	}
+	conns, err := s.Connections.ListByProvider(ctx, m.Provider)
+	if err != nil {
+		return nil, err
+	}
+	if len(conns) == 0 {
+		return nil, domain.ErrNoConnection
+	}
+	for i := range conns {
+		conn := pickConnection(conns, i)
+		if !conn.IsActive || conn.RateLimitedUntil.After(time.Now()) {
+			continue
+		}
+		res, err := s.executeOne(ctx, m, conn, body, stream, endpoint, ct)
+		if err != nil {
+			continue
+		}
+		// For passthrough (embeddings, audio, images) there is no fallback
+		// and a 5xx from one endpoint doesn't mean the connection is bad for
+		// chat. Return the response as-is; only rate-limit for chat (endpoint=="").
+		if endpoint == "" && res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
+			s.markRateLimited(ctx, conn, res)
+			continue
+		}
+		s.wrapUsageTracking(res, m, conn, apiKey, endpoint, "", start)
+		res.Provider = m.Provider
+		res.Model = m.Model
+		res.ConnectionID = conn.ID
+		return res, nil
+	}
+	return nil, fmt.Errorf("%w: provider %q", domain.ErrNoConnection, m.Provider)
+}
+
+func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, body []byte, stream bool, apiKey string, endpoint string, contentType ...string) (*RouterResponse, error) {
+	start := time.Now()
+	ct := ""
+	if len(contentType) > 0 {
+		ct = contentType[0]
+	}
+	models := combo.Models
+	if combo.Strategy == "round-robin" {
+		models = s.rotatedModels(combo.Name, models)
+	}
+	var lastErr error
+	var skipped []string // unhealthy models skipped in the first pass
+	for _, modelStr := range models {
+		m, ok := domain.SplitModelID(modelStr)
+		if !ok {
+			lastErr = fmt.Errorf("combo model %q invalid", modelStr)
+			continue
+		}
+		if s.Health.IsUnhealthy(combo.Name, modelStr) {
+			// Launch a background probe (at most one in flight per pair) so the
+			// model can recover without a real request hitting it. The probe is
+			// debounced by probeInFlight; subsequent requests that find it still
+			// unhealthy while a probe is running simply skip it.
+			if s.Health.TryStartProbe(combo.Name, modelStr) {
+				go s.runHealthProbe(combo.Name, modelStr, m)
+			}
+			skipped = append(skipped, modelStr)
+			continue
+		}
+		res, err := s.tryModel(ctx, m, body, stream, apiKey, endpoint, combo.Name, start, ct)
+		if err != nil {
+			s.Health.MarkUnhealthy(combo.Name, modelStr)
+			lastErr = err
+			continue
+		}
+		if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
+			s.Health.MarkUnhealthy(combo.Name, modelStr)
+			lastErr = fmt.Errorf("upstream %d", res.StatusCode)
+			if res.Body != nil {
+				res.Body.Close()
+			}
+			continue
+		}
+		s.Health.MarkHealthy(combo.Name, modelStr)
+		return res, nil
+	}
+	// Last resort: every model is unhealthy (or no healthy model worked).
+	// Retry the skipped models inline — a real request can succeed where the
+	// probe hasn't run yet (e.g. transient failure already resolved). On
+	// success the model is marked healthy; on failure it stays unhealthy.
+	for _, modelStr := range skipped {
+		m, ok := domain.SplitModelID(modelStr)
+		if !ok {
+			continue
+		}
+		res, err := s.tryModel(ctx, m, body, stream, apiKey, endpoint, combo.Name, start, ct)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
+			lastErr = fmt.Errorf("upstream %d", res.StatusCode)
+			if res.Body != nil {
+				res.Body.Close()
+			}
+			continue
+		}
+		s.Health.MarkHealthy(combo.Name, modelStr)
+		return res, nil
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("%w: %v", domain.ErrAllModelsFailed, lastErr)
+	}
+	return nil, domain.ErrAllModelsFailed
+}
+
+// runHealthProbe is a background goroutine that sends a minimal chat request
+// to an unhealthy (combo, model) pair to check if it has recovered. It uses
+// a detached context with a 20s timeout (longer than the executor's default
+// upstream timeout, so probes don't race). On 2xx it marks the pair healthy;
+// otherwise it leaves the unhealthy flag set and clears the probe-in-flight
+// flag so the next request can launch a new probe. The probe does NOT go
+// through wrapUsageTracking, so it does not pollute the usage table.
+func (s *RouterService) runHealthProbe(comboName, modelStr string, m domain.ModelID) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	conns, err := s.Connections.ListByProvider(ctx, m.Provider)
+	if err != nil || len(conns) == 0 {
+		s.Health.ProbeFailed(comboName, modelStr)
+		slog.Debug("health probe: no connections for provider", "combo", comboName, "model", modelStr, "provider", m.Provider)
+		return
+	}
+	var conn *domain.Connection
+	for i := range conns {
+		c := pickConnection(conns, i)
+		if c.IsActive && !c.RateLimitedUntil.After(time.Now()) {
+			conn = c
+			break
+		}
+	}
+	if conn == nil {
+		s.Health.ProbeFailed(comboName, modelStr)
+		slog.Debug("health probe: no active connection", "combo", comboName, "model", modelStr, "provider", m.Provider)
+		return
+	}
+
+	probeBody := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"."}],"max_tokens":1,"stream":false}`, m.Model)
+	targetFmt := conn.Format
+	if targetFmt == "" {
+		targetFmt = domain.FormatOpenAI
+	}
+	translated, err := s.Translator.TranslateRequest(domain.FormatOpenAI, targetFmt, m.Model, []byte(probeBody))
+	if err != nil {
+		s.Health.ProbeFailed(comboName, modelStr)
+		slog.Debug("health probe: translate failed", "combo", comboName, "model", modelStr, "error", err)
+		return
+	}
+	execReq := domain.ExecuteRequest{
+		ProviderID:    m.Provider,
+		Connection:    conn,
+		UpstreamModel: m.Model,
+		Body:          io.NopCloser(bytes.NewReader(translated)),
+		Stream:        false,
+	}
+	res, err := s.Executor.Execute(ctx, execReq)
+	if err != nil {
+		s.Health.ProbeFailed(comboName, modelStr)
+		slog.Debug("health probe: execute failed", "combo", comboName, "model", modelStr, "error", err)
+		return
+	}
+	defer res.Body.Close()
+	io.Copy(io.Discard, res.Body)
+
+	if res.StatusCode >= 200 && res.StatusCode < 400 {
+		s.Health.MarkHealthy(comboName, modelStr)
+		slog.Info("health probe: model recovered", "combo", comboName, "model", modelStr)
+	} else {
+		s.Health.ProbeFailed(comboName, modelStr)
+		slog.Debug("health probe: still unhealthy", "combo", comboName, "model", modelStr, "status", res.StatusCode)
+	}
+}
+
+func (s *RouterService) tryModel(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, endpoint string, comboName string, start time.Time, contentType ...string) (*RouterResponse, error) {
+	conns, err := s.Connections.ListByProvider(ctx, m.Provider)
+	if err != nil {
+		return nil, err
+	}
+	if len(conns) == 0 {
+		return nil, fmt.Errorf("%w: provider %q", domain.ErrNoConnection, m.Provider)
+	}
+	ct := ""
+	if len(contentType) > 0 {
+		ct = contentType[0]
+	}
+	for i := range conns {
+		conn := pickConnection(conns, i)
+		if !conn.IsActive || conn.RateLimitedUntil.After(time.Now()) {
+			continue
+		}
+		res, err := s.executeOne(ctx, m, conn, body, stream, endpoint, ct)
+		if err != nil {
+			continue
+		}
+		s.wrapUsageTracking(res, m, conn, apiKey, endpoint, comboName, start)
+		res.Provider = m.Provider
+		res.Model = m.Model
+		res.ConnectionID = conn.ID
+		return res, nil
+	}
+	return nil, fmt.Errorf("%w: provider %q", domain.ErrNoConnection, m.Provider)
+}
+
+func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *domain.Connection, body []byte, stream bool, endpoint string, contentType string) (*RouterResponse, error) {
+	translated := body
+	var respBody io.ReadCloser
+	if endpoint == "" {
+		targetFmt := conn.Format
+		if targetFmt == "" || targetFmt == domain.FormatAuto {
+			targetFmt = domain.FormatOpenAI
+		}
+		if stream && targetFmt == domain.FormatOpenAI {
+			body = injectStreamUsage(body)
+		}
+		var err error
+		translated, err = s.Translator.TranslateRequest(domain.FormatOpenAI, targetFmt, m.Model, body)
+		if err != nil {
+			return nil, err
+		}
+		execReq := domain.ExecuteRequest{
+			ProviderID:      m.Provider,
+			Connection:      conn,
+			UpstreamModel:    m.Model,
+			Body:            io.NopCloser(bytes.NewReader(translated)),
+			Stream:          stream,
+		}
+		res, err := s.Executor.Execute(ctx, execReq)
+		if err != nil {
+			return nil, err
+		}
+		respBody = res.Body
+		if res.Stream && targetFmt != domain.FormatOpenAI {
+			respBody, err = s.Translator.TranslateResponseStream(ctx, targetFmt, domain.FormatOpenAI, res.Body)
+			if err != nil {
+				return nil, err
+			}
+		} else if !res.Stream && targetFmt != domain.FormatOpenAI {
+			buf, err := io.ReadAll(res.Body)
+			res.Body.Close()
+			if err != nil {
+				return nil, err
+			}
+			t, err := s.Translator.TranslateResponseJSON(targetFmt, domain.FormatOpenAI, buf)
+			if err != nil {
+				return nil, err
+			}
+			respBody = io.NopCloser(bytes.NewReader(t))
+		}
+		return &RouterResponse{
+			StatusCode: res.StatusCode,
+			Headers:    res.Headers,
+			Body:       respBody,
+			Stream:     res.Stream,
+		}, nil
+	}
+	// Passthrough (endpoint != ""). For JSON bodies (embeddings, images,
+	// audio/speech) we rewrite the model field via the OpenAI->OpenAI
+	// translator. For multipart bodies (audio/transcriptions) we rewrite
+	// the "model" form field to strip the provider prefix — the upstream
+	// expects the bare model name (e.g. "whisper-1", not "openai/whisper-1").
+	if len(translated) > 0 && translated[0] == '{' {
+		var err error
+		translated, err = s.Translator.TranslateRequest(domain.FormatOpenAI, domain.FormatOpenAI, m.Model, translated)
+		if err != nil {
+			return nil, err
+		}
+	} else if len(translated) > 0 && contentType != "" && strings.HasPrefix(contentType, "multipart/") {
+		translated = rewriteMultipartModel(translated, m.Model)
+	}
+	execReq := domain.ExecuteRequest{
+		ProviderID:   m.Provider,
+		Connection:   conn,
+		UpstreamModel: m.Model,
+		Body:         io.NopCloser(bytes.NewReader(translated)),
+		Stream:       false,
+		Endpoint:     endpoint,
+	}
+	if contentType != "" {
+		execReq.Headers = map[string]string{"Content-Type": contentType}
+	}
+	res, err := s.Executor.Execute(ctx, execReq)
+	if err != nil {
+		return nil, err
+	}
+	return &RouterResponse{
+		StatusCode: res.StatusCode,
+		Headers:    res.Headers,
+		Body:       res.Body,
+		Stream:     false,
+	}, nil
+}
+
+// wrapUsageTracking wraps res.Body with a tee reader that copies response
+// bytes into an in-memory buffer. When the body is closed (after the HTTP
+// handler has finished writing to the client) the buffer is parsed for token
+// usage and a UsageEntry is recorded. This keeps the hot path (streaming to
+// the client) untouched while still capturing usage asynchronously.
+func (s *RouterService) wrapUsageTracking(res *RouterResponse, m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, comboName string, start time.Time) {
+	tee := &teeReadCloser{
+		r: res.Body,
+		onClose: func(buf []byte) {
+			s.recordUsage(m, conn, apiKey, endpoint, res.StatusCode, res.Stream, buf, comboName, start)
+		},
+	}
+	res.Body = tee
+}
+
+// recordUsage parses token counts from the buffered response body and writes
+// a single UsageEntry. Uses a detached context (the request may be done by
+// the time the body is closed).
+func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, status int, stream bool, buf []byte, comboName string, start time.Time) {
+	prompt, completion := 0, 0
+	if endpoint == "" {
+		endpoint = "chat/completions"
+	}
+	if status < 400 {
+		if stream {
+			prompt, completion = parseUsageFromSSE(buf)
+		} else {
+			prompt, completion = parseUsageFromJSON(buf)
+		}
+	}
+	entry := domain.UsageEntry{
+		Timestamp:         time.Now(),
+		Provider:          m.Provider,
+		Model:             m.Model,
+		ComboName:         comboName,
+		ConnectionID:      conn.ID,
+		ApiKey:            apiKey,
+		Endpoint:          endpoint,
+		LatencyMs:         time.Since(start).Milliseconds(),
+		PromptTokens:      prompt,
+		CompletionTokens:  completion,
+		Status:            status,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = s.Usage.Record(ctx, entry)
+}
+
+// teeReadCloser wraps an io.ReadCloser, copying bytes into an internal buffer
+// (up to maxUsageBuf). On Close it invokes onClose with the buffered data.
+// Close is idempotent — sse.Write and the handler's defer both call Close.
+type teeReadCloser struct {
+	r       io.ReadCloser
+	buf     bytes.Buffer
+	closed  bool
+	onClose func(buf []byte)
+}
+
+func (t *teeReadCloser) Read(p []byte) (int, error) {
+	n, err := t.r.Read(p)
+	if n > 0 && t.buf.Len() < maxUsageBuf {
+		t.buf.Write(p[:n])
+	}
+	return n, err
+}
+
+func (t *teeReadCloser) Close() error {
+	if t.closed {
+		return nil
+	}
+	t.closed = true
+	err := t.r.Close()
+	if t.onClose != nil {
+		t.onClose(t.buf.Bytes())
+	}
+	return err
+}
+
+func (s *RouterService) markRateLimited(ctx context.Context, conn *domain.Connection, res *RouterResponse) {
+	retryAfter := domain.ParseRetryAfter(res.Headers.Get("Retry-After"))
+	if retryAfter == 0 {
+		retryAfter = 5 * time.Second
+	}
+	until := time.Now().Add(retryAfter)
+	_ = s.Connections.SetRateLimited(ctx, conn.ID, until)
+}
+
+func (s *RouterService) rotatedModels(name string, models []string) []string {
+	s.rotationMu.Lock()
+	defer s.rotationMu.Unlock()
+	i := s.rotation[name]
+	if i >= len(models) {
+		i = 0
+	}
+	s.rotation[name] = (i + 1) % len(models)
+	rotated := make([]string, len(models))
+	for j := 0; j < len(models); j++ {
+		rotated[j] = models[(i+j)%len(models)]
+	}
+	return rotated
+}
+
+func pickConnection(conns []domain.Connection, start int) *domain.Connection {
+	for j := 0; j < len(conns); j++ {
+		c := &conns[(start+j)%len(conns)]
+		if c.IsActive {
+			return c
+		}
+	}
+	return &conns[0]
+}
+
+type openAIChatRequest struct {
+	Model  string `json:"model"`
+	Stream bool   `json:"stream"`
+}
+
+// extractModel returns the "model" field from an OpenAI-format request body.
+// It tries a cheap json.Unmarshal of just the model field first; if the body
+// is multipart (audio/transcriptions), it falls back to scanning the multipart
+// form. This avoids a full json.Unmarshal of the entire body on the hot path.
+func extractModel(body []byte) (string, error) {
+	var probe struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(body, &probe); err == nil {
+		if probe.Model != "" {
+			return probe.Model, nil
+		}
+		return "", fmt.Errorf("model field is required")
+	}
+	if model, ok := extractModelFromMultipart(body); ok {
+		return model, nil
+	}
+	return "", fmt.Errorf("parse openai request: could not extract model")
+}
+
+// extractModelFromMultipart scans a multipart/form-data body for a "model"
+// field and returns its value. Returns ok=false if the body is not multipart
+// or the field is absent. This avoids pulling in mime/multipart parsing of
+// the full request (the body is already read as bytes by the handler) by
+// doing a cheap text scan for the form field name.
+func extractModelFromMultipart(body []byte) (string, bool) {
+	const marker = `name="model"`
+	idx := bytes.Index(body, []byte(marker))
+	if idx < 0 {
+		return "", false
+	}
+	// The value follows the header block: after "name="model"\r\n\r\n".
+	rest := body[idx+len(marker):]
+	// Skip the closing quote of the name attribute and any remaining headers.
+	hdrEnd := bytes.Index(rest, []byte("\r\n\r\n"))
+	if hdrEnd < 0 {
+		return "", false
+	}
+	val := rest[hdrEnd+4:]
+	// The value ends at the next CRLF (boundary line) or end of body.
+	end := bytes.Index(val, []byte("\r\n"))
+	if end < 0 {
+		end = len(val)
+	}
+	v := strings.TrimSpace(string(val[:end]))
+	if v == "" {
+		return "", false
+	}
+	return v, true
+}
+
+// rewriteMultipartModel replaces the value of the "model" field in a
+// multipart/form-data body with the given upstream model name. This strips
+// the provider prefix (e.g. "openai/whisper-1" -> "whisper-1") that the
+// client sends, since the upstream expects the bare model name.
+func rewriteMultipartModel(body []byte, upstreamModel string) []byte {
+	const marker = `name="model"`
+	idx := bytes.Index(body, []byte(marker))
+	if idx < 0 {
+		return body
+	}
+	rest := body[idx+len(marker):]
+	hdrEnd := bytes.Index(rest, []byte("\r\n\r\n"))
+	if hdrEnd < 0 {
+		return body
+	}
+	valStart := idx + len(marker) + hdrEnd + 4
+	valEnd := valStart
+	end := bytes.Index(body[valStart:], []byte("\r\n"))
+	if end < 0 {
+		valEnd = len(body)
+	} else {
+		valEnd = valStart + end
+	}
+	oldVal := body[valStart:valEnd]
+	if string(oldVal) == upstreamModel {
+		return body
+	}
+	out := make([]byte, 0, len(body)-len(oldVal)+len(upstreamModel))
+	out = append(out, body[:valStart]...)
+	out = append(out, []byte(upstreamModel)...)
+	out = append(out, body[valEnd:]...)
+	return out
+}
+
+// ModelsService builds the /v1/models list from combos + the persisted
+// model catalog (synced from providers). It no longer fetches live from
+// upstreams on every request — the catalog is kept fresh by ModelSyncService.
+type ModelsService struct {
+	Combos      domain.ComboRepo
+	Connections domain.ConnectionRepo
+	Fetcher     domain.ModelFetcher // kept for backward compat; not used in List
+	Models      domain.ModelRepo
+}
+
+func (s *ModelsService) List(ctx context.Context) ([]domain.ModelInfo, error) {
+	var out []domain.ModelInfo
+	combos, err := s.Combos.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range combos {
+		kind := c.Kind
+		if kind == "" {
+			kind = domain.KindLLM
+		}
+		out = append(out, domain.ModelInfo{ID: c.Name, Object: "model", OwnedBy: "combo", Kind: kind})
+	}
+	// Read active models from the catalog (no live fetch).
+	if s.Models != nil {
+		entries, err := s.Models.ListActive(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range entries {
+			out = append(out, domain.ModelInfo{ID: e.ID, Object: "model", OwnedBy: e.ProviderID, Kind: e.Kind})
+		}
+	}
+	return out, nil
+}

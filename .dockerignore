@@ -1,0 +1,6 @@
+internal/web/node_modules
+internal/web/dist
+*.db
+*.db-*
+.env
+.git

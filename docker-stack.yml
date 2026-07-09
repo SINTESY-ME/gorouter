@@ -1,0 +1,96 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    networks:
+      - gorouter-net
+    environment:
+      POSTGRES_USER: gorouter
+      POSTGRES_DB: gorouter
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gorouter"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    deploy:
+      replicas: 1
+      # Pin to a manager node so the data volume is always on the same host
+      # (local volumes aren't replicated across the cluster).
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+      resources:
+        limits:
+          memory: 1G
+    secrets:
+      - postgres_password
+
+  gorouter:
+    image: gorouter:latest
+    networks:
+      - gorouter-net
+    ports:
+      - target: 20128
+        published: 20128
+        protocol: tcp
+        mode: ingress
+    environment:
+      GOROUTER_PORT: "20128"
+      GOROUTER_HOME: /data
+      GOROUTER_DB_DRIVER: postgres
+      GOROUTER_REQUIRE_KEY: "true"
+    volumes:
+      - gorouter-data:/data
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: stop-first
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+      # Wait for postgres to be ready before routing traffic to gorouter.
+      # Swarm healthchecks only affect the service they're on, so we add
+      # one here too for external visibility (/api/health is public).
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:20128/api/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    secrets:
+      - postgres_password
+      - key_secret
+
+networks:
+  gorouter-net:
+    driver: overlay
+    attachable: true
+
+volumes:
+  postgres-data:
+    driver: local
+  gorouter-data:
+    driver: local
+
+secrets:
+  postgres_password:
+    external: true
+  key_secret:
+    external: true
