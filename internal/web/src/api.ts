@@ -43,18 +43,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export interface Provider {
-  ID: string; ProviderID: string; Name: string; APIKey: string;
-  BaseURL: string; Format: string; Auth: string; Priority: number;
-  IsActive: boolean; RateLimitedUntil: string; CreatedAt: string; UpdatedAt: string;
+  id: string; provider_id: string; name: string; api_key: string;
+  base_url: string; format: string; auth: string; priority: number;
+  is_active: boolean; rate_limited_until: string; created_at: string; updated_at: string;
 }
 export interface ModelInfo {
   id: string; object: string; owned_by: string; kind?: string;
 }
 export interface ModelEntry {
-  ID: string; ProviderID: string; ModelID: string; Name: string;
-  Kind: string; Source: string; IsActive: boolean; Context: number;
-  SupportsVision: boolean; SupportsToolCall: boolean; SupportsReasoning: boolean;
-  LastSyncedAt: string; CreatedAt: string; UpdatedAt: string;
+  id: string; provider_id: string; model_id: string; name: string;
+  kind: string; source: string; is_active: boolean; context: number;
+  supports_vision: boolean; supports_tool_call: boolean; supports_reasoning: boolean;
+  last_synced_at: string; created_at: string; updated_at: string;
 }
 export interface Combo {
   id: string; name: string; models: string[]; strategy: string; kind?: string;

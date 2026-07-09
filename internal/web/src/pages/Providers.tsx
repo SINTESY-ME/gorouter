@@ -36,8 +36,8 @@ export default function Providers() {
 
   const openNew = () => { setForm(empty); setEditId(null); onOpen(); };
   const openEdit = (p: Provider) => {
-    setForm({ provider_id: p.ProviderID, name: p.Name, api_key: p.APIKey, base_url: p.BaseURL, format: p.Format, auth: p.Auth });
-    setEditId(p.ID); onOpen();
+    setForm({ provider_id: p.provider_id, name: p.name, api_key: p.api_key, base_url: p.base_url, format: p.format, auth: p.auth });
+    setEditId(p.id); onOpen();
   };
 
   const submit = async () => {
@@ -58,36 +58,36 @@ export default function Providers() {
   };
 
   const selectProvider = useCallback(async (p: Provider) => {
-    if (selectedId === p.ID) {
+    if (selectedId === p.id) {
       setSelectedId(null);
       return;
     }
-    setSelectedId(p.ID);
-    if (modelsCache[p.ID] || modelErrors[p.ID]) return;
-    setLoadingModels(p.ID);
+    setSelectedId(p.id);
+    if (modelsCache[p.id] || modelErrors[p.id]) return;
+    setLoadingModels(p.id);
     try {
-      const entries = await api.providers.models(p.ID);
-      setModelsCache((c) => ({ ...c, [p.ID]: entries }));
+      const entries = await api.providers.models(p.id);
+      setModelsCache((c) => ({ ...c, [p.id]: entries }));
     } catch (e: any) {
-      setModelErrors((m) => ({ ...m, [p.ID]: e.message }));
+      setModelErrors((m) => ({ ...m, [p.id]: e.message }));
     } finally {
       setLoadingModels(null);
     }
   }, [selectedId, modelsCache, modelErrors]);
 
   const syncProviderModels = async (p: Provider) => {
-    setLoadingModels(p.ID);
+    setLoadingModels(p.id);
     try {
-      const entries = await api.providers.syncModels(p.ID);
-      setModelsCache((c) => ({ ...c, [p.ID]: entries }));
+      const entries = await api.providers.syncModels(p.id);
+      setModelsCache((c) => ({ ...c, [p.id]: entries }));
     } catch (e: any) {
-      setModelErrors((m) => ({ ...m, [p.ID]: e.message }));
+      setModelErrors((m) => ({ ...m, [p.id]: e.message }));
     } finally {
       setLoadingModels(null);
     }
   };
 
-  const selected = items.find((p) => p.ID === selectedId);
+  const selected = items.find((p) => p.id === selectedId);
 
   return (
     <div className="space-y-5">
@@ -108,7 +108,7 @@ export default function Providers() {
         ) : (
           <Table aria-label="providers" removeWrapper>
             <TableHeader>
-              <TableColumn width={40}></TableColumn>
+              <TableColumn width={40}>{""}</TableColumn>
               <TableColumn>PROVIDER</TableColumn>
               <TableColumn>NOME</TableColumn>
               <TableColumn>BASE URL</TableColumn>
@@ -119,26 +119,26 @@ export default function Providers() {
             <TableBody items={items}>
               {(p) => (
                 <TableRow
-                  key={p.ID}
-                  className={`cursor-pointer hover:bg-default-100 transition-colors ${selectedId === p.ID ? "bg-primary/10" : ""}`}
+                  key={p.id}
+                  className={`cursor-pointer hover:bg-default-100 transition-colors ${selectedId === p.id ? "bg-primary/10" : ""}`}
                   onClick={() => selectProvider(p)}
                 >
                   <TableCell>
-                    <IconChevron expanded={selectedId === p.ID} />
+                    <IconChevron expanded={selectedId === p.id} />
                   </TableCell>
-                  <TableCell><span className="font-medium">{p.ProviderID}</span></TableCell>
-                  <TableCell>{p.Name}</TableCell>
-                  <TableCell><code className="text-xs text-default-500">{p.BaseURL}</code></TableCell>
-                  <TableCell><Chip size="sm" variant="flat" color="primary">{p.Format}</Chip></TableCell>
+                  <TableCell><span className="font-medium">{p.provider_id}</span></TableCell>
+                  <TableCell>{p.name}</TableCell>
+                  <TableCell><code className="text-xs text-default-500">{p.base_url}</code></TableCell>
+                  <TableCell><Chip size="sm" variant="flat" color="primary">{p.format}</Chip></TableCell>
                   <TableCell>
-                    <Chip size="sm" variant="flat" color={p.IsActive ? "success" : "default"}>
-                      {p.IsActive ? "ativo" : "inativo"}
+                    <Chip size="sm" variant="flat" color={p.is_active ? "success" : "default"}>
+                      {p.is_active ? "ativo" : "inativo"}
                     </Chip>
                   </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <div className="flex gap-1 justify-end">
                       <Button isIconOnly size="sm" variant="light" onPress={() => openEdit(p)} aria-label="editar"><IconPencil /></Button>
-                      <Button isIconOnly size="sm" variant="light" color="danger" onPress={() => remove(p.ID)} aria-label="excluir"><IconTrash /></Button>
+                      <Button isIconOnly size="sm" variant="light" color="danger" onPress={() => remove(p.id)} aria-label="excluir"><IconTrash /></Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -152,20 +152,20 @@ export default function Providers() {
         <div className="bg-content1 rounded-2xl border border-default-100 p-5">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h3 className="font-semibold">Models de {selected.ProviderID}/{selected.Name}</h3>
+              <h3 className="font-semibold">Models de {selected.provider_id}/{selected.name}</h3>
               <p className="text-xs text-default-500 mt-0.5">Catálogo sincronizado do provider</p>
             </div>
             <div className="flex gap-2 items-center">
-              <Button size="sm" variant="flat" onPress={() => syncProviderModels(selected)} isLoading={loadingModels === selected.ID}>
+              <Button size="sm" variant="flat" onPress={() => syncProviderModels(selected)} isLoading={loadingModels === selected.id}>
                 Sincronizar
               </Button>
               <Button isIconOnly size="sm" variant="light" onPress={() => setSelectedId(null)} aria-label="fechar"><IconX /></Button>
             </div>
           </div>
           <ModelsPanel
-            loading={loadingModels === selected.ID}
-            models={modelsCache[selected.ID]}
-            error={modelErrors[selected.ID]}
+            loading={loadingModels === selected.id}
+            models={modelsCache[selected.id]}
+            error={modelErrors[selected.id]}
           />
         </div>
       )}
@@ -212,12 +212,12 @@ function ModelsPanel({ loading, models, error }: { loading: boolean; models?: Mo
   return (
     <div className="space-y-1">
       {models.map((m) => (
-        <div key={m.ID} className="flex items-center gap-2 bg-content2 rounded-lg px-3 py-2">
-          <code className="text-xs flex-1 truncate">{m.ModelID}</code>
-          <Chip size="sm" variant="flat" color="primary">{m.Kind}</Chip>
-          <Chip size="sm" variant="bordered">{m.Source}</Chip>
-          <Chip size="sm" variant={m.IsActive ? "flat" : "flat"} color={m.IsActive ? "success" : "default"}>
-            {m.IsActive ? "ativo" : "inativo"}
+        <div key={m.id} className="flex items-center gap-2 bg-content2 rounded-lg px-3 py-2">
+          <code className="text-xs flex-1 truncate">{m.model_id}</code>
+          <Chip size="sm" variant="flat" color="primary">{m.kind}</Chip>
+          <Chip size="sm" variant="bordered">{m.source}</Chip>
+          <Chip size="sm" variant={m.is_active ? "flat" : "flat"} color={m.is_active ? "success" : "default"}>
+            {m.is_active ? "ativo" : "inativo"}
           </Chip>
         </div>
       ))}

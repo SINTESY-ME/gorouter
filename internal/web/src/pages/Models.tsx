@@ -35,15 +35,15 @@ export default function Models() {
     Promise.all([
       api.providers.list().catch(() => []),
       Promise.all(
-        (items.length === 0 ? [] : Array.from(new Set(items.map((m) => m.ProviderID)))).map(
+        (items.length === 0 ? [] : Array.from(new Set(items.map((m) => m.provider_id)))).map(
           (pid) => api.providers.models(pid).catch(() => [] as ModelEntry[])
         )
       ),
     ]).then(([ps]) => {
       setProviders(ps as Provider[]);
       // Load models for all active providers
-      const active = (ps as Provider[]).filter((p) => p.IsActive);
-      Promise.all(active.map((p) => api.providers.models(p.ID).catch(() => [] as ModelEntry[])))
+      const active = (ps as Provider[]).filter((p) => p.is_active);
+      Promise.all(active.map((p) => api.providers.models(p.id).catch(() => [] as ModelEntry[])))
         .then((results) => {
           const all: ModelEntry[] = [];
           results.forEach((r) => all.push(...r));
@@ -61,9 +61,9 @@ export default function Models() {
     setLoading(true);
     api.providers.list().then((ps) => {
       if (cancelled) return;
-      const active = ps.filter((p) => p.IsActive);
+      const active = ps.filter((p) => p.is_active);
       setProviders(ps);
-      return Promise.all(active.map((p) => api.providers.models(p.ID).catch(() => [] as ModelEntry[])))
+      return Promise.all(active.map((p) => api.providers.models(p.id).catch(() => [] as ModelEntry[])))
         .then((results) => {
           if (cancelled) return;
           const all: ModelEntry[] = [];
@@ -79,9 +79,9 @@ export default function Models() {
     const q = query.trim().toLowerCase();
     if (!q) return items;
     return items.filter((m) =>
-      m.ID.toLowerCase().includes(q) ||
-      m.ProviderID.toLowerCase().includes(q) ||
-      m.Kind.toLowerCase().includes(q)
+      m.id.toLowerCase().includes(q) ||
+      m.provider_id.toLowerCase().includes(q) ||
+      m.kind.toLowerCase().includes(q)
     );
   }, [items, query]);
 
@@ -89,23 +89,23 @@ export default function Models() {
     const order: string[] = [];
     const map: Record<string, ModelEntry[]> = {};
     for (const m of filtered) {
-      const key = m.ProviderID;
+      const key = m.provider_id;
       if (!map[key]) { map[key] = []; order.push(key); }
       map[key].push(m);
     }
-    for (const k of order) map[k].sort((a, b) => a.ModelID.localeCompare(b.ModelID));
+    for (const k of order) map[k].sort((a, b) => a.model_id.localeCompare(b.model_id));
     order.sort();
     return order.map((k) => ({ providerId: k, models: map[k] }));
   }, [filtered]);
 
   const sync = async (providerId: string) => {
-    const p = providers.find((x) => x.ProviderID === providerId);
+    const p = providers.find((x) => x.provider_id === providerId);
     if (!p) return;
-    setSyncing(p.ID);
+    setSyncing(p.id);
     try {
-      const entries = await api.providers.syncModels(p.ID);
+      const entries = await api.providers.syncModels(p.id);
       setItems((prev) => {
-        const without = prev.filter((m) => m.ProviderID !== providerId);
+        const without = prev.filter((m) => m.provider_id !== providerId);
         return [...without, ...entries];
       });
     } catch (e: any) {
@@ -117,23 +117,23 @@ export default function Models() {
 
   const toggleActive = async (m: ModelEntry) => {
     try {
-      await api.models.update(m.ID, { is_active: !m.IsActive });
-      setItems((prev) => prev.map((x) => x.ID === m.ID ? { ...x, IsActive: !x.IsActive } : x));
+      await api.models.update(m.id, { is_active: !m.is_active });
+      setItems((prev) => prev.map((x) => x.id === m.id ? { ...x, IsActive: !x.is_active } : x));
     } catch (e: any) { setError(e?.message); }
   };
 
   const removeModel = async (m: ModelEntry) => {
-    if (!confirm(`Excluir ${m.ID}?`)) return;
+    if (!confirm(`Excluir ${m.id}?`)) return;
     try {
-      await api.models.remove(m.ID);
-      setItems((prev) => prev.filter((x) => x.ID !== m.ID));
+      await api.models.remove(m.id);
+      setItems((prev) => prev.filter((x) => x.id !== m.id));
     } catch (e: any) { setError(e?.message); }
   };
 
   const openAdd = (providerId: string) => {
-    const p = providers.find((x) => x.ProviderID === providerId);
+    const p = providers.find((x) => x.provider_id === providerId);
     if (!p) return;
-    setAddProviderId(p.ID);
+    setAddProviderId(p.id);
     setAddForm({ model_id: "", name: "", kind: "llm", context: 0 });
     onOpen();
   };
@@ -160,7 +160,7 @@ export default function Models() {
       <div className="flex justify-between items-end gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Models</h1>
-          <p className="text-sm text-default-500 mt-0.5">{items.length} modelos · {items.filter(m => m.IsActive).length} ativos</p>
+          <p className="text-sm text-default-500 mt-0.5">{items.length} modelos · {items.filter(m => m.is_active).length} ativos</p>
         </div>
         <Input
           isClearable
@@ -191,7 +191,7 @@ export default function Models() {
               <Chip size="sm" variant="flat" color="default" className="font-mono">{g.providerId}</Chip>
               <span className="text-xs text-default-400">{g.models.length} modelo{g.models.length === 1 ? "" : "s"}</span>
               <div className="flex gap-1 ml-auto">
-                <Button size="sm" variant="flat" onPress={() => sync(g.providerId)} isLoading={syncing === providers.find(p => p.ProviderID === g.providerId)?.ID}>
+                <Button size="sm" variant="flat" onPress={() => sync(g.providerId)} isLoading={syncing === providers.find(p => p.provider_id === g.providerId)?.id}>
                   Sincronizar
                 </Button>
                 <Button size="sm" variant="flat" color="primary" onPress={() => openAdd(g.providerId)}>+ Model</Button>
@@ -199,11 +199,11 @@ export default function Models() {
             </div>
             <div className="space-y-1">
               {g.models.map((m) => (
-                <div key={m.ID} className="flex items-center gap-2 bg-content1 border border-default-100 rounded-lg px-3 py-2">
-                  <code className="text-sm font-mono flex-1 truncate">{m.ModelID}</code>
-                  <Chip size="sm" variant="flat" color={kindColor(m.Kind)}>{m.Kind}</Chip>
-                  <Chip size="sm" variant="bordered">{m.Source}</Chip>
-                  <Switch size="sm" isSelected={m.IsActive} onChange={() => toggleActive(m)} />
+                <div key={m.id} className="flex items-center gap-2 bg-content1 border border-default-100 rounded-lg px-3 py-2">
+                  <code className="text-sm font-mono flex-1 truncate">{m.model_id}</code>
+                  <Chip size="sm" variant="flat" color={kindColor(m.kind)}>{m.kind}</Chip>
+                  <Chip size="sm" variant="bordered">{m.source}</Chip>
+                  <Switch size="sm" isSelected={m.is_active} onChange={() => toggleActive(m)} />
                   <Button isIconOnly size="sm" variant="light" color="danger" onPress={() => removeModel(m)} aria-label="excluir">
                     <IconTrash />
                   </Button>

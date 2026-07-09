@@ -148,15 +148,15 @@ function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (
       setLoading(true);
       try {
         const ps = await api.providers.list();
-        const active = ps.filter((p) => p.IsActive);
+        const active = ps.filter((p) => p.is_active);
         const results = await Promise.allSettled(
-          active.map((p) => api.providers.models(p.ID))
+          active.map((p) => api.providers.models(p.id))
         );
         if (cancelled) return;
         const models: ModelEntry[] = [];
         results.forEach((r) => {
           if (r.status === "fulfilled") {
-            r.value.forEach((m) => { if (m.IsActive) models.push(m); });
+            r.value.forEach((m) => { if (m.is_active) models.push(m); });
           }
         });
         setAllModels(models);
@@ -171,13 +171,13 @@ function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (
 
   // Determine the Kind of the first selected model.
   const fixedKind = selected.length > 0
-    ? allModels.find((m) => m.ID === selected[0])?.Kind
+    ? allModels.find((m) => m.id === selected[0])?.kind
     : undefined;
 
   // Available models: active, not yet selected, same Kind as first (if any).
   const available = allModels.filter((m) => {
-    if (selected.includes(m.ID)) return false;
-    if (fixedKind && m.Kind !== fixedKind) return false;
+    if (selected.includes(m.id)) return false;
+    if (fixedKind && m.kind !== fixedKind) return false;
     return true;
   });
 
@@ -225,8 +225,8 @@ function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (
             onChange={(e) => { if (e.target.value) toggleModel(e.target.value); }}
           >
             {available.map((m) => (
-              <SelectItem key={m.ID}>
-                {m.ModelID} ({m.Kind})
+              <SelectItem key={m.id}>
+                {m.model_id} ({m.kind})
               </SelectItem>
             ))}
           </Select>
@@ -237,12 +237,12 @@ function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (
         <div className="space-y-1.5">
           <p className="text-xs text-default-500 uppercase tracking-wide font-medium">Ordem do fallback</p>
           {selected.map((id, i) => {
-            const entry = allModels.find((m) => m.ID === id);
+            const entry = allModels.find((m) => m.id === id);
             return (
               <div key={id + i} className="flex items-center gap-2 bg-content2 rounded-lg px-3 py-2">
                 <span className="text-xs text-default-400 w-5 tabular-nums">{i + 1}.</span>
                 <code className="text-xs flex-1 truncate">{id}</code>
-                {entry && <Chip size="sm" variant="flat" color={KIND_COLORS[entry.Kind] ?? "default"}>{entry.Kind}</Chip>}
+                {entry && <Chip size="sm" variant="flat" color={KIND_COLORS[entry.kind] ?? "default"}>{entry.kind}</Chip>}
                 <div className="flex gap-0.5">
                   <Button isIconOnly size="sm" variant="light" isDisabled={i === 0} onPress={() => move(i, -1)} aria-label="subir">
                     <IconArrow dir="up" />

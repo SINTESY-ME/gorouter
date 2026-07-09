@@ -119,7 +119,7 @@ export default function Keys() {
                     <Input
                       size="sm"
                       type="number"
-                      defaultValue={k.rate_limit_rpm || ""}
+                      defaultValue={k.rate_limit_rpm != null ? String(k.rate_limit_rpm) : ""}
                       placeholder="0"
                       className="w-20"
                       classNames={{ inputWrapper: "h-8 min-h-8" }}
