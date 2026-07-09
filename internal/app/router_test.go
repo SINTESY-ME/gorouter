@@ -180,7 +180,7 @@ func TestRouteSingle_NonStreaming_UsageRecorded(t *testing.T) {
 
 	body := []byte(`{"model":"openai/gpt-4","messages":[{"role":"user","content":"hi"}]}`)
 	modelStr, _ := extractModel(body)
-	res, err := srv.RouteChat(context.Background(), body, modelStr, false, "test-key")
+	res, err := srv.RouteChat(context.Background(), body, modelStr, false, "test-key", RouteOptions{InputFormat: domain.FormatOpenAI})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestRouteCombo_OrderedFallback(t *testing.T) {
 	srv := NewRouterService(comboRepo, connRepo, exec, &mockTranslator{}, usage)
 
 	body := []byte(`{"model":"mycombo","messages":[{"role":"user","content":"hi"}]}`)
-	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "")
+	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestRouteCombo_OrderedFallback(t *testing.T) {
 func TestRouteSingle_ModelNotFound(t *testing.T) {
 	srv := NewRouterService(&mockComboRepo{}, &mockConnectionRepo{}, &mockExecutor{}, &mockTranslator{}, &mockUsageRepo{})
 	body := []byte(`{"model":"nonexistent","messages":[]}`)
-	_, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "")
+	_, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
 	if err == nil {
 		t.Fatal("expected error for nonexistent model")
 	}
@@ -525,7 +525,7 @@ func TestRouteCombo_OrderedFallback_SkipUnhealthyAndProbe(t *testing.T) {
 	body := []byte(`{"model":"mycombo","messages":[{"role":"user","content":"hi"}]}`)
 
 	// Request 1: A fails (500) -> marked unhealthy, B used.
-	res1, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "")
+	res1, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
 	if err != nil {
 		t.Fatalf("req1: unexpected error: %v", err)
 	}
@@ -553,7 +553,7 @@ func TestRouteCombo_OrderedFallback_SkipUnhealthyAndProbe(t *testing.T) {
 	preReq2Calls := len(calledSnapshot(exec))
 
 	// Request 2: A is unhealthy -> skipped (probe launched in background), B used.
-	res2, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "")
+	res2, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
 	if err != nil {
 		t.Fatalf("req2: unexpected error: %v", err)
 	}
@@ -582,7 +582,7 @@ func TestRouteCombo_OrderedFallback_SkipUnhealthyAndProbe(t *testing.T) {
 
 	// Request 3: A is healthy again -> ordered_fallback starts from index 0,
 	// so A is used.
-	res3, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "")
+	res3, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
 	if err != nil {
 		t.Fatalf("req3: unexpected error: %v", err)
 	}
@@ -623,7 +623,7 @@ func TestRouteCombo_OrderedFallback_LastResort(t *testing.T) {
 	srv.Health.MarkUnhealthy("lrcombo", "anthropic/claude-3")
 
 	body := []byte(`{"model":"lrcombo","messages":[{"role":"user","content":"hi"}]}`)
-	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "")
+	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
 	if err != nil {
 		t.Fatalf("expected last-resort success, got error: %v", err)
 	}
@@ -664,7 +664,7 @@ func TestRouteCombo_RoundRobin_SkipUnhealthy(t *testing.T) {
 	srv.Health.MarkUnhealthy("rrcombo", "openai/gpt-4")
 
 	body := []byte(`{"model":"rrcombo","messages":[{"role":"user","content":"hi"}]}`)
-	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "")
+	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -710,7 +710,7 @@ func TestRouteCombo_AllUnhealthy_AllFail(t *testing.T) {
 	srv.Health.MarkUnhealthy("failcombo", "anthropic/claude-3")
 
 	body := []byte(`{"model":"failcombo","messages":[{"role":"user","content":"hi"}]}`)
-	_, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "")
+	_, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
 	if err == nil {
 		t.Fatalf("expected ErrAllModelsFailed, got nil")
 	}

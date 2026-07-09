@@ -68,10 +68,10 @@ func (s *Server) Routes() http.Handler {
 			r.Use(s.requireApiKey)
 		}
 		r.Get("/models", s.handleListModels)
-		r.Post("/chat/completions", s.handleChatCompletions)
-		r.Post("/completions", s.handleChatCompletions)        // alias
-		r.Post("/messages", s.handleChatCompletions)           // anthropic-style client (format detected by translator)
-		r.Post("/responses", s.handleChatCompletions)          // openai responses
+		r.Post("/chat/completions", s.handleChatWithFormat(domain.FormatOpenAI))
+		r.Post("/completions", s.handleChatWithFormat(domain.FormatOpenAI)) // alias
+		r.Post("/messages", s.handleChatWithFormat(domain.FormatAnthropic))  // anthropic-style
+		r.Post("/responses", s.handleChatWithFormat(domain.FormatResponses)) // openai responses
 		r.Post("/embeddings", s.handlePassthrough("embeddings"))
 		r.Post("/images/generations", s.handlePassthrough("images/generations"))
 		r.Post("/audio/speech", s.handlePassthrough("audio/speech"))

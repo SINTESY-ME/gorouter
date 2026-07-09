@@ -315,6 +315,14 @@ func streamOpenAIToResponses(ctx context.Context, br *bufio.Reader, w io.Writer)
 		}
 		data, done, err := readEvent(&sseReader{r: br})
 		if err != nil {
+			if err == io.EOF {
+				// Stream ended without [DONE] — emit response.completed so
+				// clients waiting for it (e.g. codex) can finish cleanly.
+				if started {
+					_, _ = fmt.Fprintf(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":%q,\"model\":%q}}\n\n", id, model)
+				}
+				return nil
+			}
 			return err
 		}
 		if done {
@@ -329,8 +337,9 @@ func streamOpenAIToResponses(ctx context.Context, br *bufio.Reader, w io.Writer)
 			Model   string `json:"model"`
 			Choices []struct {
 				Delta struct {
-					Role    string `json:"role"`
-					Content string `json:"content"`
+					Role      string `json:"role"`
+					Content   string `json:"content"`
+					Reasoning string `json:"reasoning"`
 				} `json:"delta"`
 			} `json:"choices"`
 		}
@@ -343,12 +352,22 @@ func streamOpenAIToResponses(ctx context.Context, br *bufio.Reader, w io.Writer)
 			model = ev.Model
 			_, _ = fmt.Fprintf(w, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":%q,\"model\":%q}}\n\n", id, model)
 		}
-		if len(ev.Choices) > 0 && ev.Choices[0].Delta.Content != "" {
-			payload, _ := json.Marshal(map[string]any{
-				"type":  "response.output_text.delta",
-				"delta": ev.Choices[0].Delta.Content,
-			})
-			_, _ = fmt.Fprintf(w, "event: response.output_text.delta\ndata: %s\n\n", payload)
+		if len(ev.Choices) > 0 {
+			d := &ev.Choices[0].Delta
+			if d.Reasoning != "" {
+				payload, _ := json.Marshal(map[string]any{
+					"type":  "response.reasoning_text.delta",
+					"delta": d.Reasoning,
+				})
+				_, _ = fmt.Fprintf(w, "event: response.reasoning_text.delta\ndata: %s\n\n", payload)
+			}
+			if d.Content != "" {
+				payload, _ := json.Marshal(map[string]any{
+					"type":  "response.output_text.delta",
+					"delta": d.Content,
+				})
+				_, _ = fmt.Fprintf(w, "event: response.output_text.delta\ndata: %s\n\n", payload)
+			}
 		}
 	}
 }

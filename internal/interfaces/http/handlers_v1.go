@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jhon/gorouter/internal/app"
+	"github.com/jhon/gorouter/internal/domain"
 	"github.com/jhon/gorouter/internal/infra/sse"
 )
 
@@ -26,41 +27,43 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// handleChatCompletions is the single entry for OpenAI/Anthropic/Responses
-// POST endpoints. The body is parsed just enough to know the model and
-// whether the client asked for streaming; the RouterService decides combo
-// vs single, fallback, translation, and produces either an SSE stream or a
-// JSON body that we copy through.
-func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 16<<20)) // 16MB cap
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "read body: "+err.Error())
-		return
-	}
-	modelStr, stream, err := parseChatRequest(body)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	apiKey := s.clientApiKey(r)
-	res, err := s.Router.RouteChat(r.Context(), body, modelStr, stream, apiKey)
-	if err != nil {
-		writeError(w, statusForError(err), err.Error())
-		return
-	}
-	defer res.Body.Close()
-	for _, h := range []string{"Content-Type", "X-Request-Id"} {
-		if v := res.Headers.Get(h); v != "" {
-			w.Header().Set(h, v)
+// handleChatWithFormat returns an http.HandlerFunc that handles chat-style
+// requests in the given client input format (OpenAI, Anthropic, or Responses).
+// The router translates the body to the upstream provider's format, executes,
+// and translates the response back to the client format. stream is detected
+// from the body and the response is piped through with minimal buffering.
+func (s *Server) handleChatWithFormat(inputFormat domain.Format) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(io.LimitReader(r.Body, 16<<20)) // 16MB cap
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "read body: "+err.Error())
+			return
 		}
+		modelStr, stream, err := parseChatRequest(body)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		apiKey := s.clientApiKey(r)
+		res, err := s.Router.RouteChat(r.Context(), body, modelStr, stream, apiKey, app.RouteOptions{InputFormat: inputFormat})
+		if err != nil {
+			writeError(w, statusForError(err), err.Error())
+			return
+		}
+		defer res.Body.Close()
+		for _, h := range []string{"Content-Type", "X-Request-Id"} {
+			if v := res.Headers.Get(h); v != "" {
+				w.Header().Set(h, v)
+			}
+		}
+		if res.Stream {
+			sseStreamResponse(w, r, res)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(res.StatusCode)
+		_, _ = io.Copy(w, res.Body)
 	}
-	if res.Stream {
-		sseStreamResponse(w, r, res)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(res.StatusCode)
-	_, _ = io.Copy(w, res.Body)
 }
 
 // parseChatRequest extracts the "model" and "stream" fields from an OpenAI

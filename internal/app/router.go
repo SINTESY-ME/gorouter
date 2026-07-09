@@ -52,14 +52,27 @@ func NewRouterService(combos domain.ComboRepo, conns domain.ConnectionRepo, exec
 	}
 }
 
-// RouteChat handles a chat/completions request. The body is in OpenAI format
-// (our canonical). modelStr is the model extracted by the handler so we
-// avoid a second json.Unmarshal on the hot path. apiKey is the client-facing
+// RouteOptions tunes how a chat request is processed. The zero value is
+// sensible: OpenAI as the client format, chat as the endpoint, no passthrough.
+type RouteOptions struct {
+	InputFormat domain.Format // client format of the request body; FormatOpenAI when unset
+	Endpoint    string        // "" = chat (format-based URL); "embeddings" | "images/generations" | ...
+	ContentType string        // for multipart passthrough bodies
+}
+
+// RouteChat handles a chat/completions-style request. The body is in the
+// client's format (opts.InputFormat, OpenAI by default). The router translates
+// to the target provider's format, executes, and translates the response back
+// to the client's format. modelStr is the model extracted by the handler so
+// we avoid a second json.Unmarshal on the hot path. apiKey is the client-facing
 // key (for usage tracking); empty when key auth is not required.
-func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr string, stream bool, apiKey string) (*RouterResponse, error) {
+func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr string, stream bool, apiKey string, opts RouteOptions) (*RouterResponse, error) {
+	if opts.InputFormat == "" {
+		opts.InputFormat = domain.FormatOpenAI
+	}
 	modelID, ok := domain.SplitModelID(modelStr)
 	if ok {
-		return s.routeSingle(ctx, modelID, body, stream, apiKey, "")
+		return s.routeSingle(ctx, modelID, body, stream, apiKey, opts, "")
 	}
 	combo, err := s.Combos.GetByName(ctx, modelStr)
 	if err == domain.ErrNotFound {
@@ -68,7 +81,7 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 	if err != nil {
 		return nil, err
 	}
-	return s.routeCombo(ctx, combo, body, stream, apiKey, "")
+	return s.routeCombo(ctx, combo, body, stream, apiKey, opts, "")
 }
 
 // RoutePassthrough routes a non-chat endpoint (embeddings, images) to a
@@ -76,9 +89,10 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 // translation is applied. Combos are supported via model-name lookup just
 // like chat. endpoint is "embeddings" or "images/generations".
 func (s *RouterService) RoutePassthrough(ctx context.Context, body []byte, modelStr string, endpoint string, apiKey string, contentType string) (*RouterResponse, error) {
+	opts := RouteOptions{InputFormat: domain.FormatOpenAI, Endpoint: endpoint, ContentType: contentType}
 	modelID, ok := domain.SplitModelID(modelStr)
 	if ok {
-		return s.routeSingle(ctx, modelID, body, false, apiKey, endpoint, contentType)
+		return s.routeSingle(ctx, modelID, body, false, apiKey, opts, endpoint, contentType)
 	}
 	combo, err := s.Combos.GetByName(ctx, modelStr)
 	if err == domain.ErrNotFound {
@@ -87,7 +101,7 @@ func (s *RouterService) RoutePassthrough(ctx context.Context, body []byte, model
 	if err != nil {
 		return nil, err
 	}
-	return s.routeCombo(ctx, combo, body, false, apiKey, endpoint, contentType)
+	return s.routeCombo(ctx, combo, body, false, apiKey, opts, endpoint, contentType)
 }
 
 // RouterResponse is what the HTTP handler receives. It is either a buffered
@@ -103,7 +117,7 @@ type RouterResponse struct {
 	ConnectionID string
 }
 
-func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, endpoint string, contentType ...string) (*RouterResponse, error) {
+func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, opts RouteOptions, endpoint string, contentType ...string) (*RouterResponse, error) {
 	start := time.Now()
 	ct := ""
 	if len(contentType) > 0 {
@@ -121,7 +135,7 @@ func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body 
 		if !conn.IsActive || conn.RateLimitedUntil.After(time.Now()) {
 			continue
 		}
-		res, err := s.executeOne(ctx, m, conn, body, stream, endpoint, ct)
+		res, err := s.executeOne(ctx, m, conn, body, stream, opts, ct)
 		if err != nil {
 			continue
 		}
@@ -141,7 +155,7 @@ func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body 
 	return nil, fmt.Errorf("%w: provider %q", domain.ErrNoConnection, m.Provider)
 }
 
-func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, body []byte, stream bool, apiKey string, endpoint string, contentType ...string) (*RouterResponse, error) {
+func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, body []byte, stream bool, apiKey string, opts RouteOptions, endpoint string, contentType ...string) (*RouterResponse, error) {
 	start := time.Now()
 	ct := ""
 	if len(contentType) > 0 {
@@ -170,7 +184,7 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 			skipped = append(skipped, modelStr)
 			continue
 		}
-		res, err := s.tryModel(ctx, m, body, stream, apiKey, endpoint, combo.Name, start, ct)
+		res, err := s.tryModel(ctx, m, body, stream, apiKey, opts, combo.Name, start, ct)
 		if err != nil {
 			s.Health.MarkUnhealthy(combo.Name, modelStr)
 			lastErr = err
@@ -196,7 +210,7 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 		if !ok {
 			continue
 		}
-		res, err := s.tryModel(ctx, m, body, stream, apiKey, endpoint, combo.Name, start, ct)
+		res, err := s.tryModel(ctx, m, body, stream, apiKey, opts, combo.Name, start, ct)
 		if err != nil {
 			lastErr = err
 			continue
@@ -284,7 +298,7 @@ func (s *RouterService) runHealthProbe(comboName, modelStr string, m domain.Mode
 	}
 }
 
-func (s *RouterService) tryModel(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, endpoint string, comboName string, start time.Time, contentType ...string) (*RouterResponse, error) {
+func (s *RouterService) tryModel(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, opts RouteOptions, comboName string, start time.Time, contentType ...string) (*RouterResponse, error) {
 	conns, err := s.Connections.ListByProvider(ctx, m.Provider)
 	if err != nil {
 		return nil, err
@@ -301,11 +315,11 @@ func (s *RouterService) tryModel(ctx context.Context, m domain.ModelID, body []b
 		if !conn.IsActive || conn.RateLimitedUntil.After(time.Now()) {
 			continue
 		}
-		res, err := s.executeOne(ctx, m, conn, body, stream, endpoint, ct)
+		res, err := s.executeOne(ctx, m, conn, body, stream, opts, ct)
 		if err != nil {
 			continue
 		}
-		s.wrapUsageTracking(res, m, conn, apiKey, endpoint, comboName, start)
+		s.wrapUsageTracking(res, m, conn, apiKey, opts.Endpoint, comboName, start)
 		res.Provider = m.Provider
 		res.Model = m.Model
 		res.ConnectionID = conn.ID
@@ -314,36 +328,60 @@ func (s *RouterService) tryModel(ctx context.Context, m domain.ModelID, body []b
 	return nil, fmt.Errorf("%w: provider %q", domain.ErrNoConnection, m.Provider)
 }
 
-func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *domain.Connection, body []byte, stream bool, endpoint string, contentType string) (*RouterResponse, error) {
+func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *domain.Connection, body []byte, stream bool, opts RouteOptions, contentType string) (*RouterResponse, error) {
 	translated := body
 	var respBody io.ReadCloser
-	if endpoint == "" {
+	if opts.Endpoint == "" {
+		// Chat path: translate from client format to upstream format, then
+		// back from upstream to client on the response.
+		inputFmt := opts.InputFormat
+		if inputFmt == "" {
+			inputFmt = domain.FormatOpenAI
+		}
 		targetFmt := conn.Format
 		if targetFmt == "" || targetFmt == domain.FormatAuto {
 			targetFmt = domain.FormatOpenAI
 		}
+		// 1) Client format -> OpenAI (our canonical translation pivot)
+		if inputFmt != domain.FormatOpenAI {
+			t, err := s.Translator.TranslateRequest(inputFmt, domain.FormatOpenAI, m.Model, body)
+			if err != nil {
+				return nil, err
+			}
+			body = t
+		}
 		if stream && targetFmt == domain.FormatOpenAI {
 			body = injectStreamUsage(body)
 		}
+		// 2) OpenAI -> upstream format
 		var err error
 		translated, err = s.Translator.TranslateRequest(domain.FormatOpenAI, targetFmt, m.Model, body)
 		if err != nil {
 			return nil, err
 		}
+		bp, tp := body, translated
+		if len(bp) > 300 {
+			bp = bp[:300]
+		}
+		if len(tp) > 300 {
+			tp = tp[:300]
+		}
+		slog.Info("executeOne translate", "inputFmt", inputFmt, "targetFmt", targetFmt, "model", m.Model, "body_preview", string(bp), "translated_preview", string(tp))
 		execReq := domain.ExecuteRequest{
-			ProviderID:      m.Provider,
-			Connection:      conn,
-			UpstreamModel:    m.Model,
-			Body:            io.NopCloser(bytes.NewReader(translated)),
-			Stream:          stream,
+			ProviderID:   m.Provider,
+			Connection:   conn,
+			UpstreamModel: m.Model,
+			Body:         io.NopCloser(bytes.NewReader(translated)),
+			Stream:       stream,
 		}
 		res, err := s.Executor.Execute(ctx, execReq)
 		if err != nil {
 			return nil, err
 		}
-		respBody = res.Body
+		// 3) Upstream format -> OpenAI
+		openaiBody := res.Body
 		if res.Stream && targetFmt != domain.FormatOpenAI {
-			respBody, err = s.Translator.TranslateResponseStream(ctx, targetFmt, domain.FormatOpenAI, res.Body)
+			openaiBody, err = s.Translator.TranslateResponseStream(ctx, targetFmt, domain.FormatOpenAI, res.Body)
 			if err != nil {
 				return nil, err
 			}
@@ -357,7 +395,28 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 			if err != nil {
 				return nil, err
 			}
-			respBody = io.NopCloser(bytes.NewReader(t))
+			openaiBody = io.NopCloser(bytes.NewReader(t))
+		}
+		// 4) OpenAI -> client format
+		respBody = openaiBody
+		if inputFmt != domain.FormatOpenAI {
+			if res.Stream {
+				respBody, err = s.Translator.TranslateResponseStream(ctx, domain.FormatOpenAI, inputFmt, openaiBody)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				buf, err := io.ReadAll(openaiBody)
+				openaiBody.Close()
+				if err != nil {
+					return nil, err
+				}
+				t, err := s.Translator.TranslateResponseJSON(domain.FormatOpenAI, inputFmt, buf)
+				if err != nil {
+					return nil, err
+				}
+				respBody = io.NopCloser(bytes.NewReader(t))
+			}
 		}
 		return &RouterResponse{
 			StatusCode: res.StatusCode,
@@ -386,7 +445,7 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 		UpstreamModel: m.Model,
 		Body:         io.NopCloser(bytes.NewReader(translated)),
 		Stream:       false,
-		Endpoint:     endpoint,
+		Endpoint:     opts.Endpoint,
 	}
 	if contentType != "" {
 		execReq.Headers = map[string]string{"Content-Type": contentType}

@@ -154,7 +154,10 @@ func asStringContent(raw json.RawMessage) string {
 	var parts []map[string]any
 	if err := json.Unmarshal(raw, &parts); err == nil {
 		for _, p := range parts {
-			if t, ok := p["type"].(string); ok && t == "text" {
+			t, _ := p["type"].(string)
+			// Accept "text", "input_text" (Responses API input), and
+			// "output_text" (Responses API output) content types.
+			if t == "text" || t == "input_text" || t == "output_text" {
 				if text, ok := p["text"].(string); ok {
 					s += text
 				}
