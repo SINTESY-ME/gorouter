@@ -70,18 +70,18 @@ type ModelSpec struct {
 // multiple connections (multi-account / key pool). Connections have priority
 // order; the router tries them in order on failure.
 type Connection struct {
-	ID               string       `gorm:"primaryKey"`
-	ProviderID       string       `gorm:"column:provider_id;uniqueIndex:idx_provider_name,priority:1;index:idx_conn_provider,priority:1"`
-	Name             string       `gorm:"uniqueIndex:idx_provider_name,priority:2"`
-	APIKey           string       `gorm:"column:api_key"`
-	BaseURL          string       `gorm:"column:base_url"`
-	Format           Format       `gorm:"default:openai"`
-	Auth             AuthScheme   `gorm:"default:bearer"`
-	Priority         int          `gorm:"index:idx_conn_provider,priority:2"`
-	IsActive         bool         `gorm:"column:is_active;default:true"`
-	RateLimitedUntil time.Time    `gorm:"column:rate_limited_until"`
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID               string       `json:"id" gorm:"primaryKey"`
+	ProviderID       string       `json:"provider_id" gorm:"column:provider_id;uniqueIndex:idx_provider_name,priority:1;index:idx_conn_provider,priority:1"`
+	Name             string       `json:"name" gorm:"uniqueIndex:idx_provider_name,priority:2"`
+	APIKey           string       `json:"api_key" gorm:"column:api_key"`
+	BaseURL          string       `json:"base_url" gorm:"column:base_url"`
+	Format           Format       `json:"format" gorm:"default:openai"`
+	Auth             AuthScheme   `json:"auth" gorm:"default:bearer"`
+	Priority         int          `json:"priority" gorm:"index:idx_conn_provider,priority:2"`
+	IsActive         bool         `json:"is_active" gorm:"column:is_active;default:true"`
+	RateLimitedUntil time.Time    `json:"rate_limited_until" gorm:"column:rate_limited_until"`
+	CreatedAt        time.Time    `json:"created_at"`
+	UpdatedAt        time.Time    `json:"updated_at"`
 }
 
 // ModelInfo is one model surfaced through /v1/models. Combos appear as

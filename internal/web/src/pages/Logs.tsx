@@ -52,7 +52,7 @@ export default function Logs() {
             </TableHeader>
             <TableBody items={paged}>
               {(e) => (
-                <TableRow key={e.timestamp + e.model + Math.random()}>
+                <TableRow key={e.id}>
                   <TableCell><span className="text-xs text-default-500">{new Date(e.timestamp).toLocaleString()}</span></TableCell>
                   <TableCell>{e.combo_name ? <code className="text-xs">{e.combo_name}</code> : <span className="text-default-400">—</span>}</TableCell>
                   <TableCell>{e.provider}</TableCell>

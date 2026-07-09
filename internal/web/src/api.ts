@@ -70,7 +70,7 @@ export interface UsageStats {
   daily: { date: string; requests: number; tokens: number; cost: number }[];
 }
 export interface UsageEntry {
-  timestamp: string; provider: string; model: string; combo_name?: string;
+  id: number; timestamp: string; provider: string; model: string; combo_name?: string;
   connection_id: string; api_key: string; endpoint: string;
   prompt_tokens: number; completion_tokens: number; cached_tokens: number;
   cost: number; status: number; latency_ms?: number;
