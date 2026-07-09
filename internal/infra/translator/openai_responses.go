@@ -375,6 +375,369 @@ func openAIStreamToResponses(ctx context.Context, r io.ReadCloser) (io.ReadClose
 	return pr, nil
 }
 
+// ---- OpenAI chat stream → Responses API stream ----
+
+// chatChunk is the OpenAI chat.completion.chunk SSE payload.
+type chatChunk struct {
+	ID      string `json:"id"`
+	Model   string `json:"model"`
+	Choices []struct {
+		FinishReason string    `json:"finish_reason"`
+		Delta        chatDelta `json:"delta"`
+	} `json:"choices"`
+}
+
+type chatDelta struct {
+	Role      string         `json:"role"`
+	Content   string         `json:"content"`
+	Reasoning string         `json:"reasoning"`
+	ToolCalls []chatToolCall `json:"tool_calls"`
+}
+
+type chatToolCall struct {
+	Index    int          `json:"index"`
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Function chatFunction `json:"function"`
+}
+
+type chatFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// outputItem is a single output element in a Responses API stream. It owns
+// its open/delta/close lifecycle and the events it emits.
+type outputItem interface {
+	id() string
+	open(w io.Writer, idx int) error
+	writeDelta(w io.Writer, idx int, delta string) error
+	close(w io.Writer, idx int) error
+}
+
+// reasoningItem emits the reasoning summary lifecycle.
+type reasoningItem struct {
+	itemID string
+	buf    strings.Builder
+}
+
+func newReasoningItem(respID string) *reasoningItem {
+	return &reasoningItem{itemID: "rs_" + respID}
+}
+
+func (r *reasoningItem) id() string { return r.itemID }
+
+func (r *reasoningItem) open(w io.Writer, idx int) error {
+	return writeSSE(w, "response.output_item.added", map[string]any{
+		"type":         "response.output_item.added",
+		"output_index": idx,
+		"item":         map[string]any{"id": r.itemID, "type": "reasoning", "summary": []any{}},
+	})
+}
+
+func (r *reasoningItem) writeDelta(w io.Writer, idx int, delta string) error {
+	r.buf.WriteString(delta)
+	return writeSSE(w, "response.reasoning_summary_text.delta", map[string]any{
+		"type":          "response.reasoning_summary_text.delta",
+		"item_id":       r.itemID,
+		"output_index":  idx,
+		"summary_index": 0,
+		"delta":         delta,
+	})
+}
+
+func (r *reasoningItem) close(w io.Writer, idx int) error {
+	return writeSSE(w, "response.output_item.done", map[string]any{
+		"type":         "response.output_item.done",
+		"output_index": idx,
+		"item": map[string]any{
+			"id":   r.itemID,
+			"type": "reasoning",
+			"summary": []map[string]any{{"type": "summary_text", "text": r.buf.String()}},
+		},
+	})
+}
+
+// messageItem emits the assistant message + content_part lifecycle.
+type messageItem struct {
+	itemID string
+	buf    strings.Builder
+}
+
+func newMessageItem(respID string) *messageItem {
+	return &messageItem{itemID: "msg_" + respID}
+}
+
+func (m *messageItem) id() string { return m.itemID }
+
+func (m *messageItem) open(w io.Writer, idx int) error {
+	if err := writeSSE(w, "response.output_item.added", map[string]any{
+		"type":         "response.output_item.added",
+		"output_index": idx,
+		"item":         map[string]any{"id": m.itemID, "type": "message", "role": "assistant", "content": []any{}},
+	}); err != nil {
+		return err
+	}
+	return writeSSE(w, "response.content_part.added", map[string]any{
+		"type":          "response.content_part.added",
+		"item_id":       m.itemID,
+		"output_index":  idx,
+		"content_index": 0,
+		"part":          map[string]any{"type": "output_text", "text": ""},
+	})
+}
+
+func (m *messageItem) writeDelta(w io.Writer, idx int, delta string) error {
+	m.buf.WriteString(delta)
+	return writeSSE(w, "response.output_text.delta", map[string]any{
+		"type":          "response.output_text.delta",
+		"item_id":       m.itemID,
+		"output_index":  idx,
+		"content_index": 0,
+		"delta":         delta,
+	})
+}
+
+func (m *messageItem) close(w io.Writer, idx int) error {
+	text := m.buf.String()
+	if err := writeSSE(w, "response.output_text.done", map[string]any{
+		"type": "response.output_text.done", "item_id": m.itemID,
+		"output_index": idx, "content_index": 0, "text": text,
+	}); err != nil {
+		return err
+	}
+	if err := writeSSE(w, "response.content_part.done", map[string]any{
+		"type": "response.content_part.done", "item_id": m.itemID,
+		"output_index": idx, "content_index": 0,
+		"part": map[string]any{"type": "output_text", "text": text},
+	}); err != nil {
+		return err
+	}
+	return writeSSE(w, "response.output_item.done", map[string]any{
+		"type":         "response.output_item.done",
+		"output_index": idx,
+		"item": map[string]any{
+			"id": m.itemID, "type": "message", "role": "assistant",
+			"content": []map[string]any{{"type": "output_text", "text": text}},
+		},
+	})
+}
+
+// functionCallItem emits the function_call lifecycle.
+type functionCallItem struct {
+	itemID    string
+	callID    string
+	name      string
+	arguments strings.Builder
+}
+
+func newFunctionCallItem(respID string, tc chatToolCall) *functionCallItem {
+	return &functionCallItem{
+		itemID: "fc_" + respID + "_" + strconv.Itoa(tc.Index),
+		callID: tc.ID,
+		name:   tc.Function.Name,
+	}
+}
+
+func (f *functionCallItem) id() string { return f.itemID }
+
+func (f *functionCallItem) open(w io.Writer, idx int) error {
+	return writeSSE(w, "response.output_item.added", map[string]any{
+		"type":         "response.output_item.added",
+		"output_index": idx,
+		"item": map[string]any{
+			"id": f.itemID, "type": "function_call",
+			"call_id": f.callID, "name": f.name, "arguments": "",
+		},
+	})
+}
+
+func (f *functionCallItem) writeDelta(w io.Writer, idx int, delta string) error {
+	f.arguments.WriteString(delta)
+	return writeSSE(w, "response.function_call_arguments.delta", map[string]any{
+		"type":         "response.function_call_arguments.delta",
+		"item_id":      f.itemID,
+		"output_index": idx,
+		"delta":        delta,
+	})
+}
+
+func (f *functionCallItem) close(w io.Writer, idx int) error {
+	args := f.arguments.String()
+	if err := writeSSE(w, "response.function_call_arguments.done", map[string]any{
+		"type":         "response.function_call_arguments.done",
+		"item_id":      f.itemID,
+		"output_index": idx,
+		"arguments":    args,
+	}); err != nil {
+		return err
+	}
+	return writeSSE(w, "response.output_item.done", map[string]any{
+		"type":         "response.output_item.done",
+		"output_index": idx,
+		"item": map[string]any{
+			"id": f.itemID, "type": "function_call",
+			"call_id": f.callID, "name": f.name, "arguments": args,
+		},
+	})
+}
+
+// responsesStreamState orchestrates the lifecycle of output items in a
+// Responses API stream. It tracks the current output index, the list of
+// opened items (in order), and the item currently receiving deltas.
+type responsesStreamState struct {
+	id           string
+	created      bool
+	outputIdx    int
+	items        []outputItem
+	active       outputItem
+	toolCalls    map[int]*functionCallItem
+	finished     bool
+	finishReason string
+}
+
+func (s *responsesStreamState) handleChunk(data string, w io.Writer) error {
+	var chunk chatChunk
+	if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+		return nil
+	}
+	if !s.created && chunk.ID != "" {
+		s.id = "resp_" + chunk.ID
+		s.created = true
+		if err := s.emitCreated(w); err != nil {
+			return err
+		}
+	}
+	if len(chunk.Choices) == 0 {
+		return nil
+	}
+	choice := &chunk.Choices[0]
+	if choice.FinishReason != "" {
+		s.finishReason = choice.FinishReason
+		return s.finish(w)
+	}
+	d := &choice.Delta
+	if d.Reasoning != "" {
+		if err := s.ensureActive(newReasoningItem(s.id), w); err != nil {
+			return err
+		}
+		if err := s.active.writeDelta(w, s.outputIdx, d.Reasoning); err != nil {
+			return err
+		}
+	}
+	if d.Content != "" {
+		if err := s.ensureActive(newMessageItem(s.id), w); err != nil {
+			return err
+		}
+		if err := s.active.writeDelta(w, s.outputIdx, d.Content); err != nil {
+			return err
+		}
+	}
+	if len(d.ToolCalls) > 0 {
+		if err := s.handleToolCalls(d.ToolCalls, w); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ensureActive transitions to a new item type. If the active item is of a
+// different type, it closes the current one and opens the new one.
+func (s *responsesStreamState) ensureActive(item outputItem, w io.Writer) error {
+	if s.active != nil && s.active.id() == item.id() {
+		return nil
+	}
+	if s.active != nil {
+		if err := s.closeActive(w); err != nil {
+			return err
+		}
+	}
+	s.active = item
+	s.items = append(s.items, item)
+	return item.open(w, s.outputIdx)
+}
+
+func (s *responsesStreamState) handleToolCalls(calls []chatToolCall, w io.Writer) error {
+	if s.toolCalls == nil {
+		s.toolCalls = make(map[int]*functionCallItem)
+	}
+	for _, tc := range calls {
+		fc, ok := s.toolCalls[tc.Index]
+		if !ok {
+			if s.active != nil {
+				if err := s.closeActive(w); err != nil {
+					return err
+				}
+			}
+			fc = newFunctionCallItem(s.id, tc)
+			s.toolCalls[tc.Index] = fc
+			s.items = append(s.items, fc)
+			s.active = fc
+			if err := fc.open(w, s.outputIdx); err != nil {
+				return err
+			}
+		}
+		if tc.Function.Arguments != "" {
+			if err := fc.writeDelta(w, s.outputIdx, tc.Function.Arguments); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// closeActive closes the current item and advances the output index.
+func (s *responsesStreamState) closeActive(w io.Writer) error {
+	if s.active == nil {
+		return nil
+	}
+	item := s.active
+	s.active = nil
+	if err := item.close(w, s.outputIdx); err != nil {
+		return err
+	}
+	s.outputIdx++
+	return nil
+}
+
+func (s *responsesStreamState) finish(w io.Writer) error {
+	if s.finished {
+		return nil
+	}
+	s.finished = true
+	if !s.created {
+		return nil
+	}
+	if s.active != nil {
+		if err := s.closeActive(w); err != nil {
+			return err
+		}
+	}
+	return writeSSE(w, "response.completed", map[string]any{
+		"type": "response.completed",
+		"response": map[string]any{
+			"id":     s.id,
+			"object": "response",
+			"status": "completed",
+		},
+	})
+}
+
+func (s *responsesStreamState) emitCreated(w io.Writer) error {
+	if err := writeSSE(w, "response.created", map[string]any{
+		"type": "response.created",
+		"response": map[string]any{
+			"id": s.id, "object": "response", "status": "in_progress", "output": []any{},
+		},
+	}); err != nil {
+		return err
+	}
+	return writeSSE(w, "response.in_progress", map[string]any{
+		"type":     "response.in_progress",
+		"response": map[string]any{"id": s.id, "object": "response", "status": "in_progress"},
+	})
+}
+
 func streamOpenAIToResponses(ctx context.Context, br *bufio.Reader, w io.Writer) error {
 	st := &responsesStreamState{}
 	for {
@@ -400,341 +763,6 @@ func streamOpenAIToResponses(ctx context.Context, br *bufio.Reader, w io.Writer)
 			return err
 		}
 	}
-}
-
-// responsesStreamState tracks the lifecycle of a single response so we emit
-// output_item/content_part open/close events in the right order.
-type responsesStreamState struct {
-	id       string
-	model    string
-	created  bool
-	outputIdx int
-	reasoning struct {
-		open   bool
-		id     string
-		buf    strings.Builder
-	}
-	message struct {
-		open   bool
-		id     string
-		buf    strings.Builder
-	}
-	toolCalls map[int]*toolCallState
-}
-
-type toolCallState struct {
-	id        string
-	callID    string
-	name      string
-	open      bool
-	arguments strings.Builder
-}
-
-func (s *responsesStreamState) handleChunk(data string, w io.Writer) error {
-	var ev struct {
-		ID      string `json:"id"`
-		Model   string `json:"model"`
-		Choices []struct {
-			FinishReason string `json:"finish_reason"`
-			Delta        struct {
-				Role      string `json:"role"`
-				Content   string `json:"content"`
-				Reasoning string `json:"reasoning"`
-				ToolCalls []struct {
-					Index    int    `json:"index"`
-					ID       string `json:"id"`
-					Type     string `json:"type"`
-					Function struct {
-						Name      string `json:"name"`
-						Arguments string `json:"arguments"`
-					} `json:"function"`
-				} `json:"tool_calls"`
-			} `json:"delta"`
-		} `json:"choices"`
-	}
-	if err := json.Unmarshal([]byte(data), &ev); err != nil {
-		return nil
-	}
-	if !s.created && ev.ID != "" {
-		s.id = "resp_" + ev.ID
-		s.model = ev.Model
-		s.created = true
-		if err := writeSSE(w, "response.created", map[string]any{
-			"type": "response.created",
-			"response": map[string]any{
-				"id":         s.id,
-				"object":     "response",
-				"status":     "in_progress",
-				"output":     []any{},
-			},
-		}); err != nil {
-			return err
-		}
-		if err := writeSSE(w, "response.in_progress", map[string]any{
-			"type": "response.in_progress",
-			"response": map[string]any{
-				"id":     s.id,
-				"object": "response",
-				"status": "in_progress",
-			},
-		}); err != nil {
-			return err
-		}
-	}
-	if len(ev.Choices) == 0 {
-		return nil
-	}
-	choice := &ev.Choices[0]
-	if choice.FinishReason != "" {
-		return s.closeAll(w)
-	}
-	d := &choice.Delta
-	if d.Reasoning != "" {
-		if err := s.handleReasoning(d.Reasoning, w); err != nil {
-			return err
-		}
-	}
-	if d.Content != "" {
-		if err := s.handleContent(d.Content, w); err != nil {
-			return err
-		}
-	}
-	if len(d.ToolCalls) > 0 {
-		if err := s.handleToolCalls(d.ToolCalls, w); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *responsesStreamState) handleReasoning(text string, w io.Writer) error {
-	if !s.reasoning.open {
-		s.reasoning.open = true
-		s.reasoning.id = "rs_" + s.id
-		if err := writeSSE(w, "response.output_item.added", map[string]any{
-			"type":         "response.output_item.added",
-			"output_index": s.outputIdx,
-			"item": map[string]any{
-				"id":      s.reasoning.id,
-				"type":    "reasoning",
-				"summary": []any{},
-			},
-		}); err != nil {
-			return err
-		}
-	}
-	s.reasoning.buf.WriteString(text)
-	return writeSSE(w, "response.reasoning_summary_text.delta", map[string]any{
-		"type":          "response.reasoning_summary_text.delta",
-		"item_id":       s.reasoning.id,
-		"output_index":  s.outputIdx,
-		"summary_index": 0,
-		"delta":         text,
-	})
-}
-
-func (s *responsesStreamState) handleContent(text string, w io.Writer) error {
-	if !s.message.open {
-		s.closeReasoning(w)
-		s.message.open = true
-		s.message.id = "msg_" + s.id
-		if err := writeSSE(w, "response.output_item.added", map[string]any{
-			"type":         "response.output_item.added",
-			"output_index": s.outputIdx,
-			"item": map[string]any{
-				"id":      s.message.id,
-				"type":    "message",
-				"role":    "assistant",
-				"content": []any{},
-			},
-		}); err != nil {
-			return err
-		}
-		if err := writeSSE(w, "response.content_part.added", map[string]any{
-			"type":          "response.content_part.added",
-			"item_id":       s.message.id,
-			"output_index":  s.outputIdx,
-			"content_index": 0,
-			"part": map[string]any{
-				"type": "output_text",
-				"text": "",
-			},
-		}); err != nil {
-			return err
-		}
-	}
-	s.message.buf.WriteString(text)
-	return writeSSE(w, "response.output_text.delta", map[string]any{
-		"type":          "response.output_text.delta",
-		"item_id":       s.message.id,
-		"output_index":  s.outputIdx,
-		"content_index": 0,
-		"delta":         text,
-	})
-}
-
-func (s *responsesStreamState) closeReasoning(w io.Writer) {
-	if !s.reasoning.open {
-		return
-	}
-	s.reasoning.open = false
-	text := s.reasoning.buf.String()
-	writeSSE(w, "response.output_item.done", map[string]any{
-		"type":         "response.output_item.done",
-		"output_index": s.outputIdx,
-		"item": map[string]any{
-			"id":   s.reasoning.id,
-			"type": "reasoning",
-			"summary": []map[string]any{{
-				"type": "summary_text",
-				"text": text,
-			}},
-		},
-	})
-	s.outputIdx++
-}
-
-func (s *responsesStreamState) closeMessage(w io.Writer) {
-	if !s.message.open {
-		return
-	}
-	s.message.open = false
-	text := s.message.buf.String()
-	writeSSE(w, "response.output_text.done", map[string]any{
-		"type":          "response.output_text.done",
-		"item_id":       s.message.id,
-		"output_index":  s.outputIdx,
-		"content_index": 0,
-		"text":          text,
-	})
-	writeSSE(w, "response.content_part.done", map[string]any{
-		"type":          "response.content_part.done",
-		"item_id":       s.message.id,
-		"output_index":  s.outputIdx,
-		"content_index": 0,
-		"part": map[string]any{
-			"type": "output_text",
-			"text": text,
-		},
-	})
-	writeSSE(w, "response.output_item.done", map[string]any{
-		"type":         "response.output_item.done",
-		"output_index": s.outputIdx,
-		"item": map[string]any{
-			"id":      s.message.id,
-			"type":    "message",
-			"role":    "assistant",
-			"content": []map[string]any{{
-				"type": "output_text",
-				"text": text,
-			}},
-		},
-	})
-	s.outputIdx++
-}
-
-func (s *responsesStreamState) handleToolCalls(toolCalls []struct {
-	Index    int    `json:"index"`
-	ID       string `json:"id"`
-	Type     string `json:"type"`
-	Function struct {
-		Name      string `json:"name"`
-		Arguments string `json:"arguments"`
-	} `json:"function"`
-}, w io.Writer) error {
-	if s.toolCalls == nil {
-		s.toolCalls = make(map[int]*toolCallState)
-	}
-	for _, tc := range toolCalls {
-		tcState, ok := s.toolCalls[tc.Index]
-		if !ok {
-			// Close message/reasoning before starting a function call
-			s.closeReasoning(w)
-			s.closeMessage(w)
-			tcState = &toolCallState{
-				id:     "fc_" + s.id + "_" + strconv.Itoa(tc.Index),
-				callID: tc.ID,
-				name:   tc.Function.Name,
-				open:   true,
-			}
-			s.toolCalls[tc.Index] = tcState
-			if err := writeSSE(w, "response.output_item.added", map[string]any{
-				"type":         "response.output_item.added",
-				"output_index": s.outputIdx,
-				"item": map[string]any{
-					"id":       tcState.id,
-					"type":     "function_call",
-					"call_id":  tcState.callID,
-					"name":     tcState.name,
-					"arguments": "",
-				},
-			}); err != nil {
-				return err
-			}
-		}
-		if tc.Function.Arguments != "" {
-			tcState.arguments.WriteString(tc.Function.Arguments)
-			if err := writeSSE(w, "response.function_call_arguments.delta", map[string]any{
-				"type":         "response.function_call_arguments.delta",
-				"item_id":      tcState.id,
-				"output_index": s.outputIdx,
-				"delta":        tc.Function.Arguments,
-			}); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func (s *responsesStreamState) closeToolCalls(w io.Writer) {
-	for _, tc := range s.toolCalls {
-		if !tc.open {
-			continue
-		}
-		tc.open = false
-		args := tc.arguments.String()
-		writeSSE(w, "response.function_call_arguments.done", map[string]any{
-			"type":         "response.function_call_arguments.done",
-			"item_id":      tc.id,
-			"output_index": s.outputIdx,
-			"arguments":    args,
-		})
-		writeSSE(w, "response.output_item.done", map[string]any{
-			"type":         "response.output_item.done",
-			"output_index": s.outputIdx,
-			"item": map[string]any{
-				"id":        tc.id,
-				"type":      "function_call",
-				"call_id":   tc.callID,
-				"name":      tc.name,
-				"arguments": args,
-			},
-		})
-		s.outputIdx++
-	}
-}
-
-func (s *responsesStreamState) closeAll(w io.Writer) error {
-	s.closeReasoning(w)
-	s.closeMessage(w)
-	s.closeToolCalls(w)
-	return nil
-}
-
-func (s *responsesStreamState) finish(w io.Writer) error {
-	if !s.created {
-		return nil
-	}
-	s.closeAll(w)
-	return writeSSE(w, "response.completed", map[string]any{
-		"type": "response.completed",
-		"response": map[string]any{
-			"id":      s.id,
-			"object":  "response",
-			"status":  "completed",
-		},
-	})
 }
 
 func writeSSE(w io.Writer, event string, data any) error {
