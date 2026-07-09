@@ -26,19 +26,34 @@ func register(from, to domain.Format, p pair) {
 // Tool calls and modalities are intentionally out of scope for v1.
 
 type openaiRequest struct {
-	Model       string         `json:"model"`
+	Model       string          `json:"model"`
 	Messages    []openaiMessage `json:"messages"`
-	MaxTokens   *int           `json:"max_tokens,omitempty"`
-	Temperature *float64       `json:"temperature,omitempty"`
-	TopP        *float64       `json:"top_p,omitempty"`
+	Tools       json.RawMessage `json:"tools,omitempty"`
+	ToolChoice  json.RawMessage `json:"tool_choice,omitempty"`
+	MaxTokens   *int            `json:"max_tokens,omitempty"`
+	Temperature *float64        `json:"temperature,omitempty"`
+	TopP        *float64        `json:"top_p,omitempty"`
 	Stop        json.RawMessage `json:"stop,omitempty"`
-	Stream      bool           `json:"stream"`
-	User        string         `json:"user,omitempty"`
+	Stream      bool            `json:"stream"`
+	User        string          `json:"user,omitempty"`
 }
 
 type openaiMessage struct {
-	Role    string `json:"role"`
-	Content json.RawMessage `json:"content"` // string or array of parts
+	Role       string          `json:"role"`
+	Content     json.RawMessage `json:"content,omitempty"` // string or array of parts
+	ToolCalls   []openaiToolCall `json:"tool_calls,omitempty"`
+	ToolCallID  string          `json:"tool_call_id,omitempty"`
+}
+
+type openaiToolCall struct {
+	ID       string          `json:"id"`
+	Type     string          `json:"type"` // "function"
+	Function openaiFunction `json:"function"`
+}
+
+type openaiFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"` // JSON string
 }
 
 type anthropicRequest struct {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/jhon/gorouter/internal/domain"
@@ -199,11 +200,21 @@ func translateResponsesToOpenAIRequest(upstreamModel string, body []byte) ([]byt
 		Temperature     *float64        `json:"temperature"`
 		TopP            *float64        `json:"top_p"`
 		Stream          bool            `json:"stream"`
+		Tools           json.RawMessage `json:"tools"`
+		ToolChoice      json.RawMessage `json:"tool_choice"`
 	}
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("responses->openai: parse: %w", err)
 	}
-	out := openaiRequest{Model: upstreamModel, Stream: in.Stream, MaxTokens: in.MaxOutputTokens, Temperature: in.Temperature, TopP: in.TopP}
+	out := openaiRequest{
+		Model:       upstreamModel,
+		Stream:      in.Stream,
+		MaxTokens:   in.MaxOutputTokens,
+		Temperature: in.Temperature,
+		TopP:        in.TopP,
+		Tools:       translateResponsesTools(in.Tools),
+		ToolChoice:  in.ToolChoice,
+	}
 	if in.Instructions != "" {
 		b, _ := json.Marshal(in.Instructions)
 		out.Messages = append(out.Messages, openaiMessage{Role: "system", Content: b})
@@ -216,6 +227,38 @@ func translateResponsesToOpenAIRequest(upstreamModel string, body []byte) ([]byt
 	return json.Marshal(out)
 }
 
+// translateResponsesTools converts Responses API tools (array of {type:"function",name,parameters})
+// to OpenAI Chat Completions tools (array of {type:"function",function:{name,parameters}}).
+// Returns nil if input is empty (omitted from JSON).
+func translateResponsesTools(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	var tools []struct {
+		Type       string          `json:"type"`
+		Name       string          `json:"name"`
+		Parameters json.RawMessage `json:"parameters"`
+	}
+	if err := json.Unmarshal(raw, &tools); err != nil {
+		return raw // passthrough on parse failure
+	}
+	out := make([]map[string]any, 0, len(tools))
+	for _, t := range tools {
+		if t.Type != "function" {
+			continue
+		}
+		out = append(out, map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":       t.Name,
+				"parameters": json.RawMessage(t.Parameters),
+			},
+		})
+	}
+	b, _ := json.Marshal(out)
+	return b
+}
+
 func parseResponsesInput(raw json.RawMessage) ([]openaiMessage, error) {
 	if len(raw) == 0 {
 		return nil, nil
@@ -226,27 +269,55 @@ func parseResponsesInput(raw json.RawMessage) ([]openaiMessage, error) {
 		return []openaiMessage{{Role: "user", Content: b}}, nil
 	}
 	var arr []struct {
+		Type    string          `json:"type"`
 		Role    string          `json:"role"`
 		Content json.RawMessage `json:"content"`
+		// function_call fields
+		CallID   string `json:"call_id"`
+		Name     string `json:"name"`
+		Arguments string `json:"arguments"`
+		// function_call_output fields
+		Output json.RawMessage `json:"output"`
 	}
 	if err := json.Unmarshal(raw, &arr); err != nil {
 		return nil, fmt.Errorf("responses->openai: parse input: %w", err)
 	}
 	var out []openaiMessage
 	for _, m := range arr {
-		role := m.Role
-		if role != "user" && role != "assistant" && role != "system" {
-			role = "user"
-		}
-		content := asStringContent(m.Content)
-		if content == "" {
-			var s string
-			if json.Unmarshal(m.Content, &s) == nil {
-				content = s
+		switch m.Type {
+		case "function_call":
+			out = append(out, openaiMessage{
+				Role: "assistant",
+				ToolCalls: []openaiToolCall{{
+					ID:   m.CallID,
+					Type: "function",
+					Function: openaiFunction{
+						Name:      m.Name,
+						Arguments: m.Arguments,
+					},
+				}},
+			})
+		case "function_call_output":
+			out = append(out, openaiMessage{
+				Role:      "tool",
+				Content:   m.Output,
+				ToolCallID: m.CallID,
+			})
+		default:
+			role := m.Role
+			if role != "user" && role != "assistant" && role != "system" {
+				role = "user"
 			}
+			content := asStringContent(m.Content)
+			if content == "" {
+				var s string
+				if json.Unmarshal(m.Content, &s) == nil {
+					content = s
+				}
+			}
+			b, _ := json.Marshal(content)
+			out = append(out, openaiMessage{Role: role, Content: b})
 		}
-		b, _ := json.Marshal(content)
-		out = append(out, openaiMessage{Role: role, Content: b})
 	}
 	return out, nil
 }
@@ -348,6 +419,15 @@ type responsesStreamState struct {
 		id     string
 		buf    strings.Builder
 	}
+	toolCalls map[int]*toolCallState
+}
+
+type toolCallState struct {
+	id        string
+	callID    string
+	name      string
+	open      bool
+	arguments strings.Builder
 }
 
 func (s *responsesStreamState) handleChunk(data string, w io.Writer) error {
@@ -360,6 +440,15 @@ func (s *responsesStreamState) handleChunk(data string, w io.Writer) error {
 				Role      string `json:"role"`
 				Content   string `json:"content"`
 				Reasoning string `json:"reasoning"`
+				ToolCalls []struct {
+					Index    int    `json:"index"`
+					ID       string `json:"id"`
+					Type     string `json:"type"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
 			} `json:"delta"`
 		} `json:"choices"`
 	}
@@ -407,6 +496,11 @@ func (s *responsesStreamState) handleChunk(data string, w io.Writer) error {
 	}
 	if d.Content != "" {
 		if err := s.handleContent(d.Content, w); err != nil {
+			return err
+		}
+	}
+	if len(d.ToolCalls) > 0 {
+		if err := s.handleToolCalls(d.ToolCalls, w); err != nil {
 			return err
 		}
 	}
@@ -539,9 +633,92 @@ func (s *responsesStreamState) closeMessage(w io.Writer) {
 	s.outputIdx++
 }
 
+func (s *responsesStreamState) handleToolCalls(toolCalls []struct {
+	Index    int    `json:"index"`
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}, w io.Writer) error {
+	if s.toolCalls == nil {
+		s.toolCalls = make(map[int]*toolCallState)
+	}
+	for _, tc := range toolCalls {
+		tcState, ok := s.toolCalls[tc.Index]
+		if !ok {
+			// Close message/reasoning before starting a function call
+			s.closeReasoning(w)
+			s.closeMessage(w)
+			tcState = &toolCallState{
+				id:     "fc_" + s.id + "_" + strconv.Itoa(tc.Index),
+				callID: tc.ID,
+				name:   tc.Function.Name,
+				open:   true,
+			}
+			s.toolCalls[tc.Index] = tcState
+			if err := writeSSE(w, "response.output_item.added", map[string]any{
+				"type":         "response.output_item.added",
+				"output_index": s.outputIdx,
+				"item": map[string]any{
+					"id":       tcState.id,
+					"type":     "function_call",
+					"call_id":  tcState.callID,
+					"name":     tcState.name,
+					"arguments": "",
+				},
+			}); err != nil {
+				return err
+			}
+		}
+		if tc.Function.Arguments != "" {
+			tcState.arguments.WriteString(tc.Function.Arguments)
+			if err := writeSSE(w, "response.function_call_arguments.delta", map[string]any{
+				"type":         "response.function_call_arguments.delta",
+				"item_id":      tcState.id,
+				"output_index": s.outputIdx,
+				"delta":        tc.Function.Arguments,
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *responsesStreamState) closeToolCalls(w io.Writer) {
+	for _, tc := range s.toolCalls {
+		if !tc.open {
+			continue
+		}
+		tc.open = false
+		args := tc.arguments.String()
+		writeSSE(w, "response.function_call_arguments.done", map[string]any{
+			"type":         "response.function_call_arguments.done",
+			"item_id":      tc.id,
+			"output_index": s.outputIdx,
+			"arguments":    args,
+		})
+		writeSSE(w, "response.output_item.done", map[string]any{
+			"type":         "response.output_item.done",
+			"output_index": s.outputIdx,
+			"item": map[string]any{
+				"id":        tc.id,
+				"type":      "function_call",
+				"call_id":   tc.callID,
+				"name":      tc.name,
+				"arguments": args,
+			},
+		})
+		s.outputIdx++
+	}
+}
+
 func (s *responsesStreamState) closeAll(w io.Writer) error {
 	s.closeReasoning(w)
 	s.closeMessage(w)
+	s.closeToolCalls(w)
 	return nil
 }
 
