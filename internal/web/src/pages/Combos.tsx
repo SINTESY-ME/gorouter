@@ -226,7 +226,7 @@ function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (
           >
             {available.map((m) => (
               <SelectItem key={m.id}>
-                {m.model_id} ({m.kind})
+                {m.id} ({m.kind})
               </SelectItem>
             ))}
           </Select>

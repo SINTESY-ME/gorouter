@@ -93,7 +93,7 @@ export default function Models() {
       if (!map[key]) { map[key] = []; order.push(key); }
       map[key].push(m);
     }
-    for (const k of order) map[k].sort((a, b) => a.model_id.localeCompare(b.model_id));
+    for (const k of order) map[k].sort((a, b) => a.id.localeCompare(b.id));
     order.sort();
     return order.map((k) => ({ providerId: k, models: map[k] }));
   }, [filtered]);
@@ -200,7 +200,7 @@ export default function Models() {
             <div className="space-y-1">
               {g.models.map((m) => (
                 <div key={m.id} className="flex items-center gap-2 bg-content1 border border-default-100 rounded-lg px-3 py-2">
-                  <code className="text-sm font-mono flex-1 truncate">{m.model_id}</code>
+                  <code className="text-sm font-mono flex-1 truncate">{m.id}</code>
                   <Chip size="sm" variant="flat" color={kindColor(m.kind)}>{m.kind}</Chip>
                   <Chip size="sm" variant="bordered">{m.source}</Chip>
                   <Switch size="sm" isSelected={m.is_active} onChange={() => toggleActive(m)} />

@@ -213,7 +213,7 @@ function ModelsPanel({ loading, models, error }: { loading: boolean; models?: Mo
     <div className="space-y-1">
       {models.map((m) => (
         <div key={m.id} className="flex items-center gap-2 bg-content2 rounded-lg px-3 py-2">
-          <code className="text-xs flex-1 truncate">{m.model_id}</code>
+          <code className="text-xs flex-1 truncate">{m.id}</code>
           <Chip size="sm" variant="flat" color="primary">{m.kind}</Chip>
           <Chip size="sm" variant="bordered">{m.source}</Chip>
           <Chip size="sm" variant={m.is_active ? "flat" : "flat"} color={m.is_active ? "success" : "default"}>
