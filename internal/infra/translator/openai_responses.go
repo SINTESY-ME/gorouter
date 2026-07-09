@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/jhon/gorouter/internal/domain"
 )
@@ -304,9 +305,7 @@ func openAIStreamToResponses(ctx context.Context, r io.ReadCloser) (io.ReadClose
 }
 
 func streamOpenAIToResponses(ctx context.Context, br *bufio.Reader, w io.Writer) error {
-	started := false
-	id := ""
-	model := ""
+	st := &responsesStreamState{}
 	for {
 		select {
 		case <-ctx.Done():
@@ -316,58 +315,256 @@ func streamOpenAIToResponses(ctx context.Context, br *bufio.Reader, w io.Writer)
 		data, done, err := readEvent(&sseReader{r: br})
 		if err != nil {
 			if err == io.EOF {
-				// Stream ended without [DONE] — emit response.completed so
-				// clients waiting for it (e.g. codex) can finish cleanly.
-				if started {
-					_, _ = fmt.Fprintf(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":%q,\"model\":%q}}\n\n", id, model)
-				}
-				return nil
+				return st.finish(w)
 			}
 			return err
 		}
 		if done {
-			_, _ = fmt.Fprintf(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":%q,\"model\":%q}}\n\n", id, model)
-			return nil
+			return st.finish(w)
 		}
 		if data == "" {
 			continue
 		}
-		var ev struct {
-			ID      string `json:"id"`
-			Model   string `json:"model"`
-			Choices []struct {
-				Delta struct {
-					Role      string `json:"role"`
-					Content   string `json:"content"`
-					Reasoning string `json:"reasoning"`
-				} `json:"delta"`
-			} `json:"choices"`
-		}
-		if err := json.Unmarshal([]byte(data), &ev); err != nil {
-			continue
-		}
-		if !started && ev.ID != "" {
-			started = true
-			id = ev.ID
-			model = ev.Model
-			_, _ = fmt.Fprintf(w, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":%q,\"model\":%q}}\n\n", id, model)
-		}
-		if len(ev.Choices) > 0 {
-			d := &ev.Choices[0].Delta
-			if d.Reasoning != "" {
-				payload, _ := json.Marshal(map[string]any{
-					"type":  "response.reasoning_text.delta",
-					"delta": d.Reasoning,
-				})
-				_, _ = fmt.Fprintf(w, "event: response.reasoning_text.delta\ndata: %s\n\n", payload)
-			}
-			if d.Content != "" {
-				payload, _ := json.Marshal(map[string]any{
-					"type":  "response.output_text.delta",
-					"delta": d.Content,
-				})
-				_, _ = fmt.Fprintf(w, "event: response.output_text.delta\ndata: %s\n\n", payload)
-			}
+		if err := st.handleChunk(data, w); err != nil {
+			return err
 		}
 	}
+}
+
+// responsesStreamState tracks the lifecycle of a single response so we emit
+// output_item/content_part open/close events in the right order.
+type responsesStreamState struct {
+	id       string
+	model    string
+	created  bool
+	outputIdx int
+	reasoning struct {
+		open   bool
+		id     string
+		buf    strings.Builder
+	}
+	message struct {
+		open   bool
+		id     string
+		buf    strings.Builder
+	}
+}
+
+func (s *responsesStreamState) handleChunk(data string, w io.Writer) error {
+	var ev struct {
+		ID      string `json:"id"`
+		Model   string `json:"model"`
+		Choices []struct {
+			FinishReason string `json:"finish_reason"`
+			Delta        struct {
+				Role      string `json:"role"`
+				Content   string `json:"content"`
+				Reasoning string `json:"reasoning"`
+			} `json:"delta"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal([]byte(data), &ev); err != nil {
+		return nil
+	}
+	if !s.created && ev.ID != "" {
+		s.id = "resp_" + ev.ID
+		s.model = ev.Model
+		s.created = true
+		if err := writeSSE(w, "response.created", map[string]any{
+			"type": "response.created",
+			"response": map[string]any{
+				"id":         s.id,
+				"object":     "response",
+				"status":     "in_progress",
+				"output":     []any{},
+			},
+		}); err != nil {
+			return err
+		}
+		if err := writeSSE(w, "response.in_progress", map[string]any{
+			"type": "response.in_progress",
+			"response": map[string]any{
+				"id":     s.id,
+				"object": "response",
+				"status": "in_progress",
+			},
+		}); err != nil {
+			return err
+		}
+	}
+	if len(ev.Choices) == 0 {
+		return nil
+	}
+	choice := &ev.Choices[0]
+	if choice.FinishReason != "" {
+		return s.closeAll(w)
+	}
+	d := &choice.Delta
+	if d.Reasoning != "" {
+		if err := s.handleReasoning(d.Reasoning, w); err != nil {
+			return err
+		}
+	}
+	if d.Content != "" {
+		if err := s.handleContent(d.Content, w); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *responsesStreamState) handleReasoning(text string, w io.Writer) error {
+	if !s.reasoning.open {
+		s.reasoning.open = true
+		s.reasoning.id = "rs_" + s.id
+		if err := writeSSE(w, "response.output_item.added", map[string]any{
+			"type":         "response.output_item.added",
+			"output_index": s.outputIdx,
+			"item": map[string]any{
+				"id":      s.reasoning.id,
+				"type":    "reasoning",
+				"summary": []any{},
+			},
+		}); err != nil {
+			return err
+		}
+	}
+	s.reasoning.buf.WriteString(text)
+	return writeSSE(w, "response.reasoning_summary_text.delta", map[string]any{
+		"type":          "response.reasoning_summary_text.delta",
+		"item_id":       s.reasoning.id,
+		"output_index":  s.outputIdx,
+		"summary_index": 0,
+		"delta":         text,
+	})
+}
+
+func (s *responsesStreamState) handleContent(text string, w io.Writer) error {
+	if !s.message.open {
+		s.closeReasoning(w)
+		s.message.open = true
+		s.message.id = "msg_" + s.id
+		if err := writeSSE(w, "response.output_item.added", map[string]any{
+			"type":         "response.output_item.added",
+			"output_index": s.outputIdx,
+			"item": map[string]any{
+				"id":      s.message.id,
+				"type":    "message",
+				"role":    "assistant",
+				"content": []any{},
+			},
+		}); err != nil {
+			return err
+		}
+		if err := writeSSE(w, "response.content_part.added", map[string]any{
+			"type":          "response.content_part.added",
+			"item_id":       s.message.id,
+			"output_index":  s.outputIdx,
+			"content_index": 0,
+			"part": map[string]any{
+				"type": "output_text",
+				"text": "",
+			},
+		}); err != nil {
+			return err
+		}
+	}
+	s.message.buf.WriteString(text)
+	return writeSSE(w, "response.output_text.delta", map[string]any{
+		"type":          "response.output_text.delta",
+		"item_id":       s.message.id,
+		"output_index":  s.outputIdx,
+		"content_index": 0,
+		"delta":         text,
+	})
+}
+
+func (s *responsesStreamState) closeReasoning(w io.Writer) {
+	if !s.reasoning.open {
+		return
+	}
+	s.reasoning.open = false
+	text := s.reasoning.buf.String()
+	writeSSE(w, "response.output_item.done", map[string]any{
+		"type":         "response.output_item.done",
+		"output_index": s.outputIdx,
+		"item": map[string]any{
+			"id":   s.reasoning.id,
+			"type": "reasoning",
+			"summary": []map[string]any{{
+				"type": "summary_text",
+				"text": text,
+			}},
+		},
+	})
+	s.outputIdx++
+}
+
+func (s *responsesStreamState) closeMessage(w io.Writer) {
+	if !s.message.open {
+		return
+	}
+	s.message.open = false
+	text := s.message.buf.String()
+	writeSSE(w, "response.output_text.done", map[string]any{
+		"type":          "response.output_text.done",
+		"item_id":       s.message.id,
+		"output_index":  s.outputIdx,
+		"content_index": 0,
+		"text":          text,
+	})
+	writeSSE(w, "response.content_part.done", map[string]any{
+		"type":          "response.content_part.done",
+		"item_id":       s.message.id,
+		"output_index":  s.outputIdx,
+		"content_index": 0,
+		"part": map[string]any{
+			"type": "output_text",
+			"text": text,
+		},
+	})
+	writeSSE(w, "response.output_item.done", map[string]any{
+		"type":         "response.output_item.done",
+		"output_index": s.outputIdx,
+		"item": map[string]any{
+			"id":      s.message.id,
+			"type":    "message",
+			"role":    "assistant",
+			"content": []map[string]any{{
+				"type": "output_text",
+				"text": text,
+			}},
+		},
+	})
+	s.outputIdx++
+}
+
+func (s *responsesStreamState) closeAll(w io.Writer) error {
+	s.closeReasoning(w)
+	s.closeMessage(w)
+	return nil
+}
+
+func (s *responsesStreamState) finish(w io.Writer) error {
+	if !s.created {
+		return nil
+	}
+	s.closeAll(w)
+	return writeSSE(w, "response.completed", map[string]any{
+		"type": "response.completed",
+		"response": map[string]any{
+			"id":      s.id,
+			"object":  "response",
+			"status":  "completed",
+		},
+	})
+}
+
+func writeSSE(w io.Writer, event string, data any) error {
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, payload)
+	return err
 }
