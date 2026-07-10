@@ -24,19 +24,23 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// zapLogger is a minimal structured access log. Uses slog instead of pulling
-// a logger library; chi's RequestID is included when present.
+// zapLogger logs only non-2xx responses to keep the hot path quiet on
+// success. Usage tracking (tokens, latency, TPS) is handled separately by
+// the AsyncUsageRecorder, so skipping success logs doesn't affect the
+// dashboard Logs tab.
 func zapLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ww := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
-		slog.Info("http",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", ww.Status(),
-			"ms", time.Since(start).Milliseconds(),
-			"req_id", chimw.GetReqID(r.Context()),
-		)
+		if ww.Status() >= 400 {
+			slog.Warn("http",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", ww.Status(),
+				"ms", time.Since(start).Milliseconds(),
+				"req_id", chimw.GetReqID(r.Context()),
+			)
+		}
 	})
 }

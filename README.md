@@ -12,12 +12,15 @@ Um único binário estático. Sem runtime, sem VM, sem interpretador. O frontend
 
 ## Por que gorouter
 
-| | gorouter | LiteLLM | OpenRouter | 9router |
-|---|---|---|---|---|
-| **Runtime** | Go estático | Python | SaaS | Node.js |
-| **Binary size** | ~15MB | N/A | N/A | ~80MB |
-| **Latência adicionada (p99)** | < 1ms | ~50ms | ~100ms | ~20ms |
-| **Health tracking automático** | ✅ | parcial | ❌ | ❌ |
+| | gorouter | Bifrost | LiteLLM |
+|---|---|---|---|
+| **Runtime** | Go estático | Go (Docker) | Python |
+| **Latência média (c=1)** | **0.9 ms** | 1.7 ms | 18 ms |
+| **RPS (c=10)** | **~5.3k** | ~4.2k | ~48 |
+| **Overhead vs mock** | **~0.7 ms** | ~1.5 ms | ~18 ms |
+| **Health tracking** | ✅ | ✅ | parcial |
+
+> Benchmark local, HTTP, mock OpenAI-compat, `hey -z 8s`. Metodologia e números completos: **[docs/BENCHMARK.md](docs/BENCHMARK.md)**.
 
 ---
 
@@ -81,7 +84,7 @@ Dentro de cada modelo, múltiplas conexões (contas) para o mesmo provider são 
 Combos funcionam com **todos os tipos de modelo** — não só LLM. Crie um combo `image-gen` que tenta DALL-E 3, depois Stable Diffusion, depois Midjourney. Ou um combo `embeddings` que tenta OpenAI, depois Cohere. O fallback é automático e transparente para o client.
 
 ### Performance obsessiva
-O caminho quente (hot path) foi desenhado para ter **overhead zero**:
+O caminho quente (hot path) foi desenhado para ter **overhead mínimo** (~1 ms wall-clock no [benchmark local](docs/BENCHMARK.md)):
 
 - **Caches de hot path**: API keys e conexões ficam em memória com TTL de 30s e RWMutex — sem hits no DB durante requisições
 - **Usage assíncrono**: métricas de uso vão para um canal bufferizado (4096) e são persistidas em background — o request nunca espera
@@ -89,6 +92,7 @@ O caminho quente (hot path) foi desenhado para ter **overhead zero**:
 - **Connection pooling**: `http.Transport` com 200 idle conns, 50 por host — reutilização máxima
 - **Streaming sem buffer**: SSE piped via `io.Copy` direto do provider para o client — zero cópias intermediárias
 - **Timeout inteligente**: streams não têm timeout fixo (podem durar minutos), requests síncronos têm por-request timeout via child client
+- **Logs só em erro** no access log — sucesso não polui stdout; a aba Logs do dashboard usa o usage async no DB
 
 ### Suporte multimodal completo
 Não é só texto. O gorouter roteia **todos os tipos de modelo** via combos com fallback:
