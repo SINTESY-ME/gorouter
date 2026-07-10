@@ -1,0 +1,14 @@
+id: openadapter
+display:
+  name: OpenAdapter
+  color: "#10B981"
+  website: https://openadapter.in
+  api_key_url: https://api.openadapter.in
+category: apikey
+priority: 75
+aliases: [oa]
+transport:
+  base_url: https://api.openadapter.in
+  format: openai
+  auth: bearer
+capabilities: [chat]

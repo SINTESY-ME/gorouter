@@ -1,0 +1,17 @@
+id: opencode-zen
+display:
+  name: OpenCode Zen
+  color: "#E87040"
+  website: https://opencode.ai
+  api_key_url: https://opencode.ai/auth
+category: apikey
+priority: 45
+aliases: [ocz]
+transport:
+  base_url: https://opencode.ai/zen
+  format: openai
+  auth: bearer
+capabilities: [chat]
+models_fetcher:
+  url: https://opencode.ai/zen/v1/models
+  type: openai

@@ -31,7 +31,7 @@ export default function Providers() {
   const [oauthAuthURL, setOauthAuthURL] = useState("");
   const [search, setSearch] = useState("");
 
-  const POPULAR = ["openai", "anthropic", "openrouter", "gemini", "groq", "deepseek", "mistral", "together", "ollama", "opencode"];
+  const POPULAR = ["openai", "anthropic", "openrouter", "gemini", "groq", "deepseek", "mistral", "together", "ollama", "opencode", "deepinfra", "openadapter"];
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modelsCache, setModelsCache] = useState<Record<string, ModelEntry[]>>({});
