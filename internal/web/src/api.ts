@@ -124,6 +124,16 @@ export const api = {
       remove: (id: string) => request<void>(`/api/provider-store/${id}`, { method: "DELETE" }),
     },
   },
+  oauth: {
+    list: () => request<string[]>("/api/oauth/providers"),
+    start: (provider: string, redirect_uri?: string) =>
+      request<{ auth_url: string; state: string; redirect_uri: string; uses_pkce: boolean; paste_code: boolean }>(
+        `/api/oauth/${provider}/start`,
+        { method: "POST", body: JSON.stringify({ redirect_uri: redirect_uri || "" }) }
+      ),
+    complete: (provider: string, body: { state: string; code: string; name?: string }) =>
+      request<Provider>(`/api/oauth/${provider}/complete`, { method: "POST", body: JSON.stringify(body) }),
+  },
   models: {
     list: () => request<ModelInfo[]>("/api/models"),
     update: (id: string, m: { is_active?: boolean; kind?: string; name?: string }) =>

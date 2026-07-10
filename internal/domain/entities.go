@@ -73,15 +73,20 @@ type Connection struct {
 	ID               string       `json:"id" gorm:"primaryKey"`
 	ProviderID       string       `json:"provider_id" gorm:"column:provider_id;uniqueIndex:idx_provider_name,priority:1;index:idx_conn_provider,priority:1"`
 	Name             string       `json:"name" gorm:"uniqueIndex:idx_provider_name,priority:2"`
-	APIKey           string       `json:"api_key" gorm:"column:api_key"`
+	APIKey           string       `json:"api_key" gorm:"column:api_key"` // access token for oauth
 	BaseURL          string       `json:"base_url" gorm:"column:base_url"`
 	Format           Format       `json:"format" gorm:"default:openai"`
 	Auth             AuthScheme   `json:"auth" gorm:"default:bearer"`
 	Priority         int          `json:"priority" gorm:"index:idx_conn_provider,priority:2"`
 	IsActive         bool         `json:"is_active" gorm:"column:is_active;default:true"`
 	RateLimitedUntil time.Time    `json:"rate_limited_until" gorm:"column:rate_limited_until"`
-	CreatedAt        time.Time    `json:"created_at"`
-	UpdatedAt        time.Time    `json:"updated_at"`
+	// OAuth extras (empty for API-key connections).
+	RefreshToken   string    `json:"-" gorm:"column:refresh_token"` // never expose in list JSON
+	TokenExpiresAt time.Time `json:"token_expires_at,omitempty" gorm:"column:token_expires_at"`
+	// Meta is JSON for provider-specific oauth data (project_id, account_id, email…).
+	Meta      string    `json:"meta,omitempty" gorm:"column:meta;type:text"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // ModelInfo is one model surfaced through /v1/models. Combos appear as

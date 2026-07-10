@@ -58,6 +58,9 @@ func (r *ConnectionRepo) Update(ctx context.Context, c *domain.Connection) error
 		"priority":           c.Priority,
 		"is_active":          c.IsActive,
 		"rate_limited_until": c.RateLimitedUntil,
+		"refresh_token":      c.RefreshToken,
+		"token_expires_at":   c.TokenExpiresAt,
+		"meta":               c.Meta,
 		"updated_at":         time.Now(),
 	})
 	if res.Error != nil {

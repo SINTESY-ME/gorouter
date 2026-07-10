@@ -18,6 +18,12 @@ import (
 	"github.com/jhon/gorouter/internal/domain"
 )
 
+// TokenRefresher renews OAuth access tokens on a connection when needed.
+// Optional; nil means no refresh.
+type TokenRefresher interface {
+	EnsureAccess(ctx context.Context, conn *domain.Connection) error
+}
+
 // RouterService is the core use case: take a chat request (in OpenAI format),
 // route it to the right upstream(s), and return the response.
 type RouterService struct {
@@ -26,6 +32,8 @@ type RouterService struct {
 	Executor    domain.Executor
 	Translator  domain.Translator
 	Usage       domain.UsageRepo
+	// Tokens is optional OAuth refresh before upstream calls.
+	Tokens TokenRefresher
 
 	// comboRotation is in-memory state for round-robin combo strategy.
 	// Not persisted; rotation resets on process restart (acceptable).
@@ -329,6 +337,12 @@ func (s *RouterService) tryModel(ctx context.Context, m domain.ModelID, body []b
 }
 
 func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *domain.Connection, body []byte, stream bool, opts RouteOptions, contentType string) (*RouterResponse, error) {
+	if s.Tokens != nil && conn != nil && conn.RefreshToken != "" {
+		if err := s.Tokens.EnsureAccess(ctx, conn); err != nil {
+			slog.Warn("oauth refresh failed", "provider", conn.ProviderID, "err", err)
+			// continue with existing token; upstream may 401
+		}
+	}
 	translated := body
 	var respBody io.ReadCloser
 	if opts.Endpoint == "" {

@@ -22,8 +22,13 @@ export default function Providers() {
   const [form, setForm] = useState<Record<string, string>>(empty);
   const [editId, setEditId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [step, setStep] = useState<"pick" | "form">("pick");
+  const [step, setStep] = useState<"pick" | "form" | "oauth">("pick");
   const [error, setError] = useState("");
+  const [oauthProviders, setOauthProviders] = useState<string[]>([]);
+  const [oauthState, setOauthState] = useState("");
+  const [oauthCode, setOauthCode] = useState("");
+  const [oauthProvider, setOauthProvider] = useState("");
+  const [oauthAuthURL, setOauthAuthURL] = useState("");
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modelsCache, setModelsCache] = useState<Record<string, ModelEntry[]>>({});
@@ -41,7 +46,11 @@ export default function Providers() {
     setEditId(null);
     setStep("pick");
     setError("");
+    setOauthCode("");
+    setOauthState("");
+    setOauthAuthURL("");
     api.providers.catalog().then(setCatalog).catch(() => setCatalog([]));
+    api.oauth.list().then(setOauthProviders).catch(() => setOauthProviders([]));
     onOpen();
   };
   const openEdit = (p: Provider) => {
@@ -55,7 +64,22 @@ export default function Providers() {
     onOpen();
   };
 
-  const pickTemplate = (t: ProviderDef) => {
+  const pickTemplate = async (t: ProviderDef) => {
+    // OAuth providers with a registered flow use Connect instead of API key.
+    if ((t.category === "oauth" || t.category === "free") && oauthProviders.includes(t.id)) {
+      setOauthProvider(t.id);
+      setError("");
+      try {
+        const res = await api.oauth.start(t.id);
+        setOauthState(res.state);
+        setOauthAuthURL(res.auth_url);
+        setStep("oauth");
+        window.open(res.auth_url, "_blank", "noopener,noreferrer");
+      } catch (e: any) {
+        setError(e?.message ?? "oauth start failed");
+      }
+      return;
+    }
     setForm({
       provider_id: t.id,
       name: t.display.name,
@@ -66,6 +90,20 @@ export default function Providers() {
       template_id: t.id,
     });
     setStep("form");
+  };
+
+  const completeOAuth = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      await api.oauth.complete(oauthProvider, { state: oauthState, code: oauthCode });
+      onClose();
+      load();
+    } catch (e: any) {
+      setError(e?.message ?? "oauth complete failed");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const openCustom = () => {
@@ -232,7 +270,9 @@ export default function Providers() {
             {!editId && step === "pick" && (
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-72 overflow-y-auto">
-                  {catalog.map((t) => (
+                  {catalog.map((t) => {
+                    const isOauth = oauthProviders.includes(t.id);
+                    return (
                     <button
                       key={t.id}
                       type="button"
@@ -244,17 +284,42 @@ export default function Providers() {
                         <span className="font-medium text-sm truncate">{t.display.name}</span>
                       </div>
                       <p className="text-[11px] text-default-400 font-mono truncate">{t.id}</p>
-                      {t.capabilities && t.capabilities.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {t.capabilities.slice(0, 3).map((c) => (
-                            <Chip key={c} size="sm" variant="flat" className="h-5 text-[10px]">{c}</Chip>
-                          ))}
-                        </div>
-                      )}
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {isOauth && <Chip size="sm" color="secondary" variant="flat" className="h-5 text-[10px]">OAuth</Chip>}
+                        {t.capabilities?.slice(0, 2).map((c) => (
+                          <Chip key={c} size="sm" variant="flat" className="h-5 text-[10px]">{c}</Chip>
+                        ))}
+                      </div>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
                 <Button variant="flat" onPress={openCustom}>Custom / OpenAI-compatible</Button>
+                {error && <p className="text-sm text-danger">{error}</p>}
+              </>
+            )}
+            {step === "oauth" && (
+              <>
+                <Button size="sm" variant="light" className="self-start" onPress={() => setStep("pick")}>← voltar</Button>
+                <p className="text-sm text-default-600">
+                  Conecte <strong>{oauthProvider}</strong> via OAuth. Uma janela deve ter aberto para login.
+                </p>
+                {oauthAuthURL && (
+                  <a href={oauthAuthURL} target="_blank" rel="noreferrer" className="text-sm text-primary underline break-all">
+                    Abrir login novamente
+                  </a>
+                )}
+                <p className="text-xs text-default-500">
+                  Após autorizar, o browser redireciona para localhost. Se a conexão não fechar sozinha,
+                  copie o <code>code</code> da URL (ou a URL inteira) e cole abaixo.
+                </p>
+                <Input
+                  label="Authorization code"
+                  placeholder="code=... ou cole a URL de callback"
+                  value={oauthCode}
+                  onValueChange={setOauthCode}
+                />
+                {error && <p className="text-sm text-danger">{error}</p>}
               </>
             )}
             {(editId || step === "form") && (
@@ -284,6 +349,11 @@ export default function Providers() {
             <Button variant="flat" onPress={onClose}>Cancelar</Button>
             {(editId || step === "form") && (
               <Button color="primary" onPress={submit} isLoading={saving}>Salvar</Button>
+            )}
+            {step === "oauth" && (
+              <Button color="primary" onPress={completeOAuth} isLoading={saving} isDisabled={!oauthCode.trim()}>
+                Conectar
+              </Button>
             )}
           </ModalFooter>
         </ModalContent>

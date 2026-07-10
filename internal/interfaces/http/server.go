@@ -16,6 +16,7 @@ import (
 	"github.com/jhon/gorouter/internal/app"
 	"github.com/jhon/gorouter/internal/domain"
 	"github.com/jhon/gorouter/internal/providers"
+	"github.com/jhon/gorouter/internal/providers/oauth"
 )
 
 // Fetcher is used by the dashboard to auto-fetch models for a given provider
@@ -54,6 +55,7 @@ type Server struct {
 	RateLimiter *app.RateLimiter
 	Auth        *app.AuthService
 	Catalog     *providers.Service
+	OAuth       *oauth.Manager
 }
 
 // Routes builds the chi router with all endpoints.
@@ -90,6 +92,8 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/auth/status", s.handleAuthStatus)
 			r.Post("/auth/setup", s.handleAuthSetup)
 			r.Post("/auth/login", s.handleAuthLogin)
+			// OAuth browser callback must be public (IdP redirect).
+			r.Get("/oauth/{provider}/callback", s.handleOAuthCallback)
 		})
 
 		// Dashboard API auth: requireDashboardToken is always mounted but
@@ -114,6 +118,12 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/provider-store", s.handleListStore)
 		r.Post("/provider-store/install/{id}", s.handleInstallStore)
 		r.Delete("/provider-store/{id}", s.handleRemoveStore)
+
+		r.Get("/oauth/providers", s.handleOAuthProviders)
+		r.Post("/oauth/{provider}/start", s.handleOAuthStart)
+		r.Post("/oauth/{provider}/complete", s.handleOAuthComplete)
+		// Callback is public (browser redirect) — registered outside auth group below
+
 		r.Get("/models", s.handleListModelsDashboard)
 		r.Put("/models/*", s.handleUpdateModel)
 		r.Delete("/models/*", s.handleDeleteModel)

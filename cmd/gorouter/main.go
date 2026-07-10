@@ -22,6 +22,8 @@ import (
 	"github.com/jhon/gorouter/internal/infra/translator"
 	httpx "github.com/jhon/gorouter/internal/interfaces/http"
 	"github.com/jhon/gorouter/internal/providers"
+	"github.com/jhon/gorouter/internal/providers/executors"
+	"github.com/jhon/gorouter/internal/providers/oauth"
 	"github.com/jhon/gorouter/internal/web"
 )
 
@@ -66,16 +68,24 @@ func run() error {
 	defer asyncUsage.Close()
 
 	// Infrastructure adapters
-	exec := executor.NewHTTPExecutor(time.Duration(cfg.UpstreamTimeoutSeconds) * time.Second)
+	httpExec := executor.NewHTTPExecutor(time.Duration(cfg.UpstreamTimeoutSeconds) * time.Second)
+	exec := &executors.Multi{Default: httpExec}
 	tr := translator.New()
 	fetcher := app.NewHTTPModelFetcher()
 	prober := app.NewProviderProbe()
 	registry := app.NewModelRegistry()
 
+	// OAuth (Codex + Gemini CLI); more providers register the same way.
+	oauthMgr := oauth.NewManager()
+	oauthMgr.Register(&oauth.Codex{})
+	oauthMgr.Register(&oauth.GeminiCLI{})
+	tokenRefresher := &oauth.Refresher{Manager: oauthMgr, Repo: cachedConns}
+
 	// Application services
 	auth := &app.AuthService{EnvToken: cfg.DashboardToken, Repo: settingRepo}
 	apiKeys := &app.ApiKeyService{Repo: cachedKeys, Secret: cfg.KeySecret}
 	router := app.NewRouterService(comboRepo, cachedConns, exec, tr, asyncUsage)
+	router.Tokens = tokenRefresher
 	models := &app.ModelsService{Combos: comboRepo, Connections: cachedConns, Fetcher: fetcher, Models: modelRepo}
 	connSvc := &app.ConnectionService{Repo: cachedConns}
 	combos := &app.ComboService{Repo: comboRepo, Models: modelRepo}
@@ -115,6 +125,7 @@ func run() error {
 		Auth:        auth,
 		RateLimiter: app.NewRateLimiter(),
 		Catalog:     catalogSvc,
+		OAuth:       oauthMgr,
 	}
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.Port,

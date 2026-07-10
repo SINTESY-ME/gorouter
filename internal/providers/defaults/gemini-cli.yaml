@@ -3,12 +3,12 @@ display:
   name: Gemini CLI
   color: "#4285F4"
   website: "https://github.com/google-gemini/gemini-cli"
-category: free
+category: oauth
 priority: 20
 aliases: [gc]
 transport:
-  base_url: "https://cloudcode-pa.googleapis.com/v1internal"
-  format: openai
+  base_url: "https://cloudcode-pa.googleapis.com"
+  format: gemini
   auth: bearer
 executor: gemini-cli
 capabilities: [chat]
