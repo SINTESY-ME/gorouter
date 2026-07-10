@@ -1,0 +1,13 @@
+id: nebius
+display:
+  name: Nebius AI
+  color: "#6C5CE7"
+  website: "https://nebius.com"
+  api_key_url: "https://studio.nebius.com/settings/api-keys"
+category: apikey
+priority: 70
+transport:
+  base_url: "https://api.studio.nebius.ai"
+  format: openai
+  auth: bearer
+capabilities: [chat]

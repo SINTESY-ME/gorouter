@@ -1,0 +1,14 @@
+id: hyperbolic
+display:
+  name: Hyperbolic
+  color: "#00D4FF"
+  website: "https://hyperbolic.xyz"
+  api_key_url: "https://app.hyperbolic.xyz/settings"
+category: apikey
+priority: 160
+aliases: [hyp]
+transport:
+  base_url: "https://api.hyperbolic.xyz"
+  format: openai
+  auth: bearer
+capabilities: [chat]

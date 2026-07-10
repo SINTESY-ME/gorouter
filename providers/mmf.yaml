@@ -1,0 +1,11 @@
+id: mmf
+display:
+  name: MMF
+  color: "#6366F1"
+category: apikey
+priority: 200
+transport:
+  base_url: "https://api.xiaomimimo.com/api/free-ai/openai/chat"
+  format: openai
+  auth: bearer
+capabilities: [chat]

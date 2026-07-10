@@ -1,0 +1,14 @@
+id: cursor
+display:
+  name: Cursor IDE
+  color: "#00D4AA"
+  website: "https://cursor.com"
+category: oauth
+priority: 50
+aliases: [cu]
+transport:
+  base_url: "https://api2.cursor.sh"
+  format: openai
+  auth: bearer
+executor: cursor
+capabilities: [chat]

@@ -1,0 +1,15 @@
+id: kimi-coding
+display:
+  name: Kimi Coding
+  color: "#1E40AF"
+  website: "https://kimi.moonshot.cn"
+category: oauth
+priority: 120
+aliases: [kmc]
+transport:
+  base_url: "https://api.kimi.com/coding"
+  format: anthropic
+  auth: x-api-key
+  headers:
+    Anthropic-Version: 2023-06-01
+capabilities: [chat]

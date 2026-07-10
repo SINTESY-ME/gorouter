@@ -1,0 +1,14 @@
+id: gemini-cli
+display:
+  name: Gemini CLI
+  color: "#4285F4"
+  website: "https://github.com/google-gemini/gemini-cli"
+category: free
+priority: 20
+aliases: [gc]
+transport:
+  base_url: "https://cloudcode-pa.googleapis.com/v1internal"
+  format: openai
+  auth: bearer
+executor: gemini-cli
+capabilities: [chat]

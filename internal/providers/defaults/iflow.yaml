@@ -1,0 +1,13 @@
+id: iflow
+display:
+  name: iFlow AI
+  color: "#6366F1"
+  website: "https://iflow.cn"
+category: oauth
+priority: 110
+aliases: [if]
+transport:
+  base_url: "https://apis.iflow.cn"
+  format: openai
+  auth: bearer
+capabilities: [chat]

@@ -1,0 +1,14 @@
+id: opencode-go
+display:
+  name: OpenCode Go
+  color: "#E87040"
+  website: "https://opencode.ai/auth"
+  api_key_url: "https://opencode.ai/auth"
+category: apikey
+priority: 210
+aliases: [ocg]
+transport:
+  base_url: "https://opencode.ai/zen/go"
+  format: openai
+  auth: bearer
+capabilities: [chat]

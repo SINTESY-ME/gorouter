@@ -1,0 +1,13 @@
+id: glm-cn
+display:
+  name: GLM (China)
+  color: "#DC2626"
+  website: "https://open.bigmodel.cn"
+  api_key_url: "https://open.bigmodel.cn/usercenter/apikeys"
+category: apikey
+priority: 130
+transport:
+  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
+  format: openai
+  auth: bearer
+capabilities: [chat]

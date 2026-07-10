@@ -1,0 +1,13 @@
+id: github
+display:
+  name: GitHub Copilot
+  color: "#333333"
+  website: "https://github.com/features/copilot"
+category: oauth
+priority: 40
+aliases: [gh]
+transport:
+  base_url: "https://api.githubcopilot.com"
+  format: openai
+  auth: bearer
+capabilities: [chat]

@@ -1,0 +1,13 @@
+id: codebuddy-cn
+display:
+  name: CodeBuddy CN
+  color: "#006EFF"
+  website: "https://copilot.tencent.com"
+category: oauth
+priority: 90
+aliases: [cbcn]
+transport:
+  base_url: "https://copilot.tencent.com/v2"
+  format: openai
+  auth: bearer
+capabilities: [chat]

@@ -2,12 +2,11 @@ id: opencode
 display:
   name: OpenCode Free
   color: "#E87040"
-  website: https://opencode.ai
 category: free
 priority: 40
 aliases: [oc]
 transport:
-  base_url: https://opencode.ai
+  base_url: "https://opencode.ai"
   format: openai
   auth: bearer
   headers:
@@ -15,5 +14,5 @@ transport:
 no_auth: true
 capabilities: [chat]
 models_fetcher:
-  url: https://opencode.ai/zen/v1/models
+  url: "https://opencode.ai/zen/v1/models"
   type: openai

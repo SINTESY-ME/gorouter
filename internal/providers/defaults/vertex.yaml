@@ -1,0 +1,15 @@
+id: vertex
+display:
+  name: Vertex AI
+  color: "#4285F4"
+  website: "https://cloud.google.com/vertex-ai"
+  api_key_url: "https://console.cloud.google.com/iam-admin/serviceaccounts"
+category: freeTier
+priority: 40
+aliases: [vx]
+transport:
+  base_url: "https://aiplatform.googleapis.com"
+  format: openai
+  auth: bearer
+executor: vertex
+capabilities: [chat]

@@ -2,15 +2,12 @@ id: together
 display:
   name: Together AI
   color: "#0F6FFF"
-  website: https://together.ai
-  api_key_url: https://api.together.xyz/settings/api-keys
+  website: "https://www.together.ai"
+  api_key_url: "https://api.together.xyz/settings/api-keys"
 category: apikey
 priority: 60
 transport:
-  base_url: https://api.together.xyz
+  base_url: "https://api.together.xyz"
   format: openai
   auth: bearer
-capabilities: [chat, embeddings, images]
-models_fetcher:
-  url: https://api.together.xyz/v1/models
-  type: openai
+capabilities: [chat]

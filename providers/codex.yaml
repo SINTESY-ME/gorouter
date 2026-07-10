@@ -1,0 +1,13 @@
+id: codex
+display:
+  name: OpenAI Codex
+  color: "#3B82F6"
+  website: "https://chatgpt.com/codex"
+category: oauth
+priority: 30
+aliases: [cx]
+transport:
+  base_url: "https://chatgpt.com/backend-api/codex/responses"
+  format: responses
+  auth: bearer
+capabilities: [chat]

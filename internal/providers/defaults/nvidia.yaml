@@ -1,0 +1,13 @@
+id: nvidia
+display:
+  name: NVIDIA NIM
+  color: "#76B900"
+  website: "https://developer.nvidia.com/nim"
+  api_key_url: "https://build.nvidia.com/settings/api-keys"
+category: freeTier
+priority: 20
+transport:
+  base_url: "https://integrate.api.nvidia.com"
+  format: openai
+  auth: bearer
+capabilities: [chat]

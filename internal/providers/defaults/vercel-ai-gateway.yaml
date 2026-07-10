@@ -1,0 +1,17 @@
+id: vercel-ai-gateway
+display:
+  name: Vercel AI Gateway
+  color: "#111827"
+  website: "https://vercel.com/ai-gateway"
+  api_key_url: "https://vercel.com/dashboard/~/ai-gateway"
+category: apikey
+priority: 160
+aliases: [vercel]
+transport:
+  base_url: "https://ai-gateway.vercel.sh"
+  format: openai
+  auth: bearer
+capabilities: [chat]
+models_fetcher:
+  url: "https://ai-gateway.vercel.sh/v1/models"
+  type: openai

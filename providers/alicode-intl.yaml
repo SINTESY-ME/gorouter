@@ -1,0 +1,13 @@
+id: alicode-intl
+display:
+  name: Alibaba Intl
+  color: "#FF6A00"
+  website: "https://modelstudio.console.alibabacloud.com"
+  api_key_url: "https://modelstudio.console.alibabacloud.com/?apiKey=1"
+category: apikey
+priority: 10
+transport:
+  base_url: "https://coding-intl.dashscope.aliyuncs.com"
+  format: openai
+  auth: bearer
+capabilities: [chat]

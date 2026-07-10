@@ -1,0 +1,14 @@
+id: grok-web
+display:
+  name: Grok Web (Subscription)
+  color: "#1DA1F2"
+  website: "https://grok.com"
+category: webCookie
+priority: 150
+aliases: [gw]
+transport:
+  base_url: "https://grok.com/rest/app-chat/conversations/new"
+  format: openai
+  auth: bearer
+executor: grok-web
+capabilities: [chat]

@@ -1,0 +1,14 @@
+id: xiaomi-tokenplan
+display:
+  name: Xiaomi MiMo (Token Plan)
+  color: "#FF6700"
+  website: "https://mimo.xiaomi.com"
+  api_key_url: "https://mimo.xiaomi.com"
+category: apikey
+priority: 300
+aliases: [xmtp]
+transport:
+  base_url: "https://token-plan-sgp.xiaomimimo.com"
+  format: openai
+  auth: bearer
+capabilities: [chat]

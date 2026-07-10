@@ -1,0 +1,15 @@
+id: minimax-cn
+display:
+  name: Minimax (China)
+  color: "#DC2626"
+  website: "https://www.minimaxi.com"
+  api_key_url: "https://platform.minimaxi.com/user-center/basic-information/interface-key"
+category: apikey
+priority: 190
+transport:
+  base_url: "https://api.minimaxi.com/anthropic"
+  format: anthropic
+  auth: x-api-key
+  headers:
+    Anthropic-Version: 2023-06-01
+capabilities: [chat]

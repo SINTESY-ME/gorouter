@@ -1,0 +1,14 @@
+id: kiro
+display:
+  name: Kiro AI
+  color: "#FF6B35"
+  website: "https://kiro.dev"
+category: free
+priority: 10
+aliases: [kr]
+transport:
+  base_url: "https://runtime.us-east-1.kiro.dev/generateAssistantResponse"
+  format: openai
+  auth: bearer
+executor: kiro
+capabilities: [chat]

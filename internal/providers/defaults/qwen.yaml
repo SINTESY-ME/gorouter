@@ -1,0 +1,13 @@
+id: qwen
+display:
+  name: Qwen Code
+  color: "#10B981"
+  website: "https://chat.qwen.ai"
+category: oauth
+priority: 130
+aliases: [qw]
+transport:
+  base_url: "https://portal.qwen.ai"
+  format: openai
+  auth: bearer
+capabilities: [chat]

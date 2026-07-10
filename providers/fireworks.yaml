@@ -1,0 +1,13 @@
+id: fireworks
+display:
+  name: Fireworks AI
+  color: "#7B2EF2"
+  website: "https://fireworks.ai"
+  api_key_url: "https://fireworks.ai/account/api-keys"
+category: apikey
+priority: 50
+transport:
+  base_url: "https://api.fireworks.ai/inference"
+  format: openai
+  auth: bearer
+capabilities: [chat]

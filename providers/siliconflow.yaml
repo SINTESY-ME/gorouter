@@ -1,0 +1,13 @@
+id: siliconflow
+display:
+  name: SiliconFlow
+  color: "#5B6EF5"
+  website: "https://cloud.siliconflow.com"
+  api_key_url: "https://cloud.siliconflow.com/account/ak"
+category: apikey
+priority: 250
+transport:
+  base_url: "https://api.siliconflow.com"
+  format: openai
+  auth: bearer
+capabilities: [chat]

@@ -1,0 +1,15 @@
+id: commandcode
+display:
+  name: Command Code
+  color: "#000000"
+  website: "https://commandcode.ai"
+  api_key_url: "https://commandcode.ai/studio"
+category: apikey
+priority: 100
+aliases: [cmc]
+transport:
+  base_url: "https://api.commandcode.ai/alpha/generate"
+  format: openai
+  auth: bearer
+executor: commandcode
+capabilities: [chat]

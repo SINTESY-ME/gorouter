@@ -1,0 +1,17 @@
+id: venice
+display:
+  name: Venice AI
+  color: "#DC2626"
+  website: "https://venice.ai"
+  api_key_url: "https://venice.ai/settings/api"
+category: apikey
+priority: 115
+aliases: [vn]
+transport:
+  base_url: "https://api.venice.ai/api"
+  format: openai
+  auth: bearer
+capabilities: [chat]
+models_fetcher:
+  url: "https://api.venice.ai/api/v1/models"
+  type: openai

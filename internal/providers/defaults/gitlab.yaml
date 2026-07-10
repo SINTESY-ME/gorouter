@@ -1,0 +1,12 @@
+id: gitlab
+display:
+  name: GitLab Duo
+  color: "#FC6D26"
+  website: "https://gitlab.com"
+category: oauth
+priority: 100
+transport:
+  base_url: "https://gitlab.com/api/v4"
+  format: openai
+  auth: bearer
+capabilities: [chat]

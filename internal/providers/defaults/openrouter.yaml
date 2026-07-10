@@ -1,19 +1,19 @@
 id: openrouter
 display:
   name: OpenRouter
-  color: "#6566F1"
-  website: https://openrouter.ai
-  api_key_url: https://openrouter.ai/keys
+  color: "#F97316"
+  website: "https://openrouter.ai"
+  api_key_url: "https://openrouter.ai/settings/keys"
 category: freeTier
 priority: 10
 transport:
-  base_url: https://openrouter.ai/api
+  base_url: "https://openrouter.ai/api"
   format: openai
   auth: bearer
   headers:
-    HTTP-Referer: https://github.com/SINTESY-ME/gorouter
-    X-Title: gorouter
+    HTTP-Referer: "https://endpoint-proxy.local"
+    X-Title: Endpoint Proxy
 capabilities: [chat]
 models_fetcher:
-  url: https://openrouter.ai/api/v1/models
+  url: "https://openrouter.ai/api/v1/models"
   type: openai

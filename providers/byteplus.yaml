@@ -1,0 +1,14 @@
+id: byteplus
+display:
+  name: BytePlus ModelArk
+  color: "#2563EB"
+  website: "https://console.byteplus.com/ark"
+  api_key_url: "https://console.byteplus.com/ark/region:ark+ap-southeast-1/apiKey"
+category: freeTier
+priority: 70
+aliases: [bpm]
+transport:
+  base_url: "https://ark.ap-southeast.bytepluses.com/api/coding/v3"
+  format: openai
+  auth: bearer
+capabilities: [chat]

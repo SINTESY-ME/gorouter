@@ -1,0 +1,13 @@
+id: cohere
+display:
+  name: Cohere
+  color: "#39594D"
+  website: "https://cohere.com"
+  api_key_url: "https://dashboard.cohere.com/api-keys"
+category: apikey
+priority: 90
+transport:
+  base_url: "https://api.cohere.ai"
+  format: openai
+  auth: bearer
+capabilities: [chat]

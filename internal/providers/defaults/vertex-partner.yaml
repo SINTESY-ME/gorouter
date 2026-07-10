@@ -1,0 +1,14 @@
+id: vertex-partner
+display:
+  name: Vertex Partner
+  color: "#34A853"
+  website: "https://cloud.google.com/vertex-ai/generative-ai/docs/partner-models/use-partner-models"
+  api_key_url: "https://console.cloud.google.com/iam-admin/serviceaccounts"
+category: apikey
+priority: 260
+aliases: [vxp]
+transport:
+  base_url: "https://aiplatform.googleapis.com"
+  format: openai
+  auth: bearer
+capabilities: [chat]

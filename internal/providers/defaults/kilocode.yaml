@@ -1,0 +1,16 @@
+id: kilocode
+display:
+  name: Kilo Code
+  color: "#FF6B35"
+  website: "https://kilocode.ai"
+category: oauth
+priority: 70
+aliases: [kc]
+transport:
+  base_url: "https://api.kilo.ai/api/openrouter"
+  format: openai
+  auth: bearer
+capabilities: [chat]
+models_fetcher:
+  url: "https://api.kilo.ai/api/gateway/models"
+  type: openai

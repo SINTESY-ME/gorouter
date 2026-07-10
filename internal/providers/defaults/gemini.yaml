@@ -1,16 +1,13 @@
 id: gemini
 display:
-  name: Google Gemini
+  name: Gemini
   color: "#4285F4"
-  website: https://ai.google.dev
-  api_key_url: https://aistudio.google.com/apikey
+  website: "https://ai.google.dev"
+  api_key_url: "https://aistudio.google.com/app/apikey"
 category: freeTier
 priority: 50
 transport:
-  base_url: https://generativelanguage.googleapis.com
+  base_url: "https://generativelanguage.googleapis.com"
   format: gemini
   auth: bearer
-capabilities: [chat, embeddings]
-models_fetcher:
-  url: https://generativelanguage.googleapis.com/v1beta/models
-  type: gemini
+capabilities: [chat]

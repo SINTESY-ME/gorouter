@@ -1,0 +1,15 @@
+id: kimi
+display:
+  name: Kimi
+  color: "#1E3A8A"
+  website: "https://kimi.moonshot.cn"
+  api_key_url: "https://platform.moonshot.ai/console/api-keys"
+category: apikey
+priority: 170
+transport:
+  base_url: "https://api.kimi.com/coding"
+  format: anthropic
+  auth: x-api-key
+  headers:
+    Anthropic-Version: 2023-06-01
+capabilities: [chat]

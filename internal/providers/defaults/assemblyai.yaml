@@ -1,0 +1,14 @@
+id: assemblyai
+display:
+  name: AssemblyAI
+  color: "#0062FF"
+  website: "https://assemblyai.com"
+  api_key_url: "https://www.assemblyai.com/app/api-keys"
+category: apikey
+priority: 30
+aliases: [aai]
+transport:
+  base_url: "https://api.assemblyai.com"
+  format: openai
+  auth: bearer
+capabilities: [stt]

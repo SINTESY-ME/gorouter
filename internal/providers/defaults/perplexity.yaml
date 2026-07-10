@@ -1,0 +1,14 @@
+id: perplexity
+display:
+  name: Perplexity
+  color: "#20808D"
+  website: "https://www.perplexity.ai"
+  api_key_url: "https://www.perplexity.ai/settings/api"
+category: apikey
+priority: 180
+aliases: [pplx]
+transport:
+  base_url: "https://api.perplexity.ai"
+  format: openai
+  auth: bearer
+capabilities: [chat]

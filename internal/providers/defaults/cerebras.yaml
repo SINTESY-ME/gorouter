@@ -1,0 +1,13 @@
+id: cerebras
+display:
+  name: Cerebras
+  color: "#FF4F00"
+  website: "https://www.cerebras.ai"
+  api_key_url: "https://cloud.cerebras.ai/platform"
+category: apikey
+priority: 60
+transport:
+  base_url: "https://api.cerebras.ai"
+  format: openai
+  auth: bearer
+capabilities: [chat]

@@ -1,0 +1,16 @@
+id: mimo-free
+display:
+  name: MiMo Code Free
+  color: "#FF6900"
+category: free
+priority: 50
+aliases: [mmf]
+transport:
+  base_url: "https://api.xiaomimimo.com/api/free-ai/openai/chat"
+  format: openai
+  auth: bearer
+no_auth: true
+capabilities: [chat]
+models_fetcher:
+  url: "https://models.dev/api.json"
+  type: openai

@@ -1,0 +1,13 @@
+id: alicode
+display:
+  name: Alibaba
+  color: "#FF6A00"
+  website: "https://bailian.console.aliyun.com"
+  api_key_url: "https://bailian.console.aliyun.com/?apiKey=1"
+category: apikey
+priority: 20
+transport:
+  base_url: "https://coding.dashscope.aliyuncs.com"
+  format: openai
+  auth: bearer
+capabilities: [chat]

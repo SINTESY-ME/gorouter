@@ -1,0 +1,13 @@
+id: qoder
+display:
+  name: Qoder
+  color: "#EC4899"
+  website: "https://qoder.com"
+category: free
+priority: 30
+aliases: [qd]
+transport:
+  base_url: "https://api3.qoder.sh/algo/api/v2/service/pro/sse/agent_chat_generation"
+  format: openai
+  auth: bearer
+capabilities: [chat]

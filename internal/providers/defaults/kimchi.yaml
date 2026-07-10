@@ -1,0 +1,12 @@
+id: kimchi
+display:
+  name: Kimchi
+  color: "#FF521D"
+  website: "https://kimchi.dev"
+category: oauth
+priority: 95
+transport:
+  base_url: "https://llm.kimchi.dev/openai"
+  format: openai
+  auth: bearer
+capabilities: [chat]

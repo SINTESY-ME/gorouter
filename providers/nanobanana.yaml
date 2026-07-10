@@ -1,0 +1,14 @@
+id: nanobanana
+display:
+  name: NanoBanana API
+  color: "#FFD700"
+  website: "https://nanobananaapi.ai"
+  api_key_url: "https://nanobananaapi.ai/dashboard"
+category: apikey
+priority: 80
+aliases: [nb]
+transport:
+  base_url: "https://api.nanobananaapi.ai"
+  format: openai
+  auth: bearer
+capabilities: [images]

@@ -1,0 +1,14 @@
+id: perplexity-web
+display:
+  name: Perplexity Web (Pro/Max)
+  color: "#20808D"
+  website: "https://www.perplexity.ai"
+category: webCookie
+priority: 220
+aliases: [pw]
+transport:
+  base_url: "https://www.perplexity.ai/rest/sse/perplexity_ask"
+  format: openai
+  auth: bearer
+executor: perplexity-web
+capabilities: [chat]

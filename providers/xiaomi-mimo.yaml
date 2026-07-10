@@ -1,0 +1,14 @@
+id: xiaomi-mimo
+display:
+  name: Xiaomi MiMo
+  color: "#FF6900"
+  website: "https://xiaomimimo.com"
+  api_key_url: "https://xiaomimimo.com"
+category: apikey
+priority: 290
+aliases: [mimo]
+transport:
+  base_url: "https://api.xiaomimimo.com"
+  format: openai
+  auth: bearer
+capabilities: [chat]

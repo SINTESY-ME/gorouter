@@ -1,0 +1,14 @@
+id: volcengine-ark
+display:
+  name: Volcengine Ark
+  color: "#1677FF"
+  website: "https://ark.cn-beijing.volces.com"
+  api_key_url: "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey"
+category: apikey
+priority: 270
+aliases: [ark]
+transport:
+  base_url: "https://ark.cn-beijing.volces.com/api/coding/v3"
+  format: openai
+  auth: bearer
+capabilities: [chat]

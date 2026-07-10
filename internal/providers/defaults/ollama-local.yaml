@@ -1,0 +1,12 @@
+id: ollama-local
+display:
+  name: Ollama Local
+  color: "#ffffffff"
+  website: "https://ollama.com"
+category: apikey
+priority: 50
+transport:
+  base_url: "http://localhost:11434"
+  format: openai
+  auth: bearer
+capabilities: [chat]

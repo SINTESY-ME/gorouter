@@ -1,0 +1,14 @@
+id: deepgram
+display:
+  name: Deepgram
+  color: "#13EF93"
+  website: "https://deepgram.com"
+  api_key_url: "https://console.deepgram.com/api-keys"
+category: apikey
+priority: 20
+aliases: [dg]
+transport:
+  base_url: "https://api.deepgram.com"
+  format: openai
+  auth: bearer
+capabilities: [stt]

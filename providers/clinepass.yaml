@@ -1,0 +1,15 @@
+id: clinepass
+display:
+  name: ClinePass
+  color: "#5B9BD5"
+  website: "https://cline.bot"
+category: oauth
+priority: 85
+transport:
+  base_url: "https://api.cline.bot/api"
+  format: openai
+  auth: bearer
+  headers:
+    HTTP-Referer: "https://cline.bot"
+    X-Title: Cline
+capabilities: [chat]

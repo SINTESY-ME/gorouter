@@ -1,0 +1,15 @@
+id: glm
+display:
+  name: GLM Coding
+  color: "#2563EB"
+  website: "https://open.bigmodel.cn"
+  api_key_url: "https://open.bigmodel.cn/usercenter/apikeys"
+category: apikey
+priority: 140
+transport:
+  base_url: "https://api.z.ai/api/anthropic"
+  format: anthropic
+  auth: x-api-key
+  headers:
+    Anthropic-Version: 2023-06-01
+capabilities: [chat]

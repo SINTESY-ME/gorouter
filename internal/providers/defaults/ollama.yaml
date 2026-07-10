@@ -1,16 +1,13 @@
 id: ollama
 display:
   name: Ollama Cloud
-  color: "#FFFFFF"
-  website: https://ollama.com
-  api_key_url: https://ollama.com/settings/keys
+  color: "#ffffffff"
+  website: "https://ollama.com"
+  api_key_url: "https://ollama.com/settings/keys"
 category: freeTier
 priority: 30
 transport:
-  base_url: https://ollama.com
+  base_url: "https://ollama.com"
   format: openai
   auth: bearer
-capabilities: [chat, embeddings]
-models_fetcher:
-  url: https://ollama.com/v1/models
-  type: openai
+capabilities: [chat]

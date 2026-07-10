@@ -1,0 +1,14 @@
+id: chutes
+display:
+  name: Chutes AI
+  color: "#ffffffff"
+  website: "https://chutes.ai"
+  api_key_url: "https://chutes.ai/app/api"
+category: apikey
+priority: 70
+aliases: [ch]
+transport:
+  base_url: "https://llm.chutes.ai"
+  format: openai
+  auth: bearer
+capabilities: [chat]
