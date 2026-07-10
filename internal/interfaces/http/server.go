@@ -125,6 +125,7 @@ func (s *Server) Routes() http.Handler {
 		// Callback is public (browser redirect) — registered outside auth group below
 
 		r.Get("/models", s.handleListModelsDashboard)
+		r.Get("/models/stats", s.handleModelStats)
 		r.Put("/models/*", s.handleUpdateModel)
 		r.Delete("/models/*", s.handleDeleteModel)
 

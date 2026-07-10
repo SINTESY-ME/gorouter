@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import {
   Input, Spinner, Chip, Button, Modal, ModalContent, ModalHeader,
-  ModalBody, ModalFooter, Select, SelectItem, Switch, useDisclosure,
+  ModalBody, ModalFooter, Select, SelectItem, useDisclosure,
 } from "@heroui/react";
-import { api, type ModelEntry, type Provider } from "../api";
+import { api, type ModelEntry, type Provider, type ModelStat } from "../api";
 
 const KINDS = ["llm", "embedding", "image", "tts", "stt", "rerank", "ocr", "video"];
 
@@ -20,6 +20,7 @@ const kindColor = (k: string): "primary" | "success" | "warning" | "danger" | "s
 
 export default function Models() {
   const [items, setItems] = useState<ModelEntry[]>([]);
+  const [stats, setStats] = useState<Record<string, ModelStat>>({});
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -28,33 +29,6 @@ export default function Models() {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [addProviderId, setAddProviderId] = useState<string>("");
   const [addForm, setAddForm] = useState({ model_id: "", name: "", kind: "llm", context: 0 });
-
-  const load = useCallback(() => {
-    setLoading(true);
-    setError(null);
-    Promise.all([
-      api.providers.list().catch(() => []),
-      Promise.all(
-        (items.length === 0 ? [] : Array.from(new Set(items.map((m) => m.provider_id)))).map(
-          (pid) => api.providers.models(pid).catch(() => [] as ModelEntry[])
-        )
-      ),
-    ]).then(([ps]) => {
-      setProviders(ps as Provider[]);
-      // Load models for all active providers
-      const active = (ps as Provider[]).filter((p) => p.is_active);
-      Promise.all(active.map((p) => api.providers.models(p.id).catch(() => [] as ModelEntry[])))
-        .then((results) => {
-          const all: ModelEntry[] = [];
-          results.forEach((r) => all.push(...r));
-          setItems(all);
-        })
-        .finally(() => setLoading(false));
-    }).catch((e) => {
-      setError(e?.message ?? "falha ao carregar");
-      setLoading(false);
-    });
-  }, [items.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,6 +43,7 @@ export default function Models() {
           const all: ModelEntry[] = [];
           results.forEach((r) => all.push(...r));
           setItems(all);
+          api.models.stats().then(setStats).catch(() => {});
         });
     }).catch((e) => setError(e?.message ?? "falha"))
       .finally(() => setLoading(false));
@@ -118,7 +93,7 @@ export default function Models() {
   const toggleActive = async (m: ModelEntry) => {
     try {
       await api.models.update(m.id, { is_active: !m.is_active });
-      setItems((prev) => prev.map((x) => x.id === m.id ? { ...x, IsActive: !x.is_active } : x));
+      setItems((prev) => prev.map((x) => x.id === m.id ? { ...x, is_active: !x.is_active } : x));
     } catch (e: any) { setError(e?.message); }
   };
 
@@ -149,6 +124,12 @@ export default function Models() {
       setItems((prev) => [...prev, entry]);
       onClose();
     } catch (e: any) { setError(e?.message); }
+  };
+
+  // Extract bare model id for stats lookup (strip provider prefix)
+  const statKey = (m: ModelEntry) => {
+    const parts = m.id.split("/");
+    return parts.length > 1 ? parts[1] : m.id;
   };
 
   if (loading) {
@@ -187,7 +168,7 @@ export default function Models() {
       <div className="space-y-6">
         {groups.map((g) => (
           <div key={g.providerId}>
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-3">
               <Chip size="sm" variant="flat" color="default" className="font-mono">{g.providerId}</Chip>
               <span className="text-xs text-default-400">{g.models.length} modelo{g.models.length === 1 ? "" : "s"}</span>
               <div className="flex gap-1 ml-auto">
@@ -197,18 +178,52 @@ export default function Models() {
                 <Button size="sm" variant="flat" color="primary" onPress={() => openAdd(g.providerId)}>+ Model</Button>
               </div>
             </div>
-            <div className="space-y-1">
-              {g.models.map((m) => (
-                <div key={m.id} className="flex items-center gap-2 bg-content1 border border-default-100 rounded-lg px-3 py-2">
-                  <code className="text-sm font-mono flex-1 truncate">{m.id}</code>
-                  <Chip size="sm" variant="flat" color={kindColor(m.kind)}>{m.kind}</Chip>
-                  <Chip size="sm" variant="bordered">{m.source}</Chip>
-                  <Switch size="sm" isSelected={m.is_active} onChange={() => toggleActive(m)} />
-                  <Button isIconOnly size="sm" variant="light" color="danger" onPress={() => removeModel(m)} aria-label="excluir">
-                    <IconTrash />
-                  </Button>
-                </div>
-              ))}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+              {g.models.map((m) => {
+                const st = stats[statKey(m)] || stats[m.id];
+                return (
+                  <div
+                    key={m.id}
+                    className="group relative bg-content1 border border-default-100 rounded-xl p-3 hover:border-default-200 transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <code className="text-sm font-mono truncate flex-1" title={m.id}>{m.id}</code>
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 mt-1 ${m.is_active ? "bg-success" : "bg-default-300"}`}
+                        title={m.is_active ? "ativo" : "inativo"}
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-2">
+                      <Chip size="sm" variant="flat" color={kindColor(m.kind)} className="h-5 text-[10px]">{m.kind}</Chip>
+                      <span className="text-[10px] text-default-400">{m.source}</span>
+                    </div>
+                    {st && st.requests > 0 && (
+                      <div className="flex items-center gap-3 mt-2 text-[10px] text-default-500">
+                        <span className="tabular-nums">{st.avg_tps > 0 ? `${st.avg_tps.toFixed(1)} tok/s` : "—"}</span>
+                        <span className="tabular-nums">{st.avg_latency_ms > 0 ? `${Math.round(st.avg_latency_ms)}ms` : "—"}</span>
+                        <span className="tabular-nums">{st.requests}x</span>
+                      </div>
+                    )}
+                    {/* Hover actions */}
+                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5">
+                      <button
+                        onClick={() => toggleActive(m)}
+                        className="w-6 h-6 rounded-md hover:bg-default-100 flex items-center justify-center"
+                        title={m.is_active ? "Desativar" : "Ativar"}
+                      >
+                        <IconPower active={m.is_active} />
+                      </button>
+                      <button
+                        onClick={() => removeModel(m)}
+                        className="w-6 h-6 rounded-md hover:bg-danger-100 text-danger flex items-center justify-center"
+                        title="Excluir"
+                      >
+                        <IconTrash />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         ))}
@@ -226,7 +241,6 @@ export default function Models() {
             <Input type="number" label="Context (opcional)" value={String(addForm.context)} onValueChange={(v) => setAddForm({ ...addForm, context: parseInt(v) || 0 })} />
           </ModalBody>
           <ModalFooter>
-            <Button variant="flat" onPress={onClose}>Cancelar</Button>
             <Button color="primary" onPress={submitAdd} isDisabled={!addForm.model_id}>Adicionar</Button>
           </ModalFooter>
         </ModalContent>
@@ -240,4 +254,11 @@ function IconSearch() {
 }
 function IconTrash() {
   return <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1.5 14a2 2 0 0 1-2 2H8.5a2 2 0 0 1-2-2L5 6" /></svg>;
+}
+function IconPower({ active }: { active: boolean }) {
+  return (
+    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: active ? "#22c55e" : "#999" }}>
+      <path d="M12 2v10" /><path d="M18.4 6.6a9 9 0 1 1-12.77.04" />
+    </svg>
+  );
 }

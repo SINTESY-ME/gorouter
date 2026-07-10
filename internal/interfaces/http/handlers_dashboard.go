@@ -505,6 +505,19 @@ func (s *Server) handleListModelsDashboard(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, models)
 }
 
+// handleModelStats returns per-model performance stats (avg TPS, latency, requests).
+func (s *Server) handleModelStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := s.Usage.Repo.ModelStats(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if stats == nil {
+		stats = map[string]*domain.ModelStat{}
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
 // ---- helpers ----
 
 func decodeJSON(r *http.Request, v any) error {

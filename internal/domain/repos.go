@@ -42,6 +42,8 @@ type UsageRepo interface {
 	Stats(ctx context.Context, period string) (*UsageStats, error)
 	// History returns raw entries, newest first, limited.
 	History(ctx context.Context, limit int) ([]UsageEntry, error)
+	// ModelStats returns per-model aggregate stats (avg TPS, avg latency, requests).
+	ModelStats(ctx context.Context) (map[string]*ModelStat, error)
 }
 
 // ModelRepo persists the model catalog (synced + manual entries).
@@ -85,4 +87,11 @@ type UsageDailyPoint struct {
 	Requests int    `json:"requests"`
 	Tokens   int    `json:"tokens"`
 	Cost     float64 `json:"cost"`
+}
+
+// ModelStat is per-model aggregate performance data.
+type ModelStat struct {
+	AvgTPS      float64 `json:"avg_tps"`
+	AvgLatencyMs int64  `json:"avg_latency_ms"`
+	Requests    int     `json:"requests"`
 }

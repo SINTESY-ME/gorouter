@@ -47,22 +47,31 @@ export default function Logs() {
               <TableColumn>MODELO</TableColumn>
               <TableColumn>ENDPOINT</TableColumn>
               <TableColumn>TOKENS</TableColumn>
+              <TableColumn>TPS</TableColumn>
               <TableColumn>LATÊNCIA</TableColumn>
               <TableColumn>STATUS</TableColumn>
             </TableHeader>
             <TableBody items={paged}>
-              {(e) => (
+              {(e) => {
+                const totalTokens = e.prompt_tokens + e.completion_tokens;
+                const lat = e.latency_ms || 0;
+                const tps = lat > 0 && e.completion_tokens > 0
+                  ? (e.completion_tokens * 1000 / lat).toFixed(1)
+                  : null;
+                return (
                 <TableRow key={e.id}>
                   <TableCell><span className="text-xs text-default-500">{new Date(e.timestamp).toLocaleString()}</span></TableCell>
                   <TableCell>{e.combo_name ? <code className="text-xs">{e.combo_name}</code> : <span className="text-default-400">—</span>}</TableCell>
                   <TableCell>{e.provider}</TableCell>
                   <TableCell><code className="text-xs">{e.model}</code></TableCell>
                   <TableCell><code className="text-xs text-default-500">{e.endpoint}</code></TableCell>
-                  <TableCell className="tabular-nums">{e.prompt_tokens + e.completion_tokens}</TableCell>
-                  <TableCell><span className="tabular-nums text-xs">{e.latency_ms ? `${e.latency_ms}ms` : "—"}</span></TableCell>
+                  <TableCell className="tabular-nums">{totalTokens}</TableCell>
+                  <TableCell><span className="tabular-nums text-xs">{tps ? `${tps}` : "—"}</span></TableCell>
+                  <TableCell><span className="tabular-nums text-xs">{lat > 0 ? `${lat}ms` : "—"}</span></TableCell>
                   <TableCell><Chip size="sm" color={statusColor(e.status)} variant="flat">{e.status}</Chip></TableCell>
                 </TableRow>
-              )}
+                );
+              }}
             </TableBody>
           </Table>
         )}

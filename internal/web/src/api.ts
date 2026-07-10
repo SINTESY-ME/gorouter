@@ -87,6 +87,11 @@ export interface ProviderDef {
   capabilities?: string[];
   installed?: boolean;
 }
+export interface ModelStat {
+  avg_tps: number;
+  avg_latency_ms: number;
+  requests: number;
+}
 export interface StoreEntry {
   id: string;
   name: string;
@@ -136,6 +141,7 @@ export const api = {
   },
   models: {
     list: () => request<ModelInfo[]>("/api/models"),
+    stats: () => request<Record<string, ModelStat>>("/api/models/stats"),
     update: (id: string, m: { is_active?: boolean; kind?: string; name?: string }) =>
       request<ModelEntry>(`/api/models/${id}`, { method: "PUT", body: JSON.stringify(m) }),
     remove: (id: string) => request<void>(`/api/models/${id}`, { method: "DELETE" }),

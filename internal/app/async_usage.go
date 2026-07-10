@@ -60,6 +60,10 @@ func (r *AsyncUsageRecorder) History(ctx context.Context, limit int) ([]domain.U
 	return r.repo.History(ctx, limit)
 }
 
+func (r *AsyncUsageRecorder) ModelStats(ctx context.Context) (map[string]*domain.ModelStat, error) {
+	return r.repo.ModelStats(ctx)
+}
+
 // Close drains pending entries. Call during graceful shutdown.
 func (r *AsyncUsageRecorder) Close() {
 	close(r.entries)
