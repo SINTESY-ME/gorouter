@@ -51,7 +51,11 @@ func (g *GeminiCLI) client() *http.Client {
 
 func (g *GeminiCLI) ID() string                 { return "gemini-cli" }
 func (g *GeminiCLI) UsesPKCE() bool             { return false }
-func (g *GeminiCLI) DefaultRedirectURI() string { return "http://localhost:20128/api/oauth/gemini-cli/callback" }
+
+// DefaultRedirectURI is a loopback URL. The Google OAuth client accepts
+// any localhost port. We use port 1 (nothing listens) so the browser shows
+// the code in the URL bar for manual copy-paste on remote dashboards.
+func (g *GeminiCLI) DefaultRedirectURI() string { return "http://localhost:1/callback" }
 
 func (g *GeminiCLI) AuthURL(redirectURI, state, _ string) string {
 	if redirectURI == "" {

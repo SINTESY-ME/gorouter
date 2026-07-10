@@ -301,23 +301,26 @@ export default function Providers() {
             {step === "oauth" && (
               <>
                 <Button size="sm" variant="light" className="self-start" onPress={() => setStep("pick")}>← voltar</Button>
-                <p className="text-sm text-default-600">
-                  Conecte <strong>{oauthProvider}</strong> via OAuth. Uma janela deve ter aberto para login.
-                </p>
+                <div className="bg-primary/10 rounded-lg p-3 text-sm space-y-1">
+                  <p className="font-medium">Conectando <strong>{oauthProvider}</strong></p>
+                  <p className="text-default-600">
+                    1. Uma janela de login foi aberta no seu navegador<br/>
+                    2. Após autorizar, o navegador vai tentar abrir <code className="text-xs">localhost</code> e mostrar um erro<br/>
+                    3. Isso é esperado! Copie a URL completa da barra de endereços<br/>
+                    4. Cole abaixo e clique em <strong>Conectar</strong>
+                  </p>
+                </div>
                 {oauthAuthURL && (
                   <a href={oauthAuthURL} target="_blank" rel="noreferrer" className="text-sm text-primary underline break-all">
                     Abrir login novamente
                   </a>
                 )}
-                <p className="text-xs text-default-500">
-                  Após autorizar, o browser redireciona para localhost. Se a conexão não fechar sozinha,
-                  copie o <code>code</code> da URL (ou a URL inteira) e cole abaixo.
-                </p>
                 <Input
-                  label="Authorization code"
-                  placeholder="code=... ou cole a URL de callback"
+                  label="URL de callback (cole a URL inteira que apareceu no browser)"
+                  placeholder="http://localhost:1/callback?code=4/0A...&state=..."
                   value={oauthCode}
                   onValueChange={setOauthCode}
+                  description="Ou cole apenas o valor do parâmetro code"
                 />
                 {error && <p className="text-sm text-danger">{error}</p>}
               </>

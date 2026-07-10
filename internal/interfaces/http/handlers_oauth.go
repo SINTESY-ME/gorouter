@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -32,19 +33,9 @@ func (s *Server) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 	}
 	redirect := body.RedirectURI
 	if redirect == "" {
-		// Prefer public callback on this host when available.
-		scheme := "https"
-		if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") != "https" {
-			// still prefer https for production reverse proxies
-			if r.Header.Get("X-Forwarded-Proto") == "http" {
-				scheme = "http"
-			}
-		}
-		if host := r.Header.Get("X-Forwarded-Host"); host != "" {
-			redirect = scheme + "://" + host + "/api/oauth/" + providerID + "/callback"
-		} else if r.Host != "" && providerID != "codex" {
-			redirect = "http://" + r.Host + "/api/oauth/" + providerID + "/callback"
-		}
+		// CLI OAuth clients (codex, gemini-cli) only accept their fixed
+		// localhost redirect URI — never the public dashboard host.
+		redirect = p.DefaultRedirectURI()
 	}
 	authURL, state, err := s.OAuth.Start(providerID, redirect)
 	if err != nil {
@@ -56,8 +47,9 @@ func (s *Server) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 		"state":        state,
 		"redirect_uri": redirect,
 		"uses_pkce":    p.UsesPKCE(),
-		// codex requires fixed localhost:1455 — user may need to paste code
-		"paste_code": providerID == "codex" || true,
+		// CLI OAuth clients use localhost redirects — on a remote dashboard
+		// the browser can't reach our server, so the user must paste the code.
+		"paste_code": true,
 	})
 }
 
@@ -78,14 +70,25 @@ func (s *Server) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	// Allow code as full redirect URL
+	// Allow code as full redirect URL (http://localhost:1/callback?code=4/0A...&state=...)
 	code := body.Code
-	if i := strings.Index(code, "code="); i >= 0 {
-		rest := code[i+5:]
-		if j := strings.IndexAny(rest, "&#"); j >= 0 {
-			rest = rest[:j]
+	if strings.Contains(code, "code=") {
+		// Try parsing as URL first
+		if u, err := url.Parse(code); err == nil && u.Query().Get("code") != "" {
+			code = u.Query().Get("code")
+			if body.State == "" {
+				body.State = u.Query().Get("state")
+			}
+		} else {
+			// Fallback: substring extraction
+			if i := strings.Index(code, "code="); i >= 0 {
+				rest := code[i+5:]
+				if j := strings.IndexAny(rest, "&#"); j >= 0 {
+					rest = rest[:j]
+				}
+				code = rest
+			}
 		}
-		code = rest
 	}
 	if body.State == "" || code == "" {
 		writeError(w, http.StatusBadRequest, "state and code are required")
