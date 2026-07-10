@@ -1,0 +1,16 @@
+id: openai
+display:
+  name: OpenAI
+  color: "#10A37F"
+  website: https://platform.openai.com
+  api_key_url: https://platform.openai.com/api-keys
+category: apikey
+priority: 30
+transport:
+  base_url: https://api.openai.com
+  format: openai
+  auth: bearer
+capabilities: [chat, embeddings, images, tts, stt]
+models_fetcher:
+  url: https://api.openai.com/v1/models
+  type: openai

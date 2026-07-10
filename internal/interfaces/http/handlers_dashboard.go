@@ -27,6 +27,7 @@ type createProviderRequest struct {
 	Auth       string `json:"auth"`
 	Priority   int    `json:"priority"`
 	IsActive   *bool  `json:"is_active"`
+	TemplateID string `json:"template_id"` // optional catalog preset
 }
 
 // ---- Providers ----
@@ -51,6 +52,15 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	// Optional catalog template pre-fills empty fields.
+	if req.TemplateID != "" && s.Catalog != nil {
+		if def := s.Catalog.Lookup(req.TemplateID); def != nil {
+			applyTemplate(def, &req.ProviderID, &req.BaseURL, &req.Format, &req.Auth, &req.APIKey)
+			if req.Name == "" {
+				req.Name = def.Display.Name
+			}
+		}
 	}
 	c := &domain.Connection{
 		ProviderID: req.ProviderID,

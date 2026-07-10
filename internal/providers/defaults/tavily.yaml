@@ -1,0 +1,13 @@
+id: tavily
+display:
+  name: Tavily
+  color: "#4663F6"
+  website: https://tavily.com
+  api_key_url: https://app.tavily.com/home
+category: apikey
+priority: 100
+transport:
+  base_url: https://api.tavily.com
+  format: openai
+  auth: bearer
+capabilities: [search]

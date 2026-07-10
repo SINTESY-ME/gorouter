@@ -4,25 +4,27 @@ import {
   Button, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter,
   Input, Select, SelectItem, Chip, useDisclosure, Spinner,
 } from "@heroui/react";
-import { api, type Provider, type ModelEntry } from "../api";
+import { api, type Provider, type ModelEntry, type ProviderDef } from "../api";
 
 const FORMATS = ["auto", "openai", "anthropic", "gemini", "responses"];
 const AUTHS = ["bearer", "x-api-key", "none"];
 
 const empty = {
   provider_id: "", name: "", api_key: "", base_url: "",
-  format: "auto", auth: "bearer",
+  format: "auto", auth: "bearer", template_id: "",
 };
 
 export default function Providers() {
   const [items, setItems] = useState<Provider[]>([]);
+  const [catalog, setCatalog] = useState<ProviderDef[]>([]);
   const [loading, setLoading] = useState(true);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [form, setForm] = useState<Record<string, string>>(empty);
   const [editId, setEditId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [step, setStep] = useState<"pick" | "form">("pick");
+  const [error, setError] = useState("");
 
-  // Selected provider for the models panel below the table.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modelsCache, setModelsCache] = useState<Record<string, ModelEntry[]>>({});
   const [modelErrors, setModelErrors] = useState<Record<string, string>>({});
@@ -34,19 +36,65 @@ export default function Providers() {
   };
   useEffect(load, []);
 
-  const openNew = () => { setForm(empty); setEditId(null); onOpen(); };
+  const openNew = () => {
+    setForm(empty);
+    setEditId(null);
+    setStep("pick");
+    setError("");
+    api.providers.catalog().then(setCatalog).catch(() => setCatalog([]));
+    onOpen();
+  };
   const openEdit = (p: Provider) => {
-    setForm({ provider_id: p.provider_id, name: p.name, api_key: p.api_key, base_url: p.base_url, format: p.format, auth: p.auth });
-    setEditId(p.id); onOpen();
+    setForm({
+      provider_id: p.provider_id, name: p.name, api_key: "", base_url: p.base_url,
+      format: p.format, auth: p.auth, template_id: "",
+    });
+    setEditId(p.id);
+    setStep("form");
+    setError("");
+    onOpen();
+  };
+
+  const pickTemplate = (t: ProviderDef) => {
+    setForm({
+      provider_id: t.id,
+      name: t.display.name,
+      api_key: t.no_auth ? "public" : "",
+      base_url: t.transport.base_url,
+      format: t.transport.format || "openai",
+      auth: t.no_auth ? "bearer" : (t.transport.auth || "bearer"),
+      template_id: t.id,
+    });
+    setStep("form");
+  };
+
+  const openCustom = () => {
+    setForm(empty);
+    setStep("form");
   };
 
   const submit = async () => {
     setSaving(true);
+    setError("");
     try {
-      if (editId) await api.providers.update(editId, form as any);
-      else await api.providers.create(form as any);
-      onClose(); load();
-    } finally { setSaving(false); }
+      const payload: Record<string, unknown> = {
+        provider_id: form.provider_id,
+        name: form.name,
+        api_key: form.api_key,
+        base_url: form.base_url,
+        format: form.format,
+        auth: form.auth,
+      };
+      if (form.template_id) payload.template_id = form.template_id;
+      if (editId) await api.providers.update(editId, payload as any);
+      else await api.providers.create(payload as any);
+      onClose();
+      load();
+    } catch (e: any) {
+      setError(e?.message ?? "falha ao salvar");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const remove = async (id: string) => {
@@ -80,6 +128,11 @@ export default function Providers() {
     try {
       const entries = await api.providers.syncModels(p.id);
       setModelsCache((c) => ({ ...c, [p.id]: entries }));
+      setModelErrors((m) => {
+        const n = { ...m };
+        delete n[p.id];
+        return n;
+      });
     } catch (e: any) {
       setModelErrors((m) => ({ ...m, [p.id]: e.message }));
     } finally {
@@ -103,7 +156,7 @@ export default function Providers() {
           <div className="p-10 text-center text-default-500 text-sm">Carregando...</div>
         ) : items.length === 0 ? (
           <div className="p-10 text-center text-default-500 text-sm">
-            Nenhum provider ainda. Clique em <strong>Novo provider</strong>.
+            Nenhum provider ainda. Clique em <strong>Novo provider</strong> e escolha um preset ou custom.
           </div>
         ) : (
           <Table aria-label="providers" removeWrapper>
@@ -172,26 +225,66 @@ export default function Providers() {
 
       <Modal isOpen={isOpen} onClose={onClose} size="lg">
         <ModalContent>
-          <ModalHeader>{editId ? "Editar provider" : "Novo provider"}</ModalHeader>
+          <ModalHeader>
+            {editId ? "Editar provider" : step === "pick" ? "Escolher provider" : "Configurar conexão"}
+          </ModalHeader>
           <ModalBody className="gap-4">
-            <div className="grid grid-cols-2 gap-4">
-              <Input label="Provider ID" placeholder="ex: openai, anthropic, mock" value={form.provider_id} onValueChange={(v) => setForm({ ...form, provider_id: v })} isDisabled={!!editId} />
-              <Input label="Nome" placeholder="ex: conta-1" value={form.name} onValueChange={(v) => setForm({ ...form, name: v })} />
-            </div>
-            <Input label="Base URL" placeholder="https://api.openai.com" value={form.base_url} onValueChange={(v) => setForm({ ...form, base_url: v })} />
-            <Input label="API Key" type="password" placeholder="sk-..." value={form.api_key} onValueChange={(v) => setForm({ ...form, api_key: v })} />
-            <div className="grid grid-cols-2 gap-4">
-              <Select label="Formato" selectedKeys={[form.format]} onChange={(e) => setForm({ ...form, format: e.target.value })}>
-                {FORMATS.map((f) => <SelectItem key={f}>{f}</SelectItem>)}
-              </Select>
-              <Select label="Auth" selectedKeys={[form.auth]} onChange={(e) => setForm({ ...form, auth: e.target.value })}>
-                {AUTHS.map((a) => <SelectItem key={a}>{a}</SelectItem>)}
-              </Select>
-            </div>
+            {!editId && step === "pick" && (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-72 overflow-y-auto">
+                  {catalog.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => pickTemplate(t)}
+                      className="text-left rounded-xl border border-default-100 p-3 hover:border-primary/50 hover:bg-default-50 transition-colors"
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: t.display.color || "#888" }} />
+                        <span className="font-medium text-sm truncate">{t.display.name}</span>
+                      </div>
+                      <p className="text-[11px] text-default-400 font-mono truncate">{t.id}</p>
+                      {t.capabilities && t.capabilities.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {t.capabilities.slice(0, 3).map((c) => (
+                            <Chip key={c} size="sm" variant="flat" className="h-5 text-[10px]">{c}</Chip>
+                          ))}
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <Button variant="flat" onPress={openCustom}>Custom / OpenAI-compatible</Button>
+              </>
+            )}
+            {(editId || step === "form") && (
+              <>
+                {!editId && (
+                  <Button size="sm" variant="light" className="self-start" onPress={() => setStep("pick")}>← voltar</Button>
+                )}
+                <div className="grid grid-cols-2 gap-4">
+                  <Input label="Provider ID" placeholder="ex: openai" value={form.provider_id} onValueChange={(v) => setForm({ ...form, provider_id: v })} isDisabled={!!editId || !!form.template_id} />
+                  <Input label="Nome" placeholder="ex: conta-1" value={form.name} onValueChange={(v) => setForm({ ...form, name: v })} />
+                </div>
+                <Input label="Base URL" placeholder="https://api.openai.com" value={form.base_url} onValueChange={(v) => setForm({ ...form, base_url: v })} />
+                <Input label="API Key" type="password" placeholder="sk-..." value={form.api_key} onValueChange={(v) => setForm({ ...form, api_key: v })} />
+                <div className="grid grid-cols-2 gap-4">
+                  <Select label="Formato" selectedKeys={[form.format]} onChange={(e) => setForm({ ...form, format: e.target.value })}>
+                    {FORMATS.map((f) => <SelectItem key={f}>{f}</SelectItem>)}
+                  </Select>
+                  <Select label="Auth" selectedKeys={[form.auth]} onChange={(e) => setForm({ ...form, auth: e.target.value })}>
+                    {AUTHS.map((a) => <SelectItem key={a}>{a}</SelectItem>)}
+                  </Select>
+                </div>
+                {error && <p className="text-sm text-danger">{error}</p>}
+              </>
+            )}
           </ModalBody>
           <ModalFooter>
             <Button variant="flat" onPress={onClose}>Cancelar</Button>
-            <Button color="primary" onPress={submit} isLoading={saving}>Salvar</Button>
+            {(editId || step === "form") && (
+              <Button color="primary" onPress={submit} isLoading={saving}>Salvar</Button>
+            )}
           </ModalFooter>
         </ModalContent>
       </Modal>
@@ -216,7 +309,7 @@ function ModelsPanel({ loading, models, error }: { loading: boolean; models?: Mo
           <code className="text-xs flex-1 truncate">{m.id}</code>
           <Chip size="sm" variant="flat" color="primary">{m.kind}</Chip>
           <Chip size="sm" variant="bordered">{m.source}</Chip>
-          <Chip size="sm" variant={m.is_active ? "flat" : "flat"} color={m.is_active ? "success" : "default"}>
+          <Chip size="sm" variant="flat" color={m.is_active ? "success" : "default"}>
             {m.is_active ? "ativo" : "inativo"}
           </Chip>
         </div>

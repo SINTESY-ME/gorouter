@@ -1,0 +1,16 @@
+id: mistral
+display:
+  name: Mistral
+  color: "#FF7000"
+  website: https://mistral.ai
+  api_key_url: https://console.mistral.ai/api-keys
+category: apikey
+priority: 80
+transport:
+  base_url: https://api.mistral.ai
+  format: openai
+  auth: bearer
+capabilities: [chat, embeddings]
+models_fetcher:
+  url: https://api.mistral.ai/v1/models
+  type: openai

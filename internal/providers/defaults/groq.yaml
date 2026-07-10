@@ -1,0 +1,16 @@
+id: groq
+display:
+  name: Groq
+  color: "#F55036"
+  website: https://groq.com
+  api_key_url: https://console.groq.com/keys
+category: apikey
+priority: 60
+transport:
+  base_url: https://api.groq.com/openai
+  format: openai
+  auth: bearer
+capabilities: [chat]
+models_fetcher:
+  url: https://api.groq.com/openai/v1/models
+  type: openai

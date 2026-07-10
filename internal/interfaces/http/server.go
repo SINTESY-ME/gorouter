@@ -15,6 +15,7 @@ import (
 
 	"github.com/jhon/gorouter/internal/app"
 	"github.com/jhon/gorouter/internal/domain"
+	"github.com/jhon/gorouter/internal/providers"
 )
 
 // Fetcher is used by the dashboard to auto-fetch models for a given provider
@@ -49,9 +50,10 @@ type Server struct {
 	ModelSync ModelSyncer
 	ModelRepo domain.ModelRepo
 
-	RequireKey     bool
-	RateLimiter    *app.RateLimiter
-	Auth           *app.AuthService
+	RequireKey  bool
+	RateLimiter *app.RateLimiter
+	Auth        *app.AuthService
+	Catalog     *providers.Service
 }
 
 // Routes builds the chi router with all endpoints.
@@ -106,6 +108,12 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/providers/{id}/models", s.handleProviderModels)
 		r.Post("/providers/{id}/models", s.handleAddModel)
 		r.Post("/providers/{id}/models/sync", s.handleSyncProviderModels)
+
+		r.Get("/provider-catalog", s.handleListCatalog)
+		r.Get("/provider-catalog/{id}", s.handleGetCatalog)
+		r.Get("/provider-store", s.handleListStore)
+		r.Post("/provider-store/install/{id}", s.handleInstallStore)
+		r.Delete("/provider-store/{id}", s.handleRemoveStore)
 		r.Get("/models", s.handleListModelsDashboard)
 		r.Put("/models/*", s.handleUpdateModel)
 		r.Delete("/models/*", s.handleDeleteModel)

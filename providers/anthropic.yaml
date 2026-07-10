@@ -1,0 +1,16 @@
+id: anthropic
+display:
+  name: Anthropic
+  color: "#D97757"
+  website: https://www.anthropic.com
+  api_key_url: https://console.anthropic.com/settings/keys
+category: apikey
+priority: 30
+transport:
+  base_url: https://api.anthropic.com
+  format: anthropic
+  auth: x-api-key
+capabilities: [chat]
+models_fetcher:
+  url: https://api.anthropic.com/v1/models
+  type: anthropic

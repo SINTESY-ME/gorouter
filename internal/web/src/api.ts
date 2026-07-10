@@ -75,6 +75,26 @@ export interface UsageEntry {
   prompt_tokens: number; completion_tokens: number; cached_tokens: number;
   cost: number; status: number; latency_ms?: number;
 }
+export interface ProviderDef {
+  id: string;
+  display: { name: string; color?: string; website?: string; api_key_url?: string };
+  category: string;
+  aliases?: string[];
+  priority?: number;
+  transport: { base_url: string; format: string; auth: string; headers?: Record<string, string> };
+  executor?: string;
+  no_auth?: boolean;
+  capabilities?: string[];
+  installed?: boolean;
+}
+export interface StoreEntry {
+  id: string;
+  name: string;
+  category: string;
+  color?: string;
+  capabilities?: string[];
+  installed: boolean;
+}
 
 export const api = {
   auth: {
@@ -87,7 +107,8 @@ export const api = {
   },
   providers: {
     list: () => request<Provider[]>("/api/providers"),
-    create: (p: Partial<Provider>) => request<Provider>("/api/providers", { method: "POST", body: JSON.stringify(p) }),
+    create: (p: Partial<Provider> & { template_id?: string }) =>
+      request<Provider>("/api/providers", { method: "POST", body: JSON.stringify(p) }),
     update: (id: string, p: Partial<Provider>) => request<Provider>(`/api/providers/${id}`, { method: "PUT", body: JSON.stringify(p) }),
     remove: (id: string) => request<void>(`/api/providers/${id}`, { method: "DELETE" }),
     reorder: (ids: string[]) => request<void>("/api/providers/reorder", { method: "POST", body: JSON.stringify(ids) }),
@@ -95,6 +116,13 @@ export const api = {
     syncModels: (id: string) => request<ModelEntry[]>(`/api/providers/${id}/models/sync`, { method: "POST" }),
     addModel: (id: string, m: { model_id: string; name?: string; kind?: string; context?: number }) =>
       request<ModelEntry>(`/api/providers/${id}/models`, { method: "POST", body: JSON.stringify(m) }),
+    catalog: () => request<ProviderDef[]>("/api/provider-catalog"),
+    catalogDetail: (id: string) => request<ProviderDef>(`/api/provider-catalog/${id}`),
+    store: {
+      list: () => request<StoreEntry[]>("/api/provider-store"),
+      install: (id: string) => request<ProviderDef>(`/api/provider-store/install/${id}`, { method: "POST" }),
+      remove: (id: string) => request<void>(`/api/provider-store/${id}`, { method: "DELETE" }),
+    },
   },
   models: {
     list: () => request<ModelInfo[]>("/api/models"),

@@ -1,0 +1,17 @@
+id: deepseek
+display:
+  name: DeepSeek
+  color: "#4D6BFE"
+  website: https://www.deepseek.com
+  api_key_url: https://platform.deepseek.com/api_keys
+category: apikey
+priority: 110
+aliases: [ds]
+transport:
+  base_url: https://api.deepseek.com
+  format: openai
+  auth: bearer
+capabilities: [chat]
+models_fetcher:
+  url: https://api.deepseek.com/v1/models
+  type: openai

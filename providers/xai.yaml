@@ -1,0 +1,16 @@
+id: xai
+display:
+  name: xAI
+  color: "#000000"
+  website: https://x.ai
+  api_key_url: https://console.x.ai
+category: apikey
+priority: 280
+transport:
+  base_url: https://api.x.ai
+  format: openai
+  auth: bearer
+capabilities: [chat]
+models_fetcher:
+  url: https://api.x.ai/v1/models
+  type: openai

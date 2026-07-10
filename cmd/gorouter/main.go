@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/jhon/gorouter/internal/infra/executor"
 	"github.com/jhon/gorouter/internal/infra/translator"
 	httpx "github.com/jhon/gorouter/internal/interfaces/http"
+	"github.com/jhon/gorouter/internal/providers"
 	"github.com/jhon/gorouter/internal/web"
 )
 
@@ -75,7 +77,7 @@ func run() error {
 	apiKeys := &app.ApiKeyService{Repo: cachedKeys, Secret: cfg.KeySecret}
 	router := app.NewRouterService(comboRepo, cachedConns, exec, tr, asyncUsage)
 	models := &app.ModelsService{Combos: comboRepo, Connections: cachedConns, Fetcher: fetcher, Models: modelRepo}
-	providers := &app.ConnectionService{Repo: cachedConns}
+	connSvc := &app.ConnectionService{Repo: cachedConns}
 	combos := &app.ComboService{Repo: comboRepo, Models: modelRepo}
 	usage := &app.UsageService{Repo: usageRepo}
 	modelSync := &app.ModelSyncService{
@@ -85,21 +87,34 @@ func run() error {
 		Registry:    registry,
 	}
 
+	// Provider catalog + store (YAML presets; install from origin repo)
+	providersDir := filepath.Join(cfg.HomeDir, "providers")
+	catalog, err := providers.NewCatalog(providersDir)
+	if err != nil {
+		return err
+	}
+	catalogSvc := providers.NewService(
+		catalog,
+		providers.NewStore(providersDir),
+		providers.NewGitHubSource("SINTESY-ME", "gorouter"),
+	)
+
 	httpx.SetStaticHandler(web.Handler)
 	srv := &httpx.Server{
-		Router:         router,
-		Models:         models,
-		Providers:      providers,
-		Combos:         combos,
-		Keys:           apiKeys,
-		Usage:          usage,
-		Fetcher:        fetcher,
-		Prober:         prober,
-		ModelSync:      modelSync,
-		ModelRepo:      modelRepo,
-		RequireKey:      cfg.RequireKey,
-		Auth:           auth,
-		RateLimiter:    app.NewRateLimiter(),
+		Router:      router,
+		Models:      models,
+		Providers:   connSvc,
+		Combos:      combos,
+		Keys:        apiKeys,
+		Usage:       usage,
+		Fetcher:     fetcher,
+		Prober:      prober,
+		ModelSync:   modelSync,
+		ModelRepo:   modelRepo,
+		RequireKey:  cfg.RequireKey,
+		Auth:        auth,
+		RateLimiter: app.NewRateLimiter(),
+		Catalog:     catalogSvc,
 	}
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.Port,
