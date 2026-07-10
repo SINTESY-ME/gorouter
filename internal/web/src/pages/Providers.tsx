@@ -29,6 +29,9 @@ export default function Providers() {
   const [oauthCode, setOauthCode] = useState("");
   const [oauthProvider, setOauthProvider] = useState("");
   const [oauthAuthURL, setOauthAuthURL] = useState("");
+  const [search, setSearch] = useState("");
+
+  const POPULAR = ["openai", "anthropic", "openrouter", "gemini", "groq", "deepseek", "mistral", "together", "ollama", "opencode"];
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modelsCache, setModelsCache] = useState<Record<string, ModelEntry[]>>({});
@@ -49,6 +52,7 @@ export default function Providers() {
     setOauthCode("");
     setOauthState("");
     setOauthAuthURL("");
+    setSearch("");
     api.providers.catalog().then(setCatalog).catch(() => setCatalog([]));
     api.oauth.list().then(setOauthProviders).catch(() => setOauthProviders([]));
     onOpen();
@@ -110,6 +114,25 @@ export default function Providers() {
     setForm(empty);
     setStep("form");
   };
+
+  const sortedCatalog = [...catalog].sort((a, b) => {
+    const ai = POPULAR.indexOf(a.id);
+    const bi = POPULAR.indexOf(b.id);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.display.name.localeCompare(b.display.name);
+  });
+  const filteredCatalog = sortedCatalog.filter((t) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      t.id.toLowerCase().includes(q) ||
+      t.display.name.toLowerCase().includes(q) ||
+      t.category?.toLowerCase().includes(q) ||
+      t.capabilities?.some((c) => c.toLowerCase().includes(q))
+    );
+  });
 
   const submit = async () => {
     setSaving(true);
@@ -269,9 +292,20 @@ export default function Providers() {
           <ModalBody className="gap-4">
             {!editId && step === "pick" && (
               <>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-72 overflow-y-auto">
-                  {catalog.map((t) => {
+                <Input
+                  isClearable
+                  value={search}
+                  onValueChange={setSearch}
+                  placeholder="Buscar provider..."
+                  variant="bordered"
+                  className="mb-2"
+                  startContent={<IconSearch />}
+                  autoFocus
+                />
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-80 overflow-y-auto">
+                  {filteredCatalog.map((t) => {
                     const isOauth = oauthProviders.includes(t.id);
+                    const isPopular = POPULAR.includes(t.id);
                     return (
                     <button
                       key={t.id}
@@ -286,6 +320,7 @@ export default function Providers() {
                       <p className="text-[11px] text-default-400 font-mono truncate">{t.id}</p>
                       <div className="flex flex-wrap gap-1 mt-2">
                         {isOauth && <Chip size="sm" color="secondary" variant="flat" className="h-5 text-[10px]">OAuth</Chip>}
+                        {isPopular && <Chip size="sm" color="primary" variant="flat" className="h-5 text-[10px]">Popular</Chip>}
                         {t.capabilities?.slice(0, 2).map((c) => (
                           <Chip key={c} size="sm" variant="flat" className="h-5 text-[10px]">{c}</Chip>
                         ))}
@@ -349,7 +384,6 @@ export default function Providers() {
             )}
           </ModalBody>
           <ModalFooter>
-            <Button variant="flat" onPress={onClose}>Cancelar</Button>
             {(editId || step === "form") && (
               <Button color="primary" onPress={submit} isLoading={saving}>Salvar</Button>
             )}
@@ -392,6 +426,7 @@ function ModelsPanel({ loading, models, error }: { loading: boolean; models?: Mo
 }
 
 function IconPlus() { return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5v14"/></svg>; }
+function IconSearch() { return <svg className="w-4 h-4 text-default-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>; }
 function IconPencil() { return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>; }
 function IconTrash() { return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1.5 14a2 2 0 0 1-2 2H8.5a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>; }
 function IconX() { return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>; }

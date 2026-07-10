@@ -7,14 +7,12 @@ import Combos from "./pages/Combos";
 import Keys from "./pages/Keys";
 import Logs from "./pages/Logs";
 import Models from "./pages/Models";
-import Store from "./pages/Store";
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
 
 const nav = [
   { to: "/", label: "Dashboard", icon: IconHome, end: true },
   { to: "/providers", label: "Providers", icon: IconServer },
-  { to: "/store", label: "Store", icon: IconStore },
   { to: "/combos", label: "Combos", icon: IconLayers },
   { to: "/models", label: "Models", icon: IconBox },
   { to: "/keys", label: "API Keys", icon: IconKey },
@@ -24,7 +22,6 @@ const nav = [
 const titleMap: Record<string, string> = {
   "/": "Dashboard",
   "/providers": "Providers",
-  "/store": "Store",
   "/combos": "Combos",
   "/models": "Models",
   "/keys": "API Keys",
@@ -119,7 +116,6 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/providers" element={<Providers />} />
-              <Route path="/store" element={<Store />} />
               <Route path="/combos" element={<Combos />} />
               <Route path="/models" element={<Models />} />
               <Route path="/keys" element={<Keys />} />
@@ -144,9 +140,6 @@ function IconHome({ className }: { className?: string }) {
 }
 function IconServer({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>;
-}
-function IconStore({ className }: { className?: string }) {
-  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/><path d="M22 7v3a2 2 0 0 1-2 2 2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7"/></svg>;
 }
 function IconLayers({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>;
