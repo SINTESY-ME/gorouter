@@ -55,6 +55,9 @@ type Server struct {
 	// RTKCompressorFactory creates a fresh RequestCompressor when the user
 	// toggles RTK on via the dashboard. Injected at composition root.
 	RTKCompressorFactory func() domain.RequestCompressor
+	// CacheFactory creates a fresh ResponseCache when the user toggles the
+	// response cache on via the dashboard. Injected at composition root.
+	CacheFactory func() domain.ResponseCache
 
 	RequireKey  bool
 	RateLimiter *app.RateLimiter

@@ -7,6 +7,7 @@ import Combos from "./pages/Combos";
 import Keys from "./pages/Keys";
 import Logs from "./pages/Logs";
 import Models from "./pages/Models";
+import Performance from "./pages/Performance";
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
 
@@ -17,6 +18,7 @@ const nav = [
   { to: "/models", label: "Models", icon: IconBox },
   { to: "/keys", label: "API Keys", icon: IconKey },
   { to: "/logs", label: "Logs", icon: IconActivity },
+  { to: "/performance", label: "Performance", icon: IconGauge },
 ];
 
 const titleMap: Record<string, string> = {
@@ -26,6 +28,7 @@ const titleMap: Record<string, string> = {
   "/models": "Models",
   "/keys": "API Keys",
   "/logs": "Logs",
+  "/performance": "Performance",
 };
 
 type AuthState = "loading" | "setup" | "login" | "dashboard";
@@ -120,6 +123,7 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
               <Route path="/models" element={<Models />} />
               <Route path="/keys" element={<Keys />} />
               <Route path="/logs" element={<Logs />} />
+              <Route path="/performance" element={<Performance />} />
             </Routes>
           </div>
         </main>
@@ -152,6 +156,9 @@ function IconKey({ className }: { className?: string }) {
 }
 function IconActivity({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>;
+}
+function IconGauge({ className }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>;
 }
 function IconLogout({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>;

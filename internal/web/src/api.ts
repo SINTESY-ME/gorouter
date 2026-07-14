@@ -188,8 +188,12 @@ export const api = {
     history: (limit = 100) => request<UsageEntry[]>(`/api/usage/history?limit=${limit}`),
   },
   settings: {
-    get: () => request<{ rtk_enabled: boolean }>("/api/settings"),
-    update: (s: { rtk_enabled?: boolean }) =>
+    get: () => request<{ rtk_enabled: boolean; cache_enabled: boolean }>("/api/settings"),
+    update: (s: { rtk_enabled?: boolean; cache_enabled?: boolean }) =>
       request<{ status: string }>("/api/settings", { method: "PUT", body: JSON.stringify(s) }),
+  },
+  cache: {
+    stats: () => request<{ enabled: boolean; entries?: number; hits?: number; misses?: number }>("/api/cache/stats"),
+    flush: () => request<{ status: string }>("/api/cache/flush", { method: "POST" }),
   },
 };

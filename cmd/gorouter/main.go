@@ -94,13 +94,24 @@ func run() error {
 	router.Registry = registry
 
 	// Response cache (direct-hash). Disabled when GOROUTER_CACHE_ENABLED=false.
+	// Can be toggled live via dashboard settings (persists to SettingRepo).
 	var cacheSvc *app.CacheService
+	cacheFactory := func() domain.ResponseCache {
+		return responsecache.NewMemory(cfg.CacheMaxEntries, cfg.CacheTTL, cfg.CacheSweepInterval)
+	}
 	if cfg.CacheEnabled {
-		mc := responsecache.NewMemory(cfg.CacheMaxEntries, cfg.CacheTTL, cfg.CacheSweepInterval)
+		mc := cacheFactory().(interface {
+			domain.ResponseCache
+			Close()
+		})
 		defer mc.Close()
 		cacheSvc = app.NewCacheService(mc)
 		router.Cache = cacheSvc
 		slog.Info("response cache enabled", "ttl", cfg.CacheTTL, "max_entries", cfg.CacheMaxEntries)
+	}
+	// Persist initial cache state if not already set.
+	if _, err := settingRepo.Get(ctx, "cache_enabled"); err != nil {
+		_ = settingRepo.Set(ctx, "cache_enabled", strconv.FormatBool(cfg.CacheEnabled))
 	}
 
 	// RTK request token compression. Disabled when GOROUTER_RTK_ENABLED=false.
@@ -153,6 +164,7 @@ func run() error {
 		Cache:       cacheSvc,
 		Settings:    settingRepo,
 		RTKCompressorFactory: rtkFactory,
+		CacheFactory: cacheFactory,
 		RequireKey:  cfg.RequireKey,
 		Auth:        auth,
 		RateLimiter: app.NewRateLimiter(),

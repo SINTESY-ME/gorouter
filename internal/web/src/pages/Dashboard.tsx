@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Spinner, Switch } from "@heroui/react";
+import { Spinner } from "@heroui/react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
   BarChart, Bar, PieChart, Pie, Cell, Legend,
@@ -27,8 +27,6 @@ export default function Dashboard() {
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [period, setPeriod] = useState("7d");
   const [loading, setLoading] = useState(true);
-  const [rtkEnabled, setRtkEnabled] = useState(false);
-  const [rtkLoading, setRtkLoading] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -36,16 +34,7 @@ export default function Dashboard() {
       .then(setStats)
       .catch(() => setStats(null))
       .finally(() => setLoading(false));
-    api.settings.get().then((s) => setRtkEnabled(s.rtk_enabled)).catch(() => {});
   }, [period]);
-
-  const toggleRtk = (enabled: boolean) => {
-    setRtkLoading(true);
-    api.settings.update({ rtk_enabled: enabled })
-      .then(() => setRtkEnabled(enabled))
-      .catch(() => setRtkEnabled(!enabled))
-      .finally(() => setRtkLoading(false));
-  };
 
   if (loading) return (
     <div className="flex justify-center py-20"><Spinner label="Carregando..." /></div>
@@ -70,30 +59,18 @@ export default function Dashboard() {
             Total de {stats.requests} requisições no período
           </p>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-default-500">RTK</span>
-            <Switch
-              isSelected={rtkEnabled}
-              onValueChange={toggleRtk}
-              isDisabled={rtkLoading}
-              size="sm"
-              aria-label="RTK token compression"
-            />
-          </div>
-          <div className="flex bg-content1 rounded-lg p-0.5 border border-default-100">
-            {periods.map((p) => (
-              <button
-                key={p.key}
-                onClick={() => setPeriod(p.key)}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                  period === p.key ? "bg-primary text-white" : "text-default-600 hover:bg-default-100"
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
+        <div className="flex bg-content1 rounded-lg p-0.5 border border-default-100">
+          {periods.map((p) => (
+            <button
+              key={p.key}
+              onClick={() => setPeriod(p.key)}
+              className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                period === p.key ? "bg-primary text-white" : "text-default-600 hover:bg-default-100"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
         </div>
       </div>
 
