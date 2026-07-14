@@ -50,10 +50,32 @@ export interface Provider {
 export interface ModelInfo {
   id: string; object: string; owned_by: string; kind?: string;
 }
+export interface ModelPricing {
+  input_cost_per_token: number;
+  output_cost_per_token: number;
+  input_cost_per_token_batches?: number;
+  output_cost_per_token_batches?: number;
+  cache_read_input_token_cost?: number;
+  cache_creation_input_token_cost?: number;
+  input_cost_per_token_above_128k?: number;
+  input_cost_per_token_above_200k?: number;
+  output_cost_per_token_above_128k?: number;
+  output_cost_per_token_above_200k?: number;
+  output_cost_per_image?: number;
+  input_cost_per_pixel?: number;
+  input_cost_per_second?: number;
+  output_cost_per_second?: number;
+  input_cost_per_character?: number;
+  output_cost_per_character?: number;
+  input_cost_per_query?: number;
+  source?: string;
+  last_synced_at?: string;
+}
 export interface ModelEntry {
   id: string; provider_id: string; model_id: string; name: string;
   kind: string; source: string; is_active: boolean; context: number;
   supports_vision: boolean; supports_tool_call: boolean; supports_reasoning: boolean;
+  pricing?: ModelPricing;
   last_synced_at: string; created_at: string; updated_at: string;
 }
 export interface Combo {
@@ -66,6 +88,7 @@ export interface ApiKey {
 export interface UsageStats {
   requests: number; prompt_tokens: number; completion_tokens: number; cost: number;
   by_provider: Record<string, number>; by_model: Record<string, number>;
+  by_model_cost: Record<string, number>;
   by_api_key: Record<string, number>;
   daily: { date: string; requests: number; tokens: number; cost: number }[];
 }
@@ -145,6 +168,8 @@ export const api = {
     update: (id: string, m: { is_active?: boolean; kind?: string; name?: string }) =>
       request<ModelEntry>(`/api/models/${id}`, { method: "PUT", body: JSON.stringify(m) }),
     remove: (id: string) => request<void>(`/api/models/${id}`, { method: "DELETE" }),
+    pricing: (modelId: string, pricing: ModelPricing) =>
+      request<ModelEntry>("/api/model-pricing", { method: "POST", body: JSON.stringify({ model_id: modelId, pricing }) }),
   },
   combos: {
     list: () => request<Combo[]>("/api/combos"),
@@ -161,5 +186,10 @@ export const api = {
   usage: {
     stats: (period = "24h") => request<UsageStats>(`/api/usage/stats?period=${period}`),
     history: (limit = 100) => request<UsageEntry[]>(`/api/usage/history?limit=${limit}`),
+  },
+  settings: {
+    get: () => request<{ rtk_enabled: boolean }>("/api/settings"),
+    update: (s: { rtk_enabled?: boolean }) =>
+      request<{ status: string }>("/api/settings", { method: "PUT", body: JSON.stringify(s) }),
   },
 };

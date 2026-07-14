@@ -12,13 +12,17 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/jhon/gorouter/internal/app"
 	"github.com/jhon/gorouter/internal/config"
+	"github.com/jhon/gorouter/internal/domain"
 	"github.com/jhon/gorouter/internal/infra/db"
 	"github.com/jhon/gorouter/internal/infra/executor"
+	"github.com/jhon/gorouter/internal/infra/responsecache"
+	"github.com/jhon/gorouter/internal/infra/rtk"
 	"github.com/jhon/gorouter/internal/infra/translator"
 	httpx "github.com/jhon/gorouter/internal/interfaces/http"
 	"github.com/jhon/gorouter/internal/providers"
@@ -86,6 +90,31 @@ func run() error {
 	apiKeys := &app.ApiKeyService{Repo: cachedKeys, Secret: cfg.KeySecret}
 	router := app.NewRouterService(comboRepo, cachedConns, exec, tr, asyncUsage)
 	router.Tokens = tokenRefresher
+	router.Models = modelRepo
+	router.Registry = registry
+
+	// Response cache (direct-hash). Disabled when GOROUTER_CACHE_ENABLED=false.
+	var cacheSvc *app.CacheService
+	if cfg.CacheEnabled {
+		mc := responsecache.NewMemory(cfg.CacheMaxEntries, cfg.CacheTTL, cfg.CacheSweepInterval)
+		defer mc.Close()
+		cacheSvc = app.NewCacheService(mc)
+		router.Cache = cacheSvc
+		slog.Info("response cache enabled", "ttl", cfg.CacheTTL, "max_entries", cfg.CacheMaxEntries)
+	}
+
+	// RTK request token compression. Disabled when GOROUTER_RTK_ENABLED=false.
+	// Can be toggled live via dashboard settings (persists to SettingRepo).
+	rtkFactory := func() domain.RequestCompressor { return rtk.NewCompressor() }
+	if cfg.RTKEnabled {
+		router.Compressor = rtkFactory()
+		slog.Info("rtk compression enabled")
+	}
+	// Persist initial RTK state if not already set.
+	if _, err := settingRepo.Get(ctx, "rtk_enabled"); err != nil {
+		_ = settingRepo.Set(ctx, "rtk_enabled", strconv.FormatBool(cfg.RTKEnabled))
+	}
+
 	models := &app.ModelsService{Combos: comboRepo, Connections: cachedConns, Fetcher: fetcher, Models: modelRepo}
 	connSvc := &app.ConnectionService{Repo: cachedConns}
 	combos := &app.ComboService{Repo: comboRepo, Models: modelRepo}
@@ -121,6 +150,9 @@ func run() error {
 		Prober:      prober,
 		ModelSync:   modelSync,
 		ModelRepo:   modelRepo,
+		Cache:       cacheSvc,
+		Settings:    settingRepo,
+		RTKCompressorFactory: rtkFactory,
 		RequireKey:  cfg.RequireKey,
 		Auth:        auth,
 		RateLimiter: app.NewRateLimiter(),

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 // Config is the resolved application configuration.
@@ -22,6 +23,14 @@ type Config struct {
 	RequireKey  bool
 	UpstreamTimeoutSeconds int
 	DashboardToken string // if non-empty, /api/* requires this bearer token
+	// Response cache (direct-hash)
+	CacheEnabled     bool
+	CacheTTL         time.Duration
+	CacheMaxEntries  int
+	CacheSweepInterval time.Duration
+	// RTK request token compression. Default off (opt-in). When on,
+	// tool_result content is compressed before upstream calls.
+	RTKEnabled bool
 }
 
 // FromEnv builds Config from environment variables, defaults applied.
@@ -38,6 +47,11 @@ func FromEnv() (*Config, error) {
 		RequireKey:  envBool("GOROUTER_REQUIRE_KEY", true),
 		UpstreamTimeoutSeconds: envInt("GOROUTER_UPSTREAM_TIMEOUT", 600),
 		DashboardToken: os.Getenv("GOROUTER_DASHBOARD_TOKEN"),
+		CacheEnabled:       envBool("GOROUTER_CACHE_ENABLED", false),
+		CacheTTL:           envDuration("GOROUTER_CACHE_TTL", 5*time.Minute),
+		CacheMaxEntries:    envInt("GOROUTER_CACHE_MAX_ENTRIES", 10000),
+		CacheSweepInterval: envDuration("GOROUTER_CACHE_SWEEP_INTERVAL", time.Minute),
+		RTKEnabled:         envBool("GOROUTER_RTK_ENABLED", false),
 	}
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return nil, fmt.Errorf("create home dir: %w", err)
@@ -87,6 +101,18 @@ func envInt(key string, def int) int {
 		return def
 	}
 	return n
+}
+
+func envDuration(key string, def time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return def
+	}
+	return d
 }
 
 func homeDir() string {

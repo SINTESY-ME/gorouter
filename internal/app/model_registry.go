@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,20 +19,27 @@ import (
 //
 // ResolveKind tries each source in order and returns the first match. If no
 // source has the model, it falls back to a name-based heuristic.
+//
+// Two maps are maintained: byModel (keyed by normalized model name, first-wins
+// across sources) and byProviderModel (keyed by "provider/model", allowing
+// provider-specific price lookups). ResolvePricing tries provider+model
+// first, then falls back to model-only.
 type ModelRegistry struct {
-	mu       sync.RWMutex
-	entries  map[string]registryEntry
-	loadedAt time.Time
-	ttl      time.Duration
-	client   *http.Client
+	mu             sync.RWMutex
+	entries        map[string]registryEntry // byModel (normalized name)
+	byProviderModel map[string]registryEntry // "litellmProvider/normalizedModel"
+	loadedAt       time.Time
+	ttl            time.Duration
+	client         *http.Client
 }
 
 type registryEntry struct {
-	Kind             domain.ModelKind
-	Context          int
-	SupportsVision   bool
-	SupportsToolCall bool
+	Kind              domain.ModelKind
+	Context           int
+	SupportsVision    bool
+	SupportsToolCall  bool
 	SupportsReasoning bool
+	Pricing           domain.ModelPricing
 }
 
 const registryTTL = 24 * time.Hour
@@ -60,6 +68,30 @@ func (r *ModelRegistry) ResolveKind(modelID string) (domain.ModelKind, int, bool
 	return k, 0, false, false, false
 }
 
+// ResolvePricing returns the ModelPricing for the given (gorouterProvider, modelID)
+// pair. It first tries an exact (provider, model) match, then falls back to
+// model-only. Returns (zero, false) if no pricing data is found.
+func (r *ModelRegistry) ResolvePricing(gorouterProvider, modelID string) (domain.ModelPricing, bool) {
+	if !r.ensureLoaded() {
+		return domain.ModelPricing{}, false
+	}
+	normModel := normalizeModelName(modelID)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	// 1. Exact (provider, model) match — map gorouter provider to LiteLLM provider.
+	lp := mapGorouterToLitellmProvider(gorouterProvider)
+	if lp != "" {
+		if e, ok := r.byProviderModel[lp+"/"+normModel]; ok {
+			return e.Pricing, true
+		}
+	}
+	// 2. Fallback: model-only match.
+	if e, ok := r.entries[normModel]; ok {
+		return e.Pricing, true
+	}
+	return domain.ModelPricing{}, false
+}
+
 // ensureLoaded loads the registry from external APIs if stale or not yet
 // loaded. Returns true if the cache is available (even if partially loaded).
 func (r *ModelRegistry) ensureLoaded() bool {
@@ -78,20 +110,22 @@ func (r *ModelRegistry) ensureLoaded() bool {
 	}
 
 	entries := make(map[string]registryEntry)
+	byProvider := make(map[string]registryEntry)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	// Load from each source; failures are non-fatal — we use whatever we get.
-	r.loadLiteLLM(ctx, entries)
-	r.loadModelsDev(ctx, entries)
-	r.loadOpenRouter(ctx, entries)
+	r.loadLiteLLM(ctx, entries, byProvider)
+	r.loadModelsDev(ctx, entries, byProvider)
+	r.loadOpenRouter(ctx, entries, byProvider)
 
 	r.entries = entries
+	r.byProviderModel = byProvider
 	r.loadedAt = time.Now()
 	return len(entries) > 0
 }
 
-func (r *ModelRegistry) loadLiteLLM(ctx context.Context, entries map[string]registryEntry) {
+func (r *ModelRegistry) loadLiteLLM(ctx context.Context, entries map[string]registryEntry, byProvider map[string]registryEntry) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		"https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json", nil)
 	if err != nil {
@@ -130,11 +164,19 @@ func (r *ModelRegistry) loadLiteLLM(ctx context.Context, entries map[string]regi
 		e.SupportsVision, _ = v["supports_vision"].(bool)
 		e.SupportsToolCall, _ = v["supports_function_calling"].(bool)
 		e.SupportsReasoning, _ = v["supports_reasoning"].(bool)
-		entries[normalizeModelName(k)] = e
+		e.Pricing = parseLiteLLMPricing(v)
+		e.Pricing.Source = "litellm"
+		e.Pricing.LastSyncedAt = time.Now()
+		normModel := normalizeModelName(k)
+		entries[normModel] = e
+		// Also key by litellm_provider/model for provider-specific lookup.
+		if lp, ok := v["litellm_provider"].(string); ok && lp != "" {
+			byProvider[lp+"/"+normModel] = e
+		}
 	}
 }
 
-func (r *ModelRegistry) loadModelsDev(ctx context.Context, entries map[string]registryEntry) {
+func (r *ModelRegistry) loadModelsDev(ctx context.Context, entries map[string]registryEntry, byProvider map[string]registryEntry) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://models.dev/api.json", nil)
 	if err != nil {
 		return
@@ -155,7 +197,7 @@ func (r *ModelRegistry) loadModelsDev(ctx context.Context, entries map[string]re
 	if json.Unmarshal(buf, &data) != nil {
 		return
 	}
-	for _, provider := range data {
+	for providerID, provider := range data {
 		models, ok := provider["models"].(map[string]any)
 		if !ok {
 			continue
@@ -166,21 +208,32 @@ func (r *ModelRegistry) loadModelsDev(ctx context.Context, entries map[string]re
 				continue
 			}
 			key := normalizeModelName(modelID)
-			if _, exists := entries[key]; exists {
-				continue // LiteLLM already has it
-			}
 			// models.dev is LLM-focused; kind is always llm unless output has image.
 			kind := domain.KindLLM
 			e := registryEntry{Kind: kind}
 			e.SupportsVision, _ = m["attachment"].(bool)
 			e.SupportsToolCall, _ = m["tool_call"].(bool)
 			e.SupportsReasoning, _ = m["reasoning"].(bool)
-			entries[key] = e
+			// Parse pricing (per-1M-tokens, convert to per-token)
+			if cost, ok := m["cost"].(map[string]any); ok {
+				e.Pricing = parseModelsDevPricing(cost)
+				e.Pricing.Source = "models.dev"
+				e.Pricing.LastSyncedAt = time.Now()
+			}
+			// byModel: first-wins (LiteLLM takes priority)
+			if _, exists := entries[key]; !exists {
+				entries[key] = e
+			}
+			// byProvider: first-wins
+			pk := providerID + "/" + key
+			if _, exists := byProvider[pk]; !exists {
+				byProvider[pk] = e
+			}
 		}
 	}
 }
 
-func (r *ModelRegistry) loadOpenRouter(ctx context.Context, entries map[string]registryEntry) {
+func (r *ModelRegistry) loadOpenRouter(ctx context.Context, entries map[string]registryEntry, byProvider map[string]registryEntry) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://openrouter.ai/api/v1/models", nil)
 	if err != nil {
 		return
@@ -209,8 +262,10 @@ func (r *ModelRegistry) loadOpenRouter(ctx context.Context, entries map[string]r
 			continue
 		}
 		key := normalizeModelName(id)
-		if _, exists := entries[key]; exists {
-			continue
+		// Extract provider from id (e.g. "openai/gpt-4o" -> "openai")
+		var orProvider string
+		if i := strings.Index(id, "/"); i > 0 {
+			orProvider = id[:i]
 		}
 		kind := domain.KindLLM
 		arch, _ := m["architecture"].(map[string]any)
@@ -222,7 +277,24 @@ func (r *ModelRegistry) loadOpenRouter(ctx context.Context, entries map[string]r
 		e := registryEntry{Kind: kind}
 		e.SupportsToolCall = hasParam(m, "tools")
 		e.SupportsReasoning = hasParam(m, "reasoning")
-		entries[key] = e
+		// Parse pricing (per-token, but values are strings)
+		if pricing, ok := m["pricing"].(map[string]any); ok {
+			e.Pricing = parseOpenRouterPricing(pricing)
+			e.Pricing.Source = "openrouter"
+			e.Pricing.LastSyncedAt = time.Now()
+		}
+		// byModel: first-wins
+		if _, exists := entries[key]; !exists {
+			entries[key] = e
+		}
+		// byProvider: map OpenRouter provider to gorouter provider, first-wins
+		if orProvider != "" {
+			gp := mapOpenRouterProvider(orProvider)
+			pk := gp + "/" + key
+			if _, exists := byProvider[pk]; !exists {
+				byProvider[pk] = e
+			}
+		}
 	}
 }
 
@@ -333,4 +405,126 @@ func providerModelTypeToKind(modelType, endpointFormat string) domain.ModelKind 
 	default:
 		return ""
 	}
+}
+
+// mapGorouterToLitellmProvider maps a gorouter provider ID to the
+// corresponding litellm_provider value used in the LiteLLM JSON. Most map
+// directly; a few differ (vertex→vertex_ai, azure→azure_ai, etc.).
+func mapGorouterToLitellmProvider(gorouterID string) string {
+	m := map[string]string{
+		"openai":     "openai",
+		"anthropic":  "anthropic",
+		"vertex":     "vertex_ai",
+		"bedrock":    "bedrock",
+		"azure":      "azure_ai",
+		"groq":       "groq",
+		"mistral":    "mistral",
+		"cohere":     "cohere",
+		"deepseek":   "deepseek",
+		"together":   "together_ai",
+		"fireworks":  "fireworks_ai",
+		"perplexity": "perplexity",
+		"xai":        "xai",
+		"ollama":     "ollama",
+		"nvidia":     "nvidia_nim",
+		"nebius":     "nebius",
+		"ai21":       "ai21",
+		"voyage":     "voyage",
+		"jina_ai":    "jina_ai",
+	}
+	if v, ok := m[strings.ToLower(gorouterID)]; ok {
+		return v
+	}
+	return strings.ToLower(gorouterID)
+}
+
+// mapOpenRouterProvider maps an OpenRouter model ID prefix to a gorouter
+// provider ID. Most are the same; google covers both vertex and gemini.
+func mapOpenRouterProvider(orProvider string) string {
+	m := map[string]string{
+		"google":          "vertex",
+		"google-ai-studio": "gemini",
+		"meta-llama":      "meta",
+		"amazon":          "bedrock",
+		"mistralai":       "mistral",
+	}
+	if v, ok := m[strings.ToLower(orProvider)]; ok {
+		return v
+	}
+	return strings.ToLower(orProvider)
+}
+
+// parseLiteLLMPricing extracts pricing fields from a LiteLLM model entry.
+// All fields are per-token (USD) as float64.
+func parseLiteLLMPricing(v map[string]any) domain.ModelPricing {
+	return domain.ModelPricing{
+		InputCostPerToken:           floatVal(v["input_cost_per_token"]),
+		OutputCostPerToken:          floatVal(v["output_cost_per_token"]),
+		InputCostPerTokenBatches:    floatVal(v["input_cost_per_token_batches"]),
+		OutputCostPerTokenBatches:   floatVal(v["output_cost_per_token_batches"]),
+		CacheReadInputTokenCost:     floatVal(v["cache_read_input_token_cost"]),
+		CacheCreationInputTokenCost: floatVal(v["cache_creation_input_token_cost"]),
+		InputCostPerTokenAbove128k:  floatVal(v["input_cost_per_token_above_128k_tokens"]),
+		InputCostPerTokenAbove200k:  floatVal(v["input_cost_per_token_above_200k_tokens"]),
+		OutputCostPerTokenAbove128k: floatVal(v["output_cost_per_token_above_128k_tokens"]),
+		OutputCostPerTokenAbove200k: floatVal(v["output_cost_per_token_above_200k_tokens"]),
+		OutputCostPerImage:          floatVal(v["output_cost_per_image"]),
+		InputCostPerPixel:           floatVal(v["input_cost_per_pixel"]),
+		InputCostPerSecond:           floatVal(v["input_cost_per_second"]),
+		OutputCostPerSecond:          floatVal(v["output_cost_per_second"]),
+		InputCostPerCharacter:        floatVal(v["input_cost_per_character"]),
+		OutputCostPerCharacter:       floatVal(v["output_cost_per_character"]),
+		InputCostPerQuery:            floatVal(v["input_cost_per_query"]),
+	}
+}
+
+// parseModelsDevPricing extracts pricing from a models.dev cost object.
+// models.dev prices are per-1M-tokens, so we divide by 1e6 to get per-token.
+func parseModelsDevPricing(cost map[string]any) domain.ModelPricing {
+	return domain.ModelPricing{
+		InputCostPerToken:           floatVal(cost["input"]) / 1e6,
+		OutputCostPerToken:          floatVal(cost["output"]) / 1e6,
+		CacheReadInputTokenCost:     floatVal(cost["cache_read"]) / 1e6,
+		CacheCreationInputTokenCost: floatVal(cost["cache_write"]) / 1e6,
+	}
+}
+
+// parseOpenRouterPricing extracts pricing from an OpenRouter pricing object.
+// OpenRouter prices are per-token but stored as strings, so we parse them.
+func parseOpenRouterPricing(pricing map[string]any) domain.ModelPricing {
+	return domain.ModelPricing{
+		InputCostPerToken:           strFloatVal(pricing["prompt"]),
+		OutputCostPerToken:          strFloatVal(pricing["completion"]),
+		CacheReadInputTokenCost:     strFloatVal(pricing["input_cache_read"]),
+		CacheCreationInputTokenCost: strFloatVal(pricing["input_cache_write"]),
+	}
+}
+
+// floatVal safely extracts a float64 from an any value (JSON numbers come as
+// float64).
+func floatVal(v any) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	}
+	return 0
+}
+
+// strFloatVal parses a string or float64 to float64 (OpenRouter prices are
+// strings).
+func strFloatVal(v any) float64 {
+	switch n := v.(type) {
+	case string:
+		f, _ := strconv.ParseFloat(n, 64)
+		return f
+	case float64:
+		return n
+	case int:
+		return float64(n)
+	}
+	return 0
 }

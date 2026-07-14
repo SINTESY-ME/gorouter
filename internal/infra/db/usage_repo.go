@@ -24,9 +24,10 @@ func (r *UsageRepo) Stats(ctx context.Context, period string) (*domain.UsageStat
 		return nil, err
 	}
 	s := &domain.UsageStats{
-		ByProvider: map[string]int{},
-		ByModel:    map[string]int{},
-		ByApiKey:   map[string]int{},
+		ByProvider:  map[string]int{},
+		ByModel:     map[string]int{},
+		ByModelCost: map[string]float64{},
+		ByApiKey:    map[string]int{},
 	}
 	// Totals
 	var totals struct {
@@ -64,6 +65,20 @@ func (r *UsageRepo) Stats(ctx context.Context, period string) (*domain.UsageStat
 	}
 	for _, row := range modelRows {
 		s.ByModel[row.Key] = row.Count
+	}
+
+	// By model cost
+	type costRow struct {
+		Key   string
+		Cost  float64
+	}
+	var costRows []costRow
+	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("timestamp >= ?", since).
+		Select("model as key, COALESCE(SUM(cost), 0) as cost").Group("model").Scan(&costRows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range costRows {
+		s.ByModelCost[row.Key] = row.Cost
 	}
 
 	// By api_key (non-empty only)

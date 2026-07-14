@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jhon/gorouter/internal/app"
 	"github.com/jhon/gorouter/internal/domain"
+	"time"
 )
 
 // DTOs intentionally mirror what the dashboard React app posts. We accept
@@ -296,6 +297,37 @@ func (s *Server) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	if req.Name != "" {
 		existing.Name = req.Name
 	}
+	if err := s.ModelRepo.Upsert(r.Context(), existing); err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, existing)
+}
+
+// handleUpdateModelPricing sets a manual price override for a model. The
+// pricing is stored with Source="manual" so subsequent sync runs don't
+// overwrite it. The model ID is passed in the request body as "model_id".
+func (s *Server) handleUpdateModelPricing(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ModelID string                `json:"model_id"`
+		Pricing domain.ModelPricing   `json:"pricing"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.ModelID == "" {
+		writeError(w, http.StatusBadRequest, "model_id is required")
+		return
+	}
+	existing, err := s.ModelRepo.Get(r.Context(), req.ModelID)
+	if err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	req.Pricing.Source = "manual"
+	existing.Pricing = req.Pricing
+	existing.UpdatedAt = time.Now()
 	if err := s.ModelRepo.Upsert(r.Context(), existing); err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return

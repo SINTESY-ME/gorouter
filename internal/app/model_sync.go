@@ -66,6 +66,22 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 			LastSyncedAt:      now,
 			UpdatedAt:         now,
 		}
+		// Resolve pricing from the registry (LiteLLM → OpenRouter → models.dev).
+		// Preserve manual overrides: if the existing entry has Source=="manual"
+		// in its Pricing, don't overwrite.
+		if existing, err := s.Models.Get(ctx, entry.ID); err == nil {
+			if existing.Pricing.Source == "manual" {
+				entry.Pricing = existing.Pricing
+			} else if s.Registry != nil {
+				if pricing, ok := s.Registry.ResolvePricing(conn.ProviderID, m.ID); ok {
+					entry.Pricing = pricing
+				}
+			}
+		} else if s.Registry != nil {
+			if pricing, ok := s.Registry.ResolvePricing(conn.ProviderID, m.ID); ok {
+				entry.Pricing = pricing
+			}
+		}
 		if err := s.Models.Upsert(ctx, entry); err != nil {
 			slog.Warn("model sync: upsert failed", "model", entry.ID, "err", err)
 			continue

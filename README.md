@@ -83,6 +83,28 @@ Dentro de cada modelo, múltiplas conexões (contas) para o mesmo provider são 
 
 Combos funcionam com **todos os tipos de modelo** — não só LLM. Crie um combo `image-gen` que tenta DALL-E 3, depois Stable Diffusion, depois Midjourney. Ou um combo `embeddings` que tenta OpenAI, depois Cohere. O fallback é automático e transparente para o client.
 
+### Response cache (direct-hash)
+
+Cache de respostas por hash determinístico do request. Requests idênticos recebem a resposta cacheada **sem chamar o provider** — zero latência upstream, zero custo de token.
+
+- **LRU + TTL**: limite de entries (default 10000) com eviction LRU + TTL por entry (default 5min) + sweep de background
+- **Normalização determinística**: campos efêmeros (`user`, `request_id`, etc.) são removidos e chaves JSON ordenadas antes do hash — mesmo request com ordem de campos diferente = cache hit
+- **Stream + non-stream**: ambos suportados; streams são acumulados e replayados verbatim
+- **Bypass per-request**: header `x-gr-cache: off` desabilita cache para uma request específica
+- **Observabilidade**: header `x-gr-cache-hit: true` na response; `GET /api/cache/stats` mostra entries/hits/misses; `POST /api/cache/flush` limpa tudo
+
+```bash
+# Ativar (env)
+GOROUTER_CACHE_ENABLED=true
+GOROUTER_CACHE_TTL=5m
+GOROUTER_CACHE_MAX_ENTRIES=10000
+
+# Bypass per-request
+curl -H "x-gr-cache: off" -d '{"model":"...","messages":[...]}' http://localhost:20128/v1/chat/completions
+```
+
+Benchmark: cache hit é **~3x mais rápido** que miss (14.7k vs 5.3k RPS em c=10, mock local).
+
 ### Performance obsessiva
 O caminho quente (hot path) foi desenhado para ter **overhead mínimo** (~1 ms wall-clock no [benchmark local](docs/BENCHMARK.md)):
 

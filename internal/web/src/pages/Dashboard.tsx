@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Spinner } from "@heroui/react";
+import { Spinner, Switch } from "@heroui/react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
   BarChart, Bar, PieChart, Pie, Cell, Legend,
@@ -27,6 +27,8 @@ export default function Dashboard() {
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [period, setPeriod] = useState("7d");
   const [loading, setLoading] = useState(true);
+  const [rtkEnabled, setRtkEnabled] = useState(false);
+  const [rtkLoading, setRtkLoading] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -34,7 +36,16 @@ export default function Dashboard() {
       .then(setStats)
       .catch(() => setStats(null))
       .finally(() => setLoading(false));
+    api.settings.get().then((s) => setRtkEnabled(s.rtk_enabled)).catch(() => {});
   }, [period]);
+
+  const toggleRtk = (enabled: boolean) => {
+    setRtkLoading(true);
+    api.settings.update({ rtk_enabled: enabled })
+      .then(() => setRtkEnabled(enabled))
+      .catch(() => setRtkEnabled(!enabled))
+      .finally(() => setRtkLoading(false));
+  };
 
   if (loading) return (
     <div className="flex justify-center py-20"><Spinner label="Carregando..." /></div>
@@ -48,6 +59,7 @@ export default function Dashboard() {
   const daily = stats.daily.map((d) => ({ ...d, date: d.date.slice(5) }));
   const byProvider = Object.entries(stats.by_provider).map(([name, value]) => ({ name, value }));
   const byModel = Object.entries(stats.by_model).map(([name, value]) => ({ name, value }));
+  const byModelCost = Object.entries(stats.by_model_cost || {}).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
 
   return (
     <div className="space-y-6">
@@ -58,18 +70,30 @@ export default function Dashboard() {
             Total de {stats.requests} requisições no período
           </p>
         </div>
-        <div className="flex bg-content1 rounded-lg p-0.5 border border-default-100">
-          {periods.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => setPeriod(p.key)}
-              className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                period === p.key ? "bg-primary text-white" : "text-default-600 hover:bg-default-100"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-default-500">RTK</span>
+            <Switch
+              isSelected={rtkEnabled}
+              onValueChange={toggleRtk}
+              isDisabled={rtkLoading}
+              size="sm"
+              aria-label="RTK token compression"
+            />
+          </div>
+          <div className="flex bg-content1 rounded-lg p-0.5 border border-default-100">
+            {periods.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => setPeriod(p.key)}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  period === p.key ? "bg-primary text-white" : "text-default-600 hover:bg-default-100"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -135,6 +159,23 @@ export default function Dashboard() {
                 <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={90} />
                 <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#ffffff10" }} />
                 <Bar dataKey="value" fill="#4DA3FF" radius={[0, 4, 4, 0]} barSize={20} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+        <div className="bg-content1 rounded-2xl border border-default-100 p-6">
+          <h3 className="font-semibold mb-1">Custo por modelo</h3>
+          <p className="text-xs text-default-500 mb-4">Gasto em USD por modelo</p>
+          {byModelCost.length === 0 ? (
+            <EmptyChart />
+          ) : (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={byModelCost} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
+                <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={(v) => `$${v.toFixed(4)}`} />
+                <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={90} />
+                <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [`$${v.toFixed(6)}`, "Custo"]} />
+                <Bar dataKey="value" fill="#FFB347" radius={[0, 4, 4, 0]} barSize={20} />
               </BarChart>
             </ResponsiveContainer>
           )}

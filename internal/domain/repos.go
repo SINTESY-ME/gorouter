@@ -71,14 +71,15 @@ type SettingRepo interface {
 
 // UsageStats is the aggregated dashboard summary.
 type UsageStats struct {
-	Requests        int                        `json:"requests"`
-	PromptTokens    int                        `json:"prompt_tokens"`
-	CompletionTokens int                       `json:"completion_tokens"`
-	Cost            float64                    `json:"cost"`
-	ByProvider      map[string]int             `json:"by_provider"`     // -> requests
-	ByModel         map[string]int             `json:"by_model"`
-	ByApiKey        map[string]int             `json:"by_api_key"`
-	Daily           []UsageDailyPoint          `json:"daily"`
+	Requests         int                `json:"requests"`
+	PromptTokens     int                `json:"prompt_tokens"`
+	CompletionTokens int                `json:"completion_tokens"`
+	Cost             float64            `json:"cost"`
+	ByProvider       map[string]int     `json:"by_provider"`     // -> requests
+	ByModel          map[string]int     `json:"by_model"`
+	ByModelCost      map[string]float64 `json:"by_model_cost"`
+	ByApiKey         map[string]int     `json:"by_api_key"`
+	Daily            []UsageDailyPoint  `json:"daily"`
 }
 
 // UsageDailyPoint is one bucket of a time series.

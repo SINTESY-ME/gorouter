@@ -27,6 +27,12 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// withCacheDisabled marks the request context to bypass the response cache
+// (both lookup and store). Triggered by the x-gr-cache: off header.
+func withCacheDisabled(r *http.Request) *http.Request {
+	return r.WithContext(app.WithCacheDisabled(r.Context()))
+}
+
 // handleChatWithFormat returns an http.HandlerFunc that handles chat-style
 // requests in the given client input format (OpenAI, Anthropic, or Responses).
 // The router translates the body to the upstream provider's format, executes,
@@ -45,12 +51,19 @@ func (s *Server) handleChatWithFormat(inputFormat domain.Format) http.HandlerFun
 			return
 		}
 		apiKey := s.clientApiKey(r)
+		// Per-request cache bypass: x-gr-cache: off skips both lookup and store.
+		if v := r.Header.Get("x-gr-cache"); v == "off" {
+			r = withCacheDisabled(r)
+		}
 		res, err := s.Router.RouteChat(r.Context(), body, modelStr, stream, apiKey, app.RouteOptions{InputFormat: inputFormat})
 		if err != nil {
 			writeError(w, statusForError(err), err.Error())
 			return
 		}
 		defer res.Body.Close()
+		if res.Cached {
+			w.Header().Set("x-gr-cache-hit", "true")
+		}
 		for _, h := range []string{"Content-Type", "X-Request-Id"} {
 			if v := res.Headers.Get(h); v != "" {
 				w.Header().Set(h, v)

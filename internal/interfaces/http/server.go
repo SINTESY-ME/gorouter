@@ -50,6 +50,11 @@ type Server struct {
 	Prober    Prober
 	ModelSync ModelSyncer
 	ModelRepo domain.ModelRepo
+	Cache     *app.CacheService
+	Settings  domain.SettingRepo
+	// RTKCompressorFactory creates a fresh RequestCompressor when the user
+	// toggles RTK on via the dashboard. Injected at composition root.
+	RTKCompressorFactory func() domain.RequestCompressor
 
 	RequireKey  bool
 	RateLimiter *app.RateLimiter
@@ -128,6 +133,7 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/models/stats", s.handleModelStats)
 		r.Put("/models/*", s.handleUpdateModel)
 		r.Delete("/models/*", s.handleDeleteModel)
+		r.Post("/model-pricing", s.handleUpdateModelPricing)
 
 		r.Get("/combos", s.handleListCombos)
 		r.Post("/combos", s.handleCreateCombo)
@@ -141,6 +147,11 @@ func (s *Server) Routes() http.Handler {
 
 		r.Get("/usage/stats", s.handleUsageStats)
 		r.Get("/usage/history", s.handleUsageHistory)
+
+		r.Get("/cache/stats", s.handleCacheStats)
+		r.Post("/cache/flush", s.handleCacheFlush)
+		r.Get("/settings", s.handleGetSettings)
+		r.Put("/settings", s.handleUpdateSettings)
 		})
 	})
 

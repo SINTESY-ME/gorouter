@@ -71,3 +71,54 @@ type UpstreamError struct {
 	Message    string
 	RetryAfter time.Duration // 0 if unknown
 }
+
+// RequestCompressor transforms a request body to reduce token count
+// (e.g. RTK tool_result compression). Implementations must be safe for
+// concurrent use. A nil compressor disables compression — callers should
+// check for nil before calling.
+type RequestCompressor interface {
+	// Compress rewrites the JSON request body in-place to reduce token count.
+	// Returns the (possibly modified) body. Must be fail-open: on any error
+	// the original body is returned unchanged.
+	Compress(body []byte) []byte
+}
+
+// CachedResponse is a response stored in the response cache. For non-stream
+// responses Body holds the full JSON payload (in client format). For stream
+// responses, StreamChunks holds the concatenation of SSE chunks (each chunk
+// prefixed with its SSE framing) ready to be replayed verbatim.
+type CachedResponse struct {
+	StatusCode    int
+	Headers       http.Header
+	Body          []byte // non-stream: full JSON response (client format)
+	StreamChunks  []byte // stream: concatenated SSE bytes ready to replay
+	Stream        bool
+	CreatedAt     time.Time
+}
+
+// ResponseCache stores and retrieves cached responses keyed by a deterministic
+// hash of the request. Implementations must be safe for concurrent use. A nil
+// response (or a nil interface) disables caching entirely — callers should
+// check for nil before calling.
+type ResponseCache interface {
+	// Get returns the cached response for the given key, or nil if absent
+	// or expired. A miss (including expired entries) returns (nil, false).
+	Get(ctx context.Context, key string) (*CachedResponse, bool)
+	// Put stores the response under the given key with the configured TTL.
+	Put(ctx context.Context, key string, resp *CachedResponse)
+	// Delete removes a single entry by key.
+	Delete(ctx context.Context, key string)
+	// Flush removes all entries.
+	Flush(ctx context.Context)
+	// Stats returns current cache statistics (entries, hits, misses).
+	Stats() CacheStats
+	// Close stops background goroutines (sweeper). Safe to call multiple times.
+	Close()
+}
+
+// CacheStats holds basic cache metrics for observability.
+type CacheStats struct {
+	Entries int   `json:"entries"`
+	Hits    int64 `json:"hits"`
+	Misses  int64 `json:"misses"`
+}

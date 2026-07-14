@@ -34,6 +34,18 @@ type RouterService struct {
 	Usage       domain.UsageRepo
 	// Tokens is optional OAuth refresh before upstream calls.
 	Tokens TokenRefresher
+	// Cache is optional response cache (direct-hash). Nil disables caching.
+	Cache *CacheService
+	// Compressor is optional request body compressor (RTK). Nil disables
+	// compression. When set, tool_result content is compressed before the
+	// upstream call to reduce input tokens.
+	Compressor domain.RequestCompressor
+	// Models is the persisted model catalog, used for pricing lookup in
+	// recordUsage. Nil means pricing falls back to Registry only.
+	Models   domain.ModelRepo
+	// Registry is the in-memory model registry, used for pricing fallback
+	// when the model is not yet in the persisted catalog.
+	Registry *ModelRegistry
 
 	// comboRotation is in-memory state for round-robin combo strategy.
 	// Not persisted; rotation resets on process restart (acceptable).
@@ -77,6 +89,31 @@ type RouteOptions struct {
 func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr string, stream bool, apiKey string, opts RouteOptions) (*RouterResponse, error) {
 	if opts.InputFormat == "" {
 		opts.InputFormat = domain.FormatOpenAI
+	}
+	// Cache lookup: short-circuit on hit. Only for chat (endpoint=="") and
+	// only when cache is enabled and the request doesn't opt out.
+	if s.Cache != nil && s.Cache.Enabled() && opts.Endpoint == "" && !isCacheDisabled(ctx) {
+		cacheKey := s.Cache.ComputeKey(body, modelStr, opts.InputFormat)
+		if cached, ok := s.Cache.Lookup(ctx, cacheKey); ok {
+			if cached.Stream {
+				return &RouterResponse{
+					StatusCode: cached.StatusCode,
+					Headers:    cached.Headers,
+					Body:       io.NopCloser(bytes.NewReader(cached.StreamChunks)),
+					Stream:     true,
+					Cached:     true,
+				}, nil
+			}
+			return &RouterResponse{
+				StatusCode: cached.StatusCode,
+				Headers:    cached.Headers,
+				Body:       io.NopCloser(bytes.NewReader(cached.Body)),
+				Stream:     false,
+				Cached:     true,
+			}, nil
+		}
+		// Stash the key so the response path can store the result.
+		ctx = withCacheKey(ctx, cacheKey)
 	}
 	modelID, ok := domain.SplitModelID(modelStr)
 	if ok {
@@ -123,6 +160,8 @@ type RouterResponse struct {
 	Provider    string
 	Model       string
 	ConnectionID string
+	// Cached is true when the response came from the response cache.
+	Cached bool
 }
 
 func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, opts RouteOptions, endpoint string, contentType ...string) (*RouterResponse, error) {
@@ -154,7 +193,7 @@ func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body 
 			s.markRateLimited(ctx, conn, res)
 			continue
 		}
-		s.wrapUsageTracking(res, m, conn, apiKey, endpoint, "", start)
+		s.wrapUsageTracking(ctx, res, m, conn, apiKey, endpoint, "", start)
 		res.Provider = m.Provider
 		res.Model = m.Model
 		res.ConnectionID = conn.ID
@@ -327,7 +366,7 @@ func (s *RouterService) tryModel(ctx context.Context, m domain.ModelID, body []b
 		if err != nil {
 			continue
 		}
-		s.wrapUsageTracking(res, m, conn, apiKey, opts.Endpoint, comboName, start)
+		s.wrapUsageTracking(ctx, res, m, conn, apiKey, opts.Endpoint, comboName, start)
 		res.Provider = m.Provider
 		res.Model = m.Model
 		res.ConnectionID = conn.ID
@@ -372,6 +411,11 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 		translated, err = s.Translator.TranslateRequest(domain.FormatOpenAI, targetFmt, m.Model, body)
 		if err != nil {
 			return nil, err
+		}
+		// RTK: compress tool_result content in the translated body. Fail-open;
+		// nil compressor or passthrough endpoint skips compression.
+		if s.Compressor != nil {
+			translated = s.Compressor.Compress(translated)
 		}
 		bp, tp := body, translated
 		if len(bp) > 300 {
@@ -481,11 +525,29 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 // handler has finished writing to the client) the buffer is parsed for token
 // usage and a UsageEntry is recorded. This keeps the hot path (streaming to
 // the client) untouched while still capturing usage asynchronously.
-func (s *RouterService) wrapUsageTracking(res *RouterResponse, m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, comboName string, start time.Time) {
+// When a cache key is present in the context, the buffered response is also
+// stored in the response cache.
+func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterResponse, m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, comboName string, start time.Time) {
+	cacheEnabled := s.Cache != nil && s.Cache.Enabled()
+	_, hasCacheKey := cacheKeyFromCtx(ctx)
+	bufLimit := maxUsageBuf
+	if cacheEnabled && hasCacheKey {
+		bufLimit = maxCacheBuf
+	}
 	tee := &teeReadCloser{
-		r: res.Body,
+		r:    res.Body,
+		limit: bufLimit,
 		onClose: func(buf []byte) {
 			s.recordUsage(m, conn, apiKey, endpoint, res.StatusCode, res.Stream, buf, comboName, start)
+			if cacheEnabled && hasCacheKey && res.StatusCode < 400 {
+				if key, ok := cacheKeyFromCtx(ctx); ok {
+					if res.Stream {
+						s.Cache.StoreStream(ctx, key, res.StatusCode, res.Headers, buf)
+					} else {
+						s.Cache.Store(ctx, key, res.StatusCode, res.Headers, buf)
+					}
+				}
+			}
 		},
 	}
 	res.Body = tee
@@ -493,18 +555,23 @@ func (s *RouterService) wrapUsageTracking(res *RouterResponse, m domain.ModelID,
 
 // recordUsage parses token counts from the buffered response body and writes
 // a single UsageEntry. Uses a detached context (the request may be done by
-// the time the body is closed).
+// the time the body is closed). When the model has pricing data in the
+// catalog or registry, the dollar cost is calculated and recorded.
 func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, status int, stream bool, buf []byte, comboName string, start time.Time) {
-	prompt, completion := 0, 0
+	prompt, completion, cacheRead, cacheCreation := 0, 0, 0, 0
 	if endpoint == "" {
 		endpoint = "chat/completions"
 	}
 	if status < 400 {
 		if stream {
-			prompt, completion = parseUsageFromSSE(buf)
+			prompt, completion, cacheRead, cacheCreation = parseUsageFromSSEFull(buf)
 		} else {
-			prompt, completion = parseUsageFromJSON(buf)
+			prompt, completion, cacheRead, cacheCreation = parseUsageFromJSONFull(buf)
 		}
+	}
+	var cost float64
+	if pricing, ok := s.resolvePricing(m); ok {
+		cost = CalculateCost(pricing, endpoint, prompt, completion, cacheRead, cacheCreation)
 	}
 	entry := domain.UsageEntry{
 		Timestamp:         time.Now(),
@@ -517,6 +584,7 @@ func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, a
 		LatencyMs:         time.Since(start).Milliseconds(),
 		PromptTokens:      prompt,
 		CompletionTokens:  completion,
+		Cost:              cost,
 		Status:            status,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -524,20 +592,54 @@ func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, a
 	_ = s.Usage.Record(ctx, entry)
 }
 
+// resolvePricing looks up the model's pricing first from the persisted
+// catalog (ModelRepo, which may have manual overrides), then from the
+// in-memory registry as a fallback.
+func (s *RouterService) resolvePricing(m domain.ModelID) (domain.ModelPricing, bool) {
+	// Try the persisted catalog first (may have manual overrides).
+	if s.Models != nil {
+		entry, err := s.Models.Get(context.Background(), m.Provider+"/"+m.Model)
+		if err == nil && HasPricing(entry.Pricing) {
+			return entry.Pricing, true
+		}
+	}
+	// Fallback: in-memory registry.
+	if s.Registry != nil {
+		if pricing, ok := s.Registry.ResolvePricing(m.Provider, m.Model); ok {
+			if HasPricing(pricing) {
+				return pricing, true
+			}
+		}
+	}
+	return domain.ModelPricing{}, false
+}
+
 // teeReadCloser wraps an io.ReadCloser, copying bytes into an internal buffer
-// (up to maxUsageBuf). On Close it invokes onClose with the buffered data.
+// (up to limit). On Close it invokes onClose with the buffered data.
 // Close is idempotent — sse.Write and the handler's defer both call Close.
 type teeReadCloser struct {
 	r       io.ReadCloser
 	buf     bytes.Buffer
+	limit   int
 	closed  bool
 	onClose func(buf []byte)
 }
 
 func (t *teeReadCloser) Read(p []byte) (int, error) {
 	n, err := t.r.Read(p)
-	if n > 0 && t.buf.Len() < maxUsageBuf {
-		t.buf.Write(p[:n])
+	if n > 0 {
+		limit := t.limit
+		if limit == 0 {
+			limit = maxUsageBuf
+		}
+		if t.buf.Len() < limit {
+			remaining := limit - t.buf.Len()
+			if n <= remaining {
+				t.buf.Write(p[:n])
+			} else {
+				t.buf.Write(p[:remaining])
+			}
+		}
 	}
 	return n, err
 }
@@ -712,4 +814,16 @@ func (s *ModelsService) List(ctx context.Context) ([]domain.ModelInfo, error) {
 		}
 	}
 	return out, nil
+}
+
+// cacheKeyCtxKey is the context key for stashing the response cache key.
+type cacheKeyCtxKey struct{}
+
+func withCacheKey(ctx context.Context, key string) context.Context {
+	return context.WithValue(ctx, cacheKeyCtxKey{}, key)
+}
+
+func cacheKeyFromCtx(ctx context.Context) (string, bool) {
+	key, ok := ctx.Value(cacheKeyCtxKey{}).(string)
+	return key, ok
 }

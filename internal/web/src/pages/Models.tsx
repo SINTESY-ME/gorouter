@@ -3,7 +3,7 @@ import {
   Input, Spinner, Chip, Button, Modal, ModalContent, ModalHeader,
   ModalBody, ModalFooter, Select, SelectItem, useDisclosure,
 } from "@heroui/react";
-import { api, type ModelEntry, type Provider, type ModelStat } from "../api";
+import { api, type ModelEntry, type Provider, type ModelStat, type ModelPricing } from "../api";
 
 const KINDS = ["llm", "embedding", "image", "tts", "stt", "rerank", "ocr", "video"];
 
@@ -18,6 +18,19 @@ const kindColor = (k: string): "primary" | "success" | "warning" | "danger" | "s
   }
 };
 
+// formatPrice converts a per-token price to $X.XX per 1M tokens.
+// Returns null when the price is 0/missing.
+const formatPricePer1M = (perToken: number | undefined): string | null => {
+  if (!perToken || perToken <= 0) return null;
+  const per1M = perToken * 1_000_000;
+  if (per1M < 0.01) return `$${per1M.toFixed(4)}/1M`;
+  return `$${per1M.toFixed(2)}/1M`;
+};
+const formatPricePerImage = (perImage: number | undefined): string | null => {
+  if (!perImage || perImage <= 0) return null;
+  return `$${perImage.toFixed(4)}/img`;
+};
+
 export default function Models() {
   const [items, setItems] = useState<ModelEntry[]>([]);
   const [stats, setStats] = useState<Record<string, ModelStat>>({});
@@ -29,6 +42,9 @@ export default function Models() {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [addProviderId, setAddProviderId] = useState<string>("");
   const [addForm, setAddForm] = useState({ model_id: "", name: "", kind: "llm", context: 0 });
+  const { isOpen: pricingOpen, onOpen: onPricingOpen, onClose: onPricingClose } = useDisclosure();
+  const [pricingModel, setPricingModel] = useState<ModelEntry | null>(null);
+  const [pricingForm, setPricingForm] = useState({ inputPer1M: "", outputPer1M: "", perImage: "" });
 
   useEffect(() => {
     let cancelled = false;
@@ -126,6 +142,31 @@ export default function Models() {
     } catch (e: any) { setError(e?.message); }
   };
 
+  const openPricing = (m: ModelEntry) => {
+    setPricingModel(m);
+    const p = m.pricing || {};
+    setPricingForm({
+      inputPer1M: p.input_cost_per_token ? String((p.input_cost_per_token * 1_000_000).toFixed(2)) : "",
+      outputPer1M: p.output_cost_per_token ? String((p.output_cost_per_token * 1_000_000).toFixed(2)) : "",
+      perImage: p.output_cost_per_image ? String(p.output_cost_per_image) : "",
+    });
+    onPricingOpen();
+  };
+
+  const submitPricing = async () => {
+    if (!pricingModel) return;
+    const pricing: ModelPricing = {
+      input_cost_per_token: parseFloat(pricingForm.inputPer1M) ? parseFloat(pricingForm.inputPer1M) / 1_000_000 : 0,
+      output_cost_per_token: parseFloat(pricingForm.outputPer1M) ? parseFloat(pricingForm.outputPer1M) / 1_000_000 : 0,
+      output_cost_per_image: parseFloat(pricingForm.perImage) ? parseFloat(pricingForm.perImage) : 0,
+    };
+    try {
+      const updated = await api.models.pricing(pricingModel.id, pricing);
+      setItems((prev) => prev.map((x) => x.id === pricingModel.id ? { ...x, pricing: updated.pricing } : x));
+      onPricingClose();
+    } catch (e: any) { setError(e?.message); }
+  };
+
   // Extract bare model id for stats lookup (strip provider prefix)
   const statKey = (m: ModelEntry) => {
     const parts = m.id.split("/");
@@ -204,8 +245,30 @@ export default function Models() {
                         <span className="tabular-nums">{st.requests}x</span>
                       </div>
                     )}
+                    {(() => {
+                      const p = m.pricing;
+                      if (!p) return null;
+                      const inPrice = formatPricePer1M(p.input_cost_per_token);
+                      const outPrice = formatPricePer1M(p.output_cost_per_token);
+                      const imgPrice = formatPricePerImage(p.output_cost_per_image);
+                      if (!inPrice && !outPrice && !imgPrice) return null;
+                      return (
+                        <div className="flex items-center gap-2 mt-1.5 text-[10px]">
+                          {inPrice && <span className="tabular-nums text-success-600">{inPrice}</span>}
+                          {outPrice && <span className="tabular-nums text-primary">{outPrice}</span>}
+                          {imgPrice && <span className="tabular-nums text-warning">{imgPrice}</span>}
+                        </div>
+                      );
+                    })()}
                     {/* Hover actions */}
                     <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5">
+                      <button
+                        onClick={() => openPricing(m)}
+                        className="w-6 h-6 rounded-md hover:bg-default-100 flex items-center justify-center"
+                        title="Editar preço"
+                      >
+                        <IconDollar />
+                      </button>
                       <button
                         onClick={() => toggleActive(m)}
                         className="w-6 h-6 rounded-md hover:bg-default-100 flex items-center justify-center"
@@ -228,6 +291,44 @@ export default function Models() {
           </div>
         ))}
       </div>
+
+      <Modal isOpen={pricingOpen} onClose={onPricingClose}>
+        <ModalContent>
+          <ModalHeader>Editar preço — {pricingModel?.id}</ModalHeader>
+          <ModalBody className="gap-4">
+            <Input
+              type="number"
+              label="Input ($ / 1M tokens)"
+              placeholder="ex: 2.50"
+              value={pricingForm.inputPer1M}
+              onValueChange={(v) => setPricingForm({ ...pricingForm, inputPer1M: v })}
+              step="0.01"
+            />
+            <Input
+              type="number"
+              label="Output ($ / 1M tokens)"
+              placeholder="ex: 10.00"
+              value={pricingForm.outputPer1M}
+              onValueChange={(v) => setPricingForm({ ...pricingForm, outputPer1M: v })}
+              step="0.01"
+            />
+            <Input
+              type="number"
+              label="Por imagem ($ — image gen only)"
+              placeholder="ex: 0.04"
+              value={pricingForm.perImage}
+              onValueChange={(v) => setPricingForm({ ...pricingForm, perImage: v })}
+              step="0.01"
+            />
+            <p className="text-xs text-default-500">
+              Preços em USD por 1 milhão de tokens. Deixe em branco para zerar.
+            </p>
+          </ModalBody>
+          <ModalFooter>
+            <Button color="primary" onPress={submitPricing}>Salvar preço</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
 
       <Modal isOpen={isOpen} onClose={onClose}>
         <ModalContent>
@@ -259,6 +360,13 @@ function IconPower({ active }: { active: boolean }) {
   return (
     <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: active ? "#22c55e" : "#999" }}>
       <path d="M12 2v10" /><path d="M18.4 6.6a9 9 0 1 1-12.77.04" />
+    </svg>
+  );
+}
+function IconDollar() {
+  return (
+    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
     </svg>
   );
 }

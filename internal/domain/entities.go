@@ -114,9 +114,52 @@ type ModelEntry struct {
 	SupportsVision    bool      `json:"supports_vision,omitempty"`
 	SupportsToolCall  bool      `json:"supports_tool_call,omitempty"`
 	SupportsReasoning bool      `json:"supports_reasoning,omitempty"`
+	Pricing           ModelPricing `json:"pricing,omitempty" gorm:"serializer:json;type:text"`
 	LastSyncedAt      time.Time `json:"last_synced_at,omitempty" gorm:"index"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+// ModelPricing holds per-model price data used for cost calculation. All
+// per-token fields are in USD per single token (matching LiteLLM's convention).
+// Per-image is USD per image, per-second is USD per second, per-character is
+// USD per character, per-query is USD per query. Zero means the field is not
+// applicable or unknown.
+type ModelPricing struct {
+	// LLM / chat / embeddings (per-token, USD)
+	InputCostPerToken         float64 `json:"input_cost_per_token,omitempty"`
+	OutputCostPerToken        float64 `json:"output_cost_per_token,omitempty"`
+	InputCostPerTokenBatches  float64 `json:"input_cost_per_token_batches,omitempty"`
+	OutputCostPerTokenBatches float64 `json:"output_cost_per_token_batches,omitempty"`
+
+	// Cache (Anthropic/OpenAI prompt caching nativo)
+	CacheReadInputTokenCost     float64 `json:"cache_read_input_token_cost,omitempty"`
+	CacheCreationInputTokenCost float64 `json:"cache_creation_input_token_cost,omitempty"`
+
+	// Tiered (context-length)
+	InputCostPerTokenAbove128k  float64 `json:"input_cost_per_token_above_128k,omitempty"`
+	InputCostPerTokenAbove200k  float64 `json:"input_cost_per_token_above_200k,omitempty"`
+	OutputCostPerTokenAbove128k float64 `json:"output_cost_per_token_above_128k,omitempty"`
+	OutputCostPerTokenAbove200k float64 `json:"output_cost_per_token_above_200k,omitempty"`
+
+	// Image generation (per-image)
+	OutputCostPerImage float64 `json:"output_cost_per_image,omitempty"`
+	InputCostPerPixel  float64 `json:"input_cost_per_pixel,omitempty"`
+
+	// Audio (per-second)
+	InputCostPerSecond   float64 `json:"input_cost_per_second,omitempty"`
+	OutputCostPerSecond  float64 `json:"output_cost_per_second,omitempty"`
+
+	// TTS (per-character)
+	InputCostPerCharacter  float64 `json:"input_cost_per_character,omitempty"`
+	OutputCostPerCharacter float64 `json:"output_cost_per_character,omitempty"`
+
+	// Rerank / search (per-query)
+	InputCostPerQuery float64 `json:"input_cost_per_query,omitempty"`
+
+	// Metadata
+	Source       string    `json:"source,omitempty"` // "litellm" | "openrouter" | "models.dev" | "manual"
+	LastSyncedAt time.Time `json:"last_synced_at,omitempty"`
 }
 
 // Combo is a named virtual model backed by an ordered fallback list of
