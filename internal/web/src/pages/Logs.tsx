@@ -4,6 +4,7 @@ import {
   Chip, Pagination, Spinner,
 } from "@heroui/react";
 import { api, type UsageEntry } from "../api";
+import { formatCompact, formatCost } from "../format";
 
 const statusColor = (s: number): "success" | "warning" | "danger" => {
   if (s < 300) return "success";
@@ -16,11 +17,6 @@ const costColor = (cost: number): string => {
   if (cost < 0.001) return "text-success-600";
   if (cost < 0.01) return "text-default-600";
   return "text-danger";
-};
-const formatCost = (cost: number): string => {
-  if (cost <= 0) return "—";
-  if (cost < 0.0001) return `$${cost.toExponential(2)}`;
-  return `$${cost.toFixed(4)}`;
 };
 
 export default function Logs() {
@@ -78,8 +74,8 @@ export default function Logs() {
                   <TableCell>{e.provider}</TableCell>
                   <TableCell><code className="text-xs">{e.model}</code></TableCell>
                   <TableCell><code className="text-xs text-default-500">{e.endpoint}</code></TableCell>
-                  <TableCell className="tabular-nums">{totalTokens}</TableCell>
-                  <TableCell><span className={`tabular-nums text-xs ${costColor(e.cost)}`}>{formatCost(e.cost)}</span></TableCell>
+                  <TableCell className="tabular-nums" title={totalTokens.toLocaleString("en-US")}>{formatCompact(totalTokens)}</TableCell>
+                  <TableCell><span className={`tabular-nums text-xs ${costColor(e.cost)}`} title={`$${e.cost.toFixed(6)}`}>{e.cost > 0 ? formatCost(e.cost) : "—"}</span></TableCell>
                   <TableCell><span className="tabular-nums text-xs">{tps ? `${tps}` : "—"}</span></TableCell>
                   <TableCell><span className="tabular-nums text-xs">{lat > 0 ? `${lat}ms` : "—"}</span></TableCell>
                   <TableCell><Chip size="sm" color={statusColor(e.status)} variant="flat">{e.status}</Chip></TableCell>

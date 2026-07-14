@@ -5,6 +5,7 @@ import {
   BarChart, Bar, PieChart, Pie, Cell, Legend,
 } from "recharts";
 import { api, type UsageStats } from "../api";
+import { formatCompact, formatCost } from "../format";
 
 const PIE_COLORS = ["#00C2A8", "#FF6B6B", "#4DA3FF", "#FFB347", "#B266FF", "#FFD93D", "#6BCB77"];
 
@@ -75,10 +76,10 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Requests" value={stats.requests} sub="total no período" />
-        <StatCard label="Prompt tokens" value={stats.prompt_tokens} sub="tokens enviados" />
-        <StatCard label="Completion tokens" value={stats.completion_tokens} sub="tokens gerados" />
-        <StatCard label="Custo" value={`$${stats.cost.toFixed(4)}`} sub="acumulado" />
+        <StatCard label="Requests" value={formatCompact(stats.requests)} sub="total no período" full={stats.requests.toLocaleString("en-US")} />
+        <StatCard label="Prompt tokens" value={formatCompact(stats.prompt_tokens)} sub="tokens enviados" full={stats.prompt_tokens.toLocaleString("en-US")} />
+        <StatCard label="Completion tokens" value={formatCompact(stats.completion_tokens)} sub="tokens gerados" full={stats.completion_tokens.toLocaleString("en-US")} />
+        <StatCard label="Custo" value={formatCost(stats.cost)} sub="acumulado" full={`$${stats.cost.toFixed(6)}`} />
       </div>
 
       <div className="bg-content1 rounded-2xl border border-default-100 p-6">
@@ -98,8 +99,8 @@ export default function Dashboard() {
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
             <XAxis dataKey="date" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
-            <YAxis stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} />
-            <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: "#888" }} />
+            <YAxis stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={(v: number) => formatCompact(v)} />
+            <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: "#888" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
             <Area type="monotone" dataKey="requests" stroke="#00C2A8" strokeWidth={2} fill="url(#gradReq)" />
           </AreaChart>
         </ResponsiveContainer>
@@ -132,9 +133,9 @@ export default function Dashboard() {
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={byModel} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
-                <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} />
+                <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={(v: number) => formatCompact(v)} />
                 <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={90} />
-                <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#ffffff10" }} />
+                <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
                 <Bar dataKey="value" fill="#4DA3FF" radius={[0, 4, 4, 0]} barSize={20} />
               </BarChart>
             </ResponsiveContainer>
@@ -149,7 +150,7 @@ export default function Dashboard() {
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={byModelCost} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
-                <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={(v) => `$${v.toFixed(4)}`} />
+                <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={(v: number) => formatCost(v)} />
                 <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={90} />
                 <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [`$${v.toFixed(6)}`, "Custo"]} />
                 <Bar dataKey="value" fill="#FFB347" radius={[0, 4, 4, 0]} barSize={20} />
@@ -162,11 +163,11 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ label, value, sub }: { label: string; value: string | number; sub: string }) {
+function StatCard({ label, value, sub, full }: { label: string; value: string | number; sub: string; full?: string }) {
   return (
     <div className="bg-content1 rounded-2xl border border-default-100 p-5 hover:border-default-200 transition-colors">
       <p className="text-xs text-default-500 uppercase tracking-wide font-medium">{label}</p>
-      <p className="text-3xl font-bold mt-2 tabular-nums">{value}</p>
+      <p className="text-3xl font-bold mt-2 tabular-nums" title={full}>{value}</p>
       <p className="text-xs text-default-500 mt-1">{sub}</p>
     </div>
   );

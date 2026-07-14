@@ -4,6 +4,7 @@ import {
   ModalBody, ModalFooter, Select, SelectItem, useDisclosure,
 } from "@heroui/react";
 import { api, type ModelEntry, type Provider, type ModelStat, type ModelPricing } from "../api";
+import { formatCompact } from "../format";
 
 const KINDS = ["llm", "embedding", "image", "tts", "stt", "rerank", "ocr", "video"];
 
@@ -242,7 +243,7 @@ export default function Models() {
                       <div className="flex items-center gap-3 mt-2 text-[10px] text-default-500">
                         <span className="tabular-nums">{st.avg_tps > 0 ? `${st.avg_tps.toFixed(1)} tok/s` : "—"}</span>
                         <span className="tabular-nums">{st.avg_latency_ms > 0 ? `${Math.round(st.avg_latency_ms)}ms` : "—"}</span>
-                        <span className="tabular-nums">{st.requests}x</span>
+                        <span className="tabular-nums">{st.requests > 999 ? formatCompact(st.requests) : `${st.requests}x`}</span>
                       </div>
                     )}
                     {(() => {

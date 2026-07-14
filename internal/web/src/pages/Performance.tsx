@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Spinner, Switch, Button } from "@heroui/react";
 import { api } from "../api";
+import { formatCompact } from "../format";
 
 interface CacheStats {
   enabled: boolean;
@@ -124,15 +125,15 @@ export default function Performance() {
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <p className="text-xs text-default-500 uppercase tracking-wide">Entries</p>
-                <p className="text-2xl font-bold tabular-nums mt-1">{cacheStats.entries ?? 0}</p>
+                <p className="text-2xl font-bold tabular-nums mt-1">{formatCompact(cacheStats.entries ?? 0)}</p>
               </div>
               <div>
                 <p className="text-xs text-default-500 uppercase tracking-wide">Hits</p>
-                <p className="text-2xl font-bold tabular-nums mt-1 text-success">{cacheStats.hits ?? 0}</p>
+                <p className="text-2xl font-bold tabular-nums mt-1 text-success">{formatCompact(cacheStats.hits ?? 0)}</p>
               </div>
               <div>
                 <p className="text-xs text-default-500 uppercase tracking-wide">Misses</p>
-                <p className="text-2xl font-bold tabular-nums mt-1 text-default-400">{cacheStats.misses ?? 0}</p>
+                <p className="text-2xl font-bold tabular-nums mt-1 text-default-400">{formatCompact(cacheStats.misses ?? 0)}</p>
               </div>
             </div>
             {hitRate && (
