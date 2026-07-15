@@ -36,11 +36,13 @@ func TestTryStripSafeSuffixes(t *testing.T) {
 }
 
 func TestFindLongestContainment(t *testing.T) {
+	pricing := domain.ModelPricing{InputCostPerToken: 1e-6, OutputCostPerToken: 2e-6}
 	entries := map[string]registryEntry{
-		"glm-5.2":          {},
-		"deepseek-v4-flash": {},
-		"minimax-m3":       {},
-		"ab":               {},
+		"glm-5.2":           {Pricing: pricing},
+		"deepseek-v4-flash": {Pricing: pricing},
+		"minimax-m3":        {Pricing: pricing},
+		"no-pricing":        {Pricing: domain.ModelPricing{}},
+		"ab":                {},
 	}
 
 	tests := []struct {
@@ -50,7 +52,11 @@ func TestFindLongestContainment(t *testing.T) {
 	}{
 		{"0g-glm-5.2", "glm-5.2", true},
 		{"deepseek-v4-flash-free", "deepseek-v4-flash", true},
-		{"minimax-m3", "minimax-m3", true},
+		// Self-match must be skipped; minimax-m3 is in entries but we
+		// should NOT return it as a containment of itself.
+		{"minimax-m3", "", false},
+		// Entries without pricing must be skipped.
+		{"no-pricing-extended", "", false},
 		{"unknown-model", "", false},
 		{"glm", "", false},
 	}
@@ -97,11 +103,12 @@ func TestFindBestFuzzyMatch(t *testing.T) {
 		InputCostPerToken:  1e-6,
 		OutputCostPerToken: 2e-6,
 	}
-
 	entries := map[string]registryEntry{
 		"glm-5.2":           {Pricing: pricing},
 		"deepseek-v4-flash": {Pricing: pricing},
 		"minimax-m3":        {Pricing: pricing},
+		// Entry without pricing — must never be returned.
+		"deepseek-v4-flash-free": {Pricing: domain.ModelPricing{}},
 	}
 
 	tests := []struct {
@@ -111,7 +118,7 @@ func TestFindBestFuzzyMatch(t *testing.T) {
 	}{
 		{"0g-glm-5.2", "glm-5.2", true},
 		{"deepseek-v4-flash-free", "deepseek-v4-flash", true},
-		{"minimax-m3", "minimax-m3", true},
+		{"minimax-m3", "", false}, // self-match, no fuzzy needed
 		{"unknown-model", "", false},
 	}
 
@@ -124,7 +131,23 @@ func TestFindBestFuzzyMatch(t *testing.T) {
 			if ok && result.Pricing.InputCostPerToken != pricing.InputCostPerToken {
 				t.Errorf("findBestFuzzyMatch(%q) returned wrong pricing", tt.input)
 			}
+			if !ok && tt.expected != "" {
+				t.Errorf("findBestFuzzyMatch(%q) unexpectedly failed", tt.input)
+			}
 		})
+	}
+}
+
+// TestFindBestFuzzyMatchNoPricingEntry verifies that an entry without pricing
+// is never returned, even when it's the only fuzzy match available.
+func TestFindBestFuzzyMatchNoPricingEntry(t *testing.T) {
+	entries := map[string]registryEntry{
+		"model-free": {Pricing: domain.ModelPricing{}},
+	}
+
+	result, ok := findBestFuzzyMatch("model-free", entries)
+	if ok {
+		t.Errorf("findBestFuzzyMatch should not return entry without pricing, got ok=true pricing=%+v", result.Pricing)
 	}
 }
 

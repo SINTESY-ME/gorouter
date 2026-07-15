@@ -70,16 +70,21 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 			LastSyncedAt:      now,
 			UpdatedAt:         now,
 		}
-		// Resolve pricing from the registry (LiteLLM → OpenRouter → models.dev).
-		// Preserve manual overrides: if the existing entry has Source=="manual"
-		// in its Pricing, don't overwrite.
+		// Resolve pricing from the registry (LiteLLM → OpenRouter → models.dev
+		// with fuzzy fallback). Preserve manual overrides; if the registry
+		// doesn't return pricing, keep the existing DB pricing rather than
+		// overwriting with an empty value.
 		if existing, err := s.Models.Get(ctx, entry.ID); err == nil {
 			if existing.Pricing.Source == "manual" {
 				entry.Pricing = existing.Pricing
 			} else if s.Registry != nil {
 				if pricing, ok := s.Registry.ResolvePricing(conn.ProviderID, m.ID); ok {
 					entry.Pricing = pricing
+				} else {
+					entry.Pricing = existing.Pricing
 				}
+			} else {
+				entry.Pricing = existing.Pricing
 			}
 		} else if s.Registry != nil {
 			if pricing, ok := s.Registry.ResolvePricing(conn.ProviderID, m.ID); ok {

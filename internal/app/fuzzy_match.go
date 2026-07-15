@@ -21,6 +21,10 @@ type candidateMatch struct {
 	score int
 }
 
+// findBestFuzzyMatch attempts to find a registry entry with pricing data for
+// normModel using three strategies: safe-suffix stripping, longest
+// containment, and Levenshtein distance. Only entries with HasPricing are
+// considered. Returns (entry, true) if a priced match is found.
 func findBestFuzzyMatch(normModel string, entries map[string]registryEntry) (registryEntry, bool) {
 	if len(entries) == 0 {
 		return registryEntry{}, false
@@ -38,7 +42,11 @@ func findBestFuzzyMatch(normModel string, entries map[string]registryEntry) (reg
 		}
 	}
 
-	return entries[best.key], true
+	e, exists := entries[best.key]
+	if !exists || !HasPricing(e.Pricing) {
+		return registryEntry{}, false
+	}
+	return e, true
 }
 
 func collectCandidates(normModel string, entries map[string]registryEntry) []candidateMatch {
@@ -73,10 +81,19 @@ func tryStripSafeSuffixes(normModel string) (string, bool) {
 	return "", false
 }
 
+// findLongestContainment finds the longest entry key that is a substring of
+// normModel. The entry itself (self-match) and entries without pricing are
+// skipped.
 func findLongestContainment(normModel string, entries map[string]registryEntry) (string, bool) {
 	var bestKey string
-	for key := range entries {
+	for key, e := range entries {
 		if len(key) < minSubstringLen {
+			continue
+		}
+		if key == normModel {
+			continue
+		}
+		if !HasPricing(e.Pricing) {
 			continue
 		}
 		if strings.Contains(normModel, key) && len(key) > len(bestKey) {
@@ -93,6 +110,9 @@ func findLevenshteinMatch(normModel string, entries map[string]registryEntry) (s
 
 	for key, e := range entries {
 		if len(key) < minLevenLen {
+			continue
+		}
+		if key == normModel {
 			continue
 		}
 		if !HasPricing(e.Pricing) {
