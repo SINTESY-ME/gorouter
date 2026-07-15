@@ -74,8 +74,7 @@ export default function Providers() {
     onProviderOpen();
   };
 
-  const openEditProvider = (p: Provider, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
+  const openEditProvider = (p: Provider) => {
     setProviderForm({
       id: p.id, name: p.name, base_url: p.base_url, format: p.format, auth: p.auth, description: p.description || ""
     });
@@ -157,8 +156,7 @@ export default function Providers() {
     }
   };
 
-  const removeProvider = async (id: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
+  const removeProvider = async (id: string) => {
     if (confirm("Remover este provider e todas as suas conexões?")) {
       await api.providers.remove(id);
       if (expandedProviderId === id) setExpandedProviderId(null);
@@ -187,8 +185,7 @@ export default function Providers() {
     onConnOpen();
   };
 
-  const openEditConnection = (c: Connection, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
+  const openEditConnection = (c: Connection) => {
     setConnProviderId(c.provider_id);
     setConnForm({ name: c.name, api_key: "" }); // Never pre-fill API key for security
     setConnEditId(c.id);
@@ -219,8 +216,7 @@ export default function Providers() {
     }
   };
 
-  const removeConnection = async (id: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
+  const removeConnection = async (id: string) => {
     if (confirm("Remover esta chave API?")) {
       await api.connections.remove(id);
       loadData();
@@ -341,8 +337,8 @@ export default function Providers() {
                   <div className="flex items-center gap-3">
                     <Chip size="sm" variant="flat" color="primary">{provider.format}</Chip>
                     <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                      <Button isIconOnly size="sm" variant="light" onPress={(e) => openEditProvider(provider, e)} aria-label="editar"><IconPencil /></Button>
-                      <Button isIconOnly size="sm" variant="light" color="danger" onPress={(e) => removeProvider(provider.id, e)} aria-label="excluir"><IconTrash /></Button>
+                      <Button isIconOnly size="sm" variant="light" onPress={() => openEditProvider(provider)} aria-label="editar"><IconPencil /></Button>
+                      <Button isIconOnly size="sm" variant="light" color="danger" onPress={() => removeProvider(provider.id)} aria-label="excluir"><IconTrash /></Button>
                     </div>
                   </div>
                 </div>
@@ -421,9 +417,9 @@ export default function Providers() {
                                   </Chip>
                                 </TableCell>
                                 <TableCell>
-                                  <div className="flex gap-1 justify-end">
-                                    <Button isIconOnly size="sm" variant="light" onPress={(e) => openEditConnection(c, e)} aria-label="editar"><IconPencil /></Button>
-                                    <Button isIconOnly size="sm" variant="light" color="danger" onPress={(e) => removeConnection(c.id, e)} aria-label="excluir"><IconTrash /></Button>
+                                  <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
+                                    <Button isIconOnly size="sm" variant="light" onPress={() => openEditConnection(c)} aria-label="editar"><IconPencil /></Button>
+                                    <Button isIconOnly size="sm" variant="light" color="danger" onPress={() => removeConnection(c.id)} aria-label="excluir"><IconTrash /></Button>
                                   </div>
                                 </TableCell>
                               </TableRow>
