@@ -29,3 +29,19 @@ func (s *Server) handleCacheFlush(w http.ResponseWriter, r *http.Request) {
 	s.Cache.Flush(r.Context())
 	writeJSON(w, http.StatusOK, map[string]string{"status": "flushed"})
 }
+
+// handleSavings returns cumulative token/byte savings from the response cache
+// and RTK request compression. Returns zeros when the tracker is nil.
+func (s *Server) handleSavings(w http.ResponseWriter, r *http.Request) {
+	if s.Savings == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"cache_hits":        0,
+			"cache_tokens_saved": 0,
+			"rtk_compressions":  0,
+			"rtk_bytes_saved":   0,
+			"rtk_tokens_saved":  0,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.Savings.Stats())
+}

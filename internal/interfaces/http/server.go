@@ -52,6 +52,7 @@ type Server struct {
 	ModelRepo domain.ModelRepo
 	Cache     *app.CacheService
 	Settings  domain.SettingRepo
+	Savings   *app.SavingsTracker
 	// RTKCompressorFactory creates a fresh RequestCompressor when the user
 	// toggles RTK on via the dashboard. Injected at composition root.
 	RTKCompressorFactory func() domain.RequestCompressor
@@ -153,6 +154,7 @@ func (s *Server) Routes() http.Handler {
 
 		r.Get("/cache/stats", s.handleCacheStats)
 		r.Post("/cache/flush", s.handleCacheFlush)
+		r.Get("/savings", s.handleSavings)
 		r.Get("/settings", s.handleGetSettings)
 		r.Put("/settings", s.handleUpdateSettings)
 		})

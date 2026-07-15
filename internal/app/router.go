@@ -40,6 +40,9 @@ type RouterService struct {
 	// compression. When set, tool_result content is compressed before the
 	// upstream call to reduce input tokens.
 	Compressor domain.RequestCompressor
+	// Savings tracks cumulative token/byte savings from cache hits and RTK
+	// compression. Nil disables tracking.
+	Savings *SavingsTracker
 	// Models is the persisted model catalog, used for pricing lookup in
 	// recordUsage. Nil means pricing falls back to Registry only.
 	Models   domain.ModelRepo
@@ -95,6 +98,15 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 	if s.Cache != nil && s.Cache.Enabled() && opts.Endpoint == "" && !isCacheDisabled(ctx) {
 		cacheKey := s.Cache.ComputeKey(body, modelStr, opts.InputFormat)
 		if cached, ok := s.Cache.Lookup(ctx, cacheKey); ok {
+			if s.Savings != nil {
+				var prompt, completion int
+				if cached.Stream {
+					prompt, completion, _, _ = parseUsageFromSSEFull(cached.StreamChunks)
+				} else {
+					prompt, completion, _, _ = parseUsageFromJSONFull(cached.Body)
+				}
+				s.Savings.RecordCacheHit(prompt + completion)
+			}
 			if cached.Stream {
 				return &RouterResponse{
 					StatusCode: cached.StatusCode,
@@ -415,7 +427,11 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 		// RTK: compress tool_result content in the translated body. Fail-open;
 		// nil compressor or passthrough endpoint skips compression.
 		if s.Compressor != nil {
+			before := len(translated)
 			translated = s.Compressor.Compress(translated)
+			if s.Savings != nil && len(translated) < before {
+				s.Savings.RecordRTKCompression(before - len(translated))
+			}
 		}
 		bp, tp := body, translated
 		if len(bp) > 300 {

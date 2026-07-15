@@ -92,6 +92,8 @@ func run() error {
 	router.Tokens = tokenRefresher
 	router.Models = modelRepo
 	router.Registry = registry
+	savings := app.NewSavingsTracker()
+	router.Savings = savings
 
 	// Response cache (direct-hash). Disabled when GOROUTER_CACHE_ENABLED=false.
 	// Can be toggled live via dashboard settings (persists to SettingRepo).
@@ -163,6 +165,7 @@ func run() error {
 		ModelRepo:   modelRepo,
 		Cache:       cacheSvc,
 		Settings:    settingRepo,
+		Savings:     savings,
 		RTKCompressorFactory: rtkFactory,
 		CacheFactory: cacheFactory,
 		RequireKey:  cfg.RequireKey,

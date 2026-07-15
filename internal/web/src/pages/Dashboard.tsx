@@ -4,7 +4,7 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
   BarChart, Bar, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { api, type UsageStats } from "../api";
+import { api, type UsageStats, type SavingsStats } from "../api";
 import { formatCompact, formatCost } from "../format";
 
 const PIE_COLORS = ["#00C2A8", "#FF6B6B", "#4DA3FF", "#FFB347", "#B266FF", "#FFD93D", "#6BCB77"];
@@ -27,13 +27,17 @@ const chartItemStyle = { color: "#eee" };
 
 export default function Dashboard() {
   const [stats, setStats] = useState<UsageStats | null>(null);
+  const [savings, setSavings] = useState<SavingsStats | null>(null);
   const [period, setPeriod] = useState("7d");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    api.usage.stats(period)
-      .then(setStats)
+    Promise.all([
+      api.usage.stats(period),
+      api.savings.stats().catch(() => null),
+    ])
+      .then(([s, sv]) => { setStats(s); setSavings(sv); })
       .catch(() => setStats(null))
       .finally(() => setLoading(false));
   }, [period]);
@@ -82,6 +86,51 @@ export default function Dashboard() {
         <StatCard label="Completion tokens" value={formatCompact(stats.completion_tokens)} sub="tokens gerados" full={stats.completion_tokens.toLocaleString("en-US")} />
         <StatCard label="Custo" value={formatCost(stats.cost)} sub="acumulado" full={`$${stats.cost.toFixed(6)}`} />
       </div>
+
+      {savings && (savings.cache_hits > 0 || savings.rtk_compressions > 0) && (
+        <div className="bg-content1 rounded-2xl border border-default-100 p-6">
+          <h3 className="font-semibold mb-1">Economia de tokens</h3>
+          <p className="text-xs text-default-500 mb-4">Tokens economizados por Response Cache e RTK</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <SavingsCard
+              label="Cache hits"
+              value={formatCompact(savings.cache_hits)}
+              sub="respostas do cache"
+              full={savings.cache_hits.toLocaleString("en-US")}
+              color="#00C2A8"
+            />
+            <SavingsCard
+              label="Tokens poupados (cache)"
+              value={formatCompact(savings.cache_tokens_saved)}
+              sub="sem chamada upstream"
+              full={savings.cache_tokens_saved.toLocaleString("en-US")}
+              color="#00C2A8"
+            />
+            <SavingsCard
+              label="Compressões RTK"
+              value={formatCompact(savings.rtk_compressions)}
+              sub="tool_results comprimidos"
+              full={savings.rtk_compressions.toLocaleString("en-US")}
+              color="#4DA3FF"
+            />
+            <SavingsCard
+              label="Tokens poupados (RTK)"
+              value={formatCompact(savings.rtk_tokens_saved)}
+              sub="estimativa (~4 bytes/token)"
+              full={savings.rtk_tokens_saved.toLocaleString("en-US")}
+              color="#4DA3FF"
+            />
+          </div>
+          {(savings.cache_tokens_saved + savings.rtk_tokens_saved) > 0 && (
+            <div className="mt-4 flex items-center gap-2 text-sm">
+              <span className="text-default-500">Total economizado:</span>
+              <span className="text-lg font-bold text-success">
+                {formatCompact(savings.cache_tokens_saved + savings.rtk_tokens_saved)} tokens
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="bg-content1 rounded-2xl border border-default-100 p-6">
         <div className="flex items-center justify-between mb-4">
@@ -169,6 +218,19 @@ function StatCard({ label, value, sub, full }: { label: string; value: string | 
     <div className="bg-content1 rounded-2xl border border-default-100 p-5 hover:border-default-200 transition-colors">
       <p className="text-xs text-default-500 uppercase tracking-wide font-medium">{label}</p>
       <p className="text-3xl font-bold mt-2 tabular-nums" title={full}>{value}</p>
+      <p className="text-xs text-default-500 mt-1">{sub}</p>
+    </div>
+  );
+}
+
+function SavingsCard({ label, value, sub, full, color }: { label: string; value: string | number; sub: string; full?: string; color: string }) {
+  return (
+    <div className="bg-content1 rounded-2xl border border-default-100 p-5 hover:border-default-200 transition-colors">
+      <div className="flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+        <p className="text-xs text-default-500 uppercase tracking-wide font-medium">{label}</p>
+      </div>
+      <p className="text-2xl font-bold mt-2 tabular-nums" title={full}>{value}</p>
       <p className="text-xs text-default-500 mt-1">{sub}</p>
     </div>
   );

@@ -123,6 +123,13 @@ export interface StoreEntry {
   capabilities?: string[];
   installed: boolean;
 }
+export interface SavingsStats {
+  cache_hits: number;
+  cache_tokens_saved: number;
+  rtk_compressions: number;
+  rtk_bytes_saved: number;
+  rtk_tokens_saved: number;
+}
 
 export const api = {
   auth: {
@@ -195,5 +202,8 @@ export const api = {
   cache: {
     stats: () => request<{ enabled: boolean; entries?: number; hits?: number; misses?: number }>("/api/cache/stats"),
     flush: () => request<{ status: string }>("/api/cache/flush", { method: "POST" }),
+  },
+  savings: {
+    stats: () => request<SavingsStats>("/api/savings"),
   },
 };
