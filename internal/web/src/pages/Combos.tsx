@@ -3,6 +3,7 @@ import {
   Table, TableHeader, TableColumn, TableBody, TableRow, TableCell,
   Button, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter,
   Input, Chip, useDisclosure, Select, SelectItem, Spinner,
+  Autocomplete, AutocompleteItem,
 } from "@heroui/react";
 import { api, type Combo, type ModelEntry } from "../api";
 
@@ -141,6 +142,7 @@ function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (
   const [allModels, setAllModels] = useState<ModelEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchValue, setSearchValue] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -218,18 +220,29 @@ function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (
             {fixedKind ? `Nenhum model disponível do tipo ${fixedKind}.` : "Nenhum model disponível."}
           </div>
         ) : (
-          <Select
+          <Autocomplete
             label="Modelos disponíveis"
-            placeholder="Selecione um model para adicionar"
-            selectedKeys={[]}
-            onChange={(e) => { if (e.target.value) toggleModel(e.target.value); }}
+            placeholder="Buscar model..."
+            selectedKey={null}
+            inputValue={searchValue}
+            onInputChange={setSearchValue}
+            onSelectionChange={(key) => {
+              if (key) {
+                toggleModel(key as string);
+                setSearchValue("");
+              }
+            }}
+            maxListHeight={300}
           >
             {available.map((m) => (
-              <SelectItem key={m.id}>
-                {m.id} ({m.kind})
-              </SelectItem>
+              <AutocompleteItem key={m.id} textValue={m.id}>
+                <div className="flex items-center gap-2">
+                  <span>{m.id}</span>
+                  <Chip size="sm" variant="flat" color={KIND_COLORS[m.kind] ?? "default"}>{m.kind}</Chip>
+                </div>
+              </AutocompleteItem>
             ))}
-          </Select>
+          </Autocomplete>
         )}
       </div>
 
