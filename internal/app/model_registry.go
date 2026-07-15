@@ -82,12 +82,12 @@ func (r *ModelRegistry) ResolvePricing(gorouterProvider, modelID string) (domain
 	// 1. Exact (provider, model) match — map gorouter provider to LiteLLM provider.
 	lp := mapGorouterToLitellmProvider(gorouterProvider)
 	if lp != "" {
-		if e, ok := r.byProviderModel[lp+"/"+normModel]; ok {
+		if e, ok := r.byProviderModel[lp+"/"+normModel]; ok && HasPricing(e.Pricing) {
 			return e.Pricing, true
 		}
 	}
 	// 2. Fallback: model-only match.
-	if e, ok := r.entries[normModel]; ok {
+	if e, ok := r.entries[normModel]; ok && HasPricing(e.Pricing) {
 		return e.Pricing, true
 	}
 	// 3. Fuzzy matching: safe suffixes, containment, Levenshtein distance.
