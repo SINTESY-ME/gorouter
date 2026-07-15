@@ -72,6 +72,7 @@ func CalculateCost(pricing domain.ModelPricing, endpoint string, prompt, complet
 }
 
 // HasPricing reports whether the pricing struct has any non-zero cost field.
+// Used to filter fuzzy-match candidates (only paid models are valid candidates).
 func HasPricing(p domain.ModelPricing) bool {
 	return p.InputCostPerToken > 0 ||
 		p.OutputCostPerToken > 0 ||
@@ -86,4 +87,12 @@ func HasPricing(p domain.ModelPricing) bool {
 		p.InputCostPerCharacter > 0 ||
 		p.OutputCostPerCharacter > 0 ||
 		p.InputCostPerQuery > 0
+}
+
+// HasPricingData reports whether the pricing struct has any data at all
+// (even a free model with cost=0 has pricing data when Source is set).
+// Used for exact matches and cache population — free models ($0) are
+// included so the dashboard can display "$0" instead of "no price".
+func HasPricingData(p domain.ModelPricing) bool {
+	return p.Source != ""
 }

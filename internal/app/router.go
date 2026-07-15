@@ -642,7 +642,7 @@ func (s *RouterService) RefreshPricingCache(ctx context.Context) {
 	}
 	m := make(map[string]domain.ModelPricing, len(entries))
 	for _, e := range entries {
-		if HasPricing(e.Pricing) {
+		if HasPricingData(e.Pricing) {
 			m[strings.ToLower(e.ID)] = e.Pricing
 		}
 	}

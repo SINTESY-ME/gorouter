@@ -32,6 +32,18 @@ const formatPricePerImage = (perImage: number | undefined): string | null => {
   return `$${perImage.toFixed(4)}/img`;
 };
 
+// copyToClipboard copies text and shows a temporary "copied!" feedback.
+function useCopyToClipboard() {
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const copy = useCallback((text: string, id: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 1500);
+    }).catch(() => {});
+  }, []);
+  return { copiedId, copy };
+}
+
 export default function Models() {
   const [items, setItems] = useState<ModelEntry[]>([]);
   const [stats, setStats] = useState<Record<string, ModelStat>>({});
@@ -46,6 +58,7 @@ export default function Models() {
   const { isOpen: pricingOpen, onOpen: onPricingOpen, onClose: onPricingClose } = useDisclosure();
   const [pricingModel, setPricingModel] = useState<ModelEntry | null>(null);
   const [pricingForm, setPricingForm] = useState({ inputPer1M: "", outputPer1M: "", perImage: "" });
+  const { copiedId, copy } = useCopyToClipboard();
 
   useEffect(() => {
     let cancelled = false;
@@ -229,7 +242,13 @@ export default function Models() {
                     className="group relative bg-content1 border border-default-100 rounded-xl p-3 hover:border-default-200 transition-colors"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <code className="text-sm font-mono truncate flex-1" title={m.id}>{m.id}</code>
+                      <code
+                        className="text-sm font-mono truncate flex-1 cursor-pointer hover:text-primary transition-colors"
+                        title={`${m.id} — clique para copiar`}
+                        onClick={() => copy(m.id, m.id)}
+                      >
+                        {copiedId === m.id ? "copiado!" : m.id}
+                      </code>
                       <span
                         className={`w-2 h-2 rounded-full shrink-0 mt-1 ${m.is_active ? "bg-success" : "bg-default-300"}`}
                         title={m.is_active ? "ativo" : "inativo"}
@@ -248,11 +267,17 @@ export default function Models() {
                     )}
                     {(() => {
                       const p = m.pricing;
-                      if (!p) return null;
+                      if (!p || (!p.source && !p.input_cost_per_token && !p.output_cost_per_token && !p.output_cost_per_image)) return null;
                       const inPrice = formatPricePer1M(p.input_cost_per_token);
                       const outPrice = formatPricePer1M(p.output_cost_per_token);
                       const imgPrice = formatPricePerImage(p.output_cost_per_image);
-                      if (!inPrice && !outPrice && !imgPrice) return null;
+                      if (!inPrice && !outPrice && !imgPrice) {
+                        return (
+                          <div className="flex items-center gap-1 mt-1.5 text-[10px]">
+                            <span className="tabular-nums text-default-400">Free</span>
+                          </div>
+                        );
+                      }
                       return (
                         <div className="flex items-center gap-2 mt-1.5 text-[10px]">
                           {inPrice && <span className="tabular-nums text-success-600">{inPrice}</span>}
@@ -262,24 +287,24 @@ export default function Models() {
                       );
                     })()}
                     {/* Hover actions */}
-                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5">
+                    <div className="absolute top-1.5 right-7 opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5">
                       <button
                         onClick={() => openPricing(m)}
-                        className="w-6 h-6 rounded-md hover:bg-default-100 flex items-center justify-center"
+                        className="w-6 h-6 rounded-md bg-content1 border border-default-200 hover:bg-default-100 flex items-center justify-center shadow-sm"
                         title="Editar preço"
                       >
                         <IconDollar />
                       </button>
                       <button
                         onClick={() => toggleActive(m)}
-                        className="w-6 h-6 rounded-md hover:bg-default-100 flex items-center justify-center"
+                        className="w-6 h-6 rounded-md bg-content1 border border-default-200 hover:bg-default-100 flex items-center justify-center shadow-sm"
                         title={m.is_active ? "Desativar" : "Ativar"}
                       >
                         <IconPower active={m.is_active} />
                       </button>
                       <button
                         onClick={() => removeModel(m)}
-                        className="w-6 h-6 rounded-md hover:bg-danger-100 text-danger flex items-center justify-center"
+                        className="w-6 h-6 rounded-md bg-content1 border border-default-200 hover:bg-danger-100 text-danger flex items-center justify-center shadow-sm"
                         title="Excluir"
                       >
                         <IconTrash />

@@ -82,15 +82,16 @@ func (r *ModelRegistry) ResolvePricing(gorouterProvider, modelID string) (domain
 	// 1. Exact (provider, model) match — map gorouter provider to LiteLLM provider.
 	lp := mapGorouterToLitellmProvider(gorouterProvider)
 	if lp != "" {
-		if e, ok := r.byProviderModel[lp+"/"+normModel]; ok && HasPricing(e.Pricing) {
+		if e, ok := r.byProviderModel[lp+"/"+normModel]; ok && HasPricingData(e.Pricing) {
 			return e.Pricing, true
 		}
 	}
 	// 2. Fallback: model-only match.
-	if e, ok := r.entries[normModel]; ok && HasPricing(e.Pricing) {
+	if e, ok := r.entries[normModel]; ok && HasPricingData(e.Pricing) {
 		return e.Pricing, true
 	}
 	// 3. Fuzzy matching: safe suffixes, containment, Levenshtein distance.
+	// Only considers paid models (HasPricing) as candidates.
 	if e, ok := findBestFuzzyMatch(normModel, r.entries); ok {
 		return e.Pricing, true
 	}
@@ -225,15 +226,13 @@ func (r *ModelRegistry) loadModelsDev(ctx context.Context, entries map[string]re
 				e.Pricing.Source = "models.dev"
 				e.Pricing.LastSyncedAt = time.Now()
 			}
-			// byModel: first-wins (LiteLLM takes priority)
-			if _, exists := entries[key]; !exists {
-				entries[key] = e
-			}
-			// byProvider: first-wins
-			pk := providerID + "/" + key
-			if _, exists := byProvider[pk]; !exists {
-				byProvider[pk] = e
-			}
+		// byModel: best-wins — keep the entry with pricing data; if the
+		// existing entry has no Source (e.g. LiteLLM didn't have it) and
+		// the new one does, overwrite.
+		upsertEntry(entries, key, e)
+		// byProvider: best-wins
+		pk := providerID + "/" + key
+		upsertEntry(byProvider, pk, e)
 		}
 	}
 }
@@ -288,17 +287,13 @@ func (r *ModelRegistry) loadOpenRouter(ctx context.Context, entries map[string]r
 			e.Pricing.Source = "openrouter"
 			e.Pricing.LastSyncedAt = time.Now()
 		}
-		// byModel: first-wins
-		if _, exists := entries[key]; !exists {
-			entries[key] = e
-		}
-		// byProvider: map OpenRouter provider to gorouter provider, first-wins
+		// byModel: best-wins
+		upsertEntry(entries, key, e)
+		// byProvider: map OpenRouter provider to gorouter provider, best-wins
 		if orProvider != "" {
 			gp := mapOpenRouterProvider(orProvider)
 			pk := gp + "/" + key
-			if _, exists := byProvider[pk]; !exists {
-				byProvider[pk] = e
-			}
+			upsertEntry(byProvider, pk, e)
 		}
 	}
 }
@@ -532,4 +527,26 @@ func strFloatVal(v any) float64 {
 		return float64(n)
 	}
 	return 0
+}
+
+// upsertEntry inserts e into m at key if the key doesn't exist, or
+// overwrites if the existing entry has no pricing data (Source empty)
+// and the new entry does. This ensures free models ($0 with Source)
+// from later sources (models.dev, OpenRouter) don't get overwritten
+// by earlier sources that lack the model entirely, and that paid
+// variants take priority over free variants when both exist.
+func upsertEntry(m map[string]registryEntry, key string, e registryEntry) {
+	existing, ok := m[key]
+	if !ok {
+		m[key] = e
+		return
+	}
+	// Keep existing if it has pricing data and the new one doesn't.
+	if HasPricingData(existing.Pricing) && !HasPricingData(e.Pricing) {
+		return
+	}
+	// Overwrite if existing has no data or new has pricing data.
+	if !HasPricingData(existing.Pricing) || HasPricingData(e.Pricing) {
+		m[key] = e
+	}
 }
