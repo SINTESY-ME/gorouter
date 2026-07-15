@@ -54,12 +54,10 @@ func (r *ComboRepo) Create(ctx context.Context, c *domain.Combo) error {
 }
 
 func (r *ComboRepo) Update(ctx context.Context, c *domain.Combo) error {
-	res := r.db.WithContext(ctx).Model(&domain.Combo{}).Where("id = ?", c.ID).Updates(map[string]any{
-		"name":       c.Name,
-		"models":     c.Models,
-		"strategy":   c.Strategy,
-		"updated_at": time.Now(),
-	})
+	c.UpdatedAt = time.Now()
+	res := r.db.WithContext(ctx).Model(&domain.Combo{}).Where("id = ?", c.ID).
+		Select("Name", "Models", "Strategy", "UpdatedAt").
+		Updates(c)
 	if res.Error != nil {
 		if errors.Is(res.Error, gorm.ErrDuplicatedKey) {
 			return fmt.Errorf("%w: combo name %q already exists", domain.ErrAlreadyExists, c.Name)
