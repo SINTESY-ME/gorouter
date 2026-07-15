@@ -20,32 +20,37 @@ import (
 // extra fields; only the documented ones are read.
 
 type createProviderRequest struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	BaseURL     string `json:"base_url"`
+	Format      string `json:"format"`
+	Auth        string `json:"auth"`
+	LoadBalance string `json:"load_balance"`
+	TemplateID  string `json:"template_id"` // optional catalog preset
+}
+
+type createConnectionRequest struct {
 	ProviderID string `json:"provider_id"`
 	Name       string `json:"name"`
 	APIKey     string `json:"api_key"`
-	BaseURL    string `json:"base_url"`
-	Format     string `json:"format"`
-	Auth       string `json:"auth"`
 	Priority   int    `json:"priority"`
 	IsActive   *bool  `json:"is_active"`
-	TemplateID string `json:"template_id"` // optional catalog preset
 }
 
 // ---- Providers ----
 
 func (s *Server) handleListProviders(w http.ResponseWriter, r *http.Request) {
-	conns, err := s.Providers.List(r.Context())
+	if s.ProviderConfigs == nil {
+		writeJSON(w, http.StatusOK, []domain.ProviderConfig{})
+		return
+	}
+	ps, err := s.ProviderConfigs.List(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Hide the secret in the list view. Full key is shown only once on creation.
-	for i := range conns {
-		if conns[i].APIKey != "" {
-			conns[i].APIKey = maskKey(conns[i].APIKey)
-		}
-	}
-	writeJSON(w, http.StatusOK, conns)
+	writeJSON(w, http.StatusOK, ps)
 }
 
 func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
@@ -54,40 +59,161 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// Optional catalog template pre-fills empty fields.
+
+	if s.ProviderConfigs == nil {
+		writeError(w, http.StatusServiceUnavailable, "provider configs not available")
+		return
+	}
+
+	var templateAPIKey string
 	if req.TemplateID != "" && s.Catalog != nil {
 		if def := s.Catalog.Lookup(req.TemplateID); def != nil {
-			applyTemplate(def, &req.ProviderID, &req.BaseURL, &req.Format, &req.Auth, &req.APIKey)
+			applyTemplate(def, &req.ID, &req.BaseURL, &req.Format, &req.Auth, &templateAPIKey)
 			if req.Name == "" {
 				req.Name = def.Display.Name
 			}
 		}
 	}
+
+	if req.ID == "" {
+		writeError(w, http.StatusBadRequest, "id is required")
+		return
+	}
+
+	cfg := &domain.ProviderConfig{
+		ID:          req.ID,
+		Name:        req.Name,
+		Description: req.Description,
+		BaseURL:     app.NormalizeBaseURL(req.BaseURL),
+		Format:      domain.Format(req.Format),
+		Auth:        domain.AuthScheme(req.Auth),
+		LoadBalance: req.LoadBalance,
+	}
+
+	if cfg.Format == "" {
+		cfg.Format = domain.FormatAuto
+	}
+
+	if err := s.ProviderConfigs.Create(r.Context(), cfg); err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+
+	if s.Router != nil {
+		s.Router.RefreshProviderCache(r.Context())
+	}
+
+	writeJSON(w, http.StatusCreated, cfg)
+}
+
+func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
+	if s.ProviderConfigs == nil {
+		writeError(w, http.StatusServiceUnavailable, "provider configs not available")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	existing, err := s.ProviderConfigs.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+
+	var req createProviderRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	existing.Name = orDefault(req.Name, existing.Name)
+	existing.Description = orDefault(req.Description, existing.Description)
+	existing.BaseURL = app.NormalizeBaseURL(orDefault(req.BaseURL, existing.BaseURL))
+	if req.Format != "" {
+		existing.Format = domain.Format(req.Format)
+	}
+	if req.Auth != "" {
+		existing.Auth = domain.AuthScheme(req.Auth)
+	}
+	if req.LoadBalance == "failover" || req.LoadBalance == "round-robin" {
+		existing.LoadBalance = req.LoadBalance
+	}
+
+	if err := s.ProviderConfigs.Update(r.Context(), existing); err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+
+	if s.Router != nil {
+		s.Router.RefreshProviderCache(r.Context())
+	}
+	writeJSON(w, http.StatusOK, existing)
+}
+
+func (s *Server) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
+	if s.ProviderConfigs == nil {
+		writeError(w, http.StatusServiceUnavailable, "provider configs not available")
+		return
+	}
+	if err := s.ProviderConfigs.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	if s.Router != nil {
+		s.Router.RefreshProviderCache(r.Context())
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---- Connections ----
+
+func (s *Server) handleListConnections(w http.ResponseWriter, r *http.Request) {
+	conns, err := s.Providers.List(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	for i := range conns {
+		if conns[i].APIKey != "" {
+			conns[i].APIKey = maskKey(conns[i].APIKey)
+		}
+	}
+	writeJSON(w, http.StatusOK, conns)
+}
+
+func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) {
+	var req createConnectionRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	c := &domain.Connection{
 		ProviderID: req.ProviderID,
 		Name:       req.Name,
 		APIKey:     req.APIKey,
-		BaseURL:    app.NormalizeBaseURL(req.BaseURL),
-		Format:     domain.Format(req.Format),
-		Auth:       domain.AuthScheme(req.Auth),
 		Priority:   req.Priority,
 		IsActive:   req.IsActive == nil || *req.IsActive,
 	}
-	// Probe the connection to validate it and auto-detect format.
-	if s.Prober != nil {
-		result := s.Prober.Probe(r.Context(), c)
-		if result.Error != nil {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("connection validation failed: %v", result.Error))
+
+	if s.ProviderConfigs != nil {
+		cfg, err := s.ProviderConfigs.GetByProviderID(r.Context(), req.ProviderID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid provider_id: %v", err))
 			return
 		}
-		if c.Format == "" || c.Format == domain.FormatAuto {
-			c.Format = result.Format
-		}
-	} else {
-		if c.Format == "" || c.Format == domain.FormatAuto {
-			c.Format = domain.FormatOpenAI
+		if s.Prober != nil {
+			result := s.Prober.Probe(r.Context(), c, cfg)
+			if result.Error != nil {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("connection validation failed: %v", result.Error))
+				return
+			}
+			if cfg.Format == "" || cfg.Format == domain.FormatAuto {
+				cfg.Format = result.Format
+				_ = s.ProviderConfigs.Update(r.Context(), cfg)
+			}
 		}
 	}
+
 	if err := s.Providers.Create(r.Context(), c); err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
@@ -95,24 +221,22 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, c)
 }
 
-func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleUpdateConnection(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	existing, err := s.Providers.Repo.Get(r.Context(), id)
 	if err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
 	}
-	var req createProviderRequest
+
+	var req createConnectionRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// Apply partial updates; preserve secret if the request didn't send one.
+
 	existing.Name = orDefault(req.Name, existing.Name)
 	existing.ProviderID = orDefault(req.ProviderID, existing.ProviderID)
-	existing.BaseURL = app.NormalizeBaseURL(orDefault(req.BaseURL, existing.BaseURL))
-	newFormat := domain.Format(orDefault(string(req.Format), string(existing.Format)))
-	existing.Auth = domain.AuthScheme(orDefault(string(req.Auth), string(existing.Auth)))
 	existing.Priority = orDefaultInt(req.Priority, existing.Priority)
 	if req.APIKey != "" {
 		existing.APIKey = req.APIKey
@@ -120,27 +244,22 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	if req.IsActive != nil {
 		existing.IsActive = *req.IsActive
 	}
-	// Probe to validate the updated connection and auto-detect format.
-	if s.Prober != nil {
-		probeConn := *existing
-		probeConn.Format = newFormat
-		result := s.Prober.Probe(r.Context(), &probeConn)
-		if result.Error != nil {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("connection validation failed: %v", result.Error))
-			return
-		}
-		if newFormat == "" || newFormat == domain.FormatAuto {
-			existing.Format = result.Format
-		} else {
-			existing.Format = newFormat
-		}
-	} else {
-		if newFormat == "" || newFormat == domain.FormatAuto {
-			existing.Format = domain.FormatOpenAI
-		} else {
-			existing.Format = newFormat
+
+	if s.ProviderConfigs != nil {
+		cfg, err := s.ProviderConfigs.GetByProviderID(r.Context(), existing.ProviderID)
+		if err == nil && s.Prober != nil {
+			result := s.Prober.Probe(r.Context(), existing, cfg)
+			if result.Error != nil {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("connection validation failed: %v", result.Error))
+				return
+			}
+			if cfg.Format == "" || cfg.Format == domain.FormatAuto {
+				cfg.Format = result.Format
+				_ = s.ProviderConfigs.Update(r.Context(), cfg)
+			}
 		}
 	}
+
 	if err := s.Providers.Update(r.Context(), existing); err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
@@ -149,7 +268,7 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, existing)
 }
 
-func (s *Server) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDeleteConnection(w http.ResponseWriter, r *http.Request) {
 	if err := s.Providers.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
@@ -157,7 +276,7 @@ func (s *Server) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleReorderProviders(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleReorderConnections(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Order []string `json:"order"`
 	}
@@ -172,20 +291,13 @@ func (s *Server) handleReorderProviders(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleProviderModels returns the persisted model catalog for a provider.
-// Models are read from the database (populated by sync), not fetched live.
 func (s *Server) handleProviderModels(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	conn, err := s.Providers.Repo.Get(r.Context(), id)
-	if err != nil {
-		writeError(w, statusForError(err), err.Error())
-		return
-	}
+	providerID := chi.URLParam(r, "id")
 	if s.ModelRepo == nil {
 		writeJSON(w, http.StatusOK, []any{})
 		return
 	}
-	entries, err := s.ModelRepo.ListByProvider(r.Context(), conn.ProviderID)
+	entries, err := s.ModelRepo.ListByProvider(r.Context(), providerID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -200,12 +312,26 @@ func (s *Server) handleProviderModels(w http.ResponseWriter, r *http.Request) {
 // model catalog by fetching /v1/models from the upstream and upserting
 // entries into the database.
 func (s *Server) handleSyncProviderModels(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	conn, err := s.Providers.Repo.Get(r.Context(), id)
+	providerID := chi.URLParam(r, "id")
+	
+	// We need a connection to sync from. Find the first active one for this provider.
+	conns, err := s.Providers.List(r.Context())
 	if err != nil {
-		writeError(w, statusForError(err), err.Error())
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	var conn *domain.Connection
+	for i := range conns {
+		if conns[i].ProviderID == providerID && conns[i].IsActive {
+			conn = &conns[i]
+			break
+		}
+	}
+	if conn == nil {
+		writeError(w, http.StatusBadRequest, "no active connection available to sync models")
+		return
+	}
+
 	if s.ModelSync == nil {
 		writeError(w, http.StatusServiceUnavailable, "model sync not configured")
 		return
@@ -214,7 +340,7 @@ func (s *Server) handleSyncProviderModels(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	entries, _ := s.ModelRepo.ListByProvider(r.Context(), conn.ProviderID)
+	entries, _ := s.ModelRepo.ListByProvider(r.Context(), providerID)
 	if entries == nil {
 		entries = []domain.ModelEntry{}
 	}
@@ -225,11 +351,7 @@ func (s *Server) handleSyncProviderModels(w http.ResponseWriter, r *http.Request
 // This is needed for providers that don't expose /v1/models.
 func (s *Server) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	providerID := chi.URLParam(r, "id")
-	conn, err := s.Providers.Repo.Get(r.Context(), providerID)
-	if err != nil {
-		writeError(w, statusForError(err), err.Error())
-		return
-	}
+	
 	var req struct {
 		ModelID string `json:"model_id"`
 		Name    string `json:"name"`
@@ -249,8 +371,8 @@ func (s *Server) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		kind = domain.ModelKind(req.Kind)
 	}
 	entry := &domain.ModelEntry{
-		ID:         conn.ProviderID + "/" + req.ModelID,
-		ProviderID: conn.ProviderID,
+		ID:         providerID + "/" + req.ModelID,
+		ProviderID: providerID,
 		ModelID:    req.ModelID,
 		Name:       orDefault(req.Name, req.ModelID),
 		Kind:       kind,
@@ -608,56 +730,3 @@ func lookupKey(s *app.ApiKeyService, ctx context.Context, id string) (*domain.Ap
 
 // --- ProviderConfig (provider grouping metadata) ---
 
-func (s *Server) handleListProviderConfigs(w http.ResponseWriter, r *http.Request) {
-	if s.ProviderConfigs == nil {
-		writeJSON(w, http.StatusOK, []domain.ProviderConfig{})
-		return
-	}
-	ps, err := s.ProviderConfigs.List(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, ps)
-}
-
-func (s *Server) handleUpdateProviderConfig(w http.ResponseWriter, r *http.Request) {
-	if s.ProviderConfigs == nil {
-		writeError(w, http.StatusServiceUnavailable, "provider configs not available")
-		return
-	}
-	id := chi.URLParam(r, "id")
-	existing, err := s.ProviderConfigs.Get(r.Context(), id)
-	if err != nil {
-		writeError(w, statusForError(err), err.Error())
-		return
-	}
-	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		LoadBalance string `json:"load_balance"`
-	}
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if req.Name != "" {
-		existing.Name = req.Name
-	}
-	if req.Description != "" {
-		existing.Description = req.Description
-	}
-	if req.LoadBalance == "failover" || req.LoadBalance == "round-robin" {
-		existing.LoadBalance = req.LoadBalance
-	}
-	if err := s.ProviderConfigs.Update(r.Context(), existing); err != nil {
-		writeError(w, statusForError(err), err.Error())
-		return
-	}
-	// Refresh the router's in-memory cache so the new strategy takes effect
-	// immediately without waiting for the next sync.
-	if s.Router != nil {
-		s.Router.RefreshProviderCache(r.Context())
-	}
-	writeJSON(w, http.StatusOK, existing)
-}

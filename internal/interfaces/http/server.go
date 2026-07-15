@@ -22,13 +22,13 @@ import (
 // Fetcher is used by the dashboard to auto-fetch models for a given provider
 // connection. Injected at the composition root.
 type FetcherProvider interface {
-	Fetch(ctx context.Context, c *domain.Connection) ([]domain.ModelInfo, error)
+	Fetch(ctx context.Context, c *domain.Connection, cfg *domain.ProviderConfig) ([]domain.ModelInfo, error)
 }
 
 // Prober validates a provider connection at save time by probing the
 // upstream. When the format is "auto", it detects the best format.
 type Prober interface {
-	Probe(ctx context.Context, conn *domain.Connection) app.ProbeResult
+	Probe(ctx context.Context, conn *domain.Connection, cfg *domain.ProviderConfig) app.ProbeResult
 }
 
 // ModelSyncer syncs the model catalog for a provider connection.
@@ -118,7 +118,12 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/providers", s.handleCreateProvider)
 		r.Put("/providers/{id}", s.handleUpdateProvider)
 		r.Delete("/providers/{id}", s.handleDeleteProvider)
-		r.Post("/providers/reorder", s.handleReorderProviders)
+		
+		r.Get("/connections", s.handleListConnections)
+		r.Post("/connections", s.handleCreateConnection)
+		r.Put("/connections/{id}", s.handleUpdateConnection)
+		r.Delete("/connections/{id}", s.handleDeleteConnection)
+		r.Post("/connections/reorder", s.handleReorderConnections)
 		r.Get("/providers/{id}/models", s.handleProviderModels)
 		r.Post("/providers/{id}/models", s.handleAddModel)
 		r.Post("/providers/{id}/models/sync", s.handleSyncProviderModels)
@@ -128,9 +133,6 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/provider-store", s.handleListStore)
 		r.Post("/provider-store/install/{id}", s.handleInstallStore)
 		r.Delete("/provider-store/{id}", s.handleRemoveStore)
-
-		r.Get("/provider-configs", s.handleListProviderConfigs)
-		r.Put("/provider-configs/{id}", s.handleUpdateProviderConfig)
 
 		r.Get("/oauth/providers", s.handleOAuthProviders)
 		r.Post("/oauth/{provider}/start", s.handleOAuthStart)

@@ -131,9 +131,6 @@ func (s *Server) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 		ProviderID:     providerID,
 		Name:           name,
 		APIKey:         tok.AccessToken,
-		BaseURL:        baseURL,
-		Format:         format,
-		Auth:           auth,
 		IsActive:       true,
 		RefreshToken:   tok.RefreshToken,
 		Meta:           oauth.MetaJSON(tok),
@@ -143,6 +140,21 @@ func (s *Server) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 	if tok.ExpiresIn > 0 {
 		conn.TokenExpiresAt = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
 	}
+
+	if s.ProviderConfigs != nil {
+		cfg, err := s.ProviderConfigs.GetByProviderID(r.Context(), providerID)
+		if err == domain.ErrNotFound {
+			cfg = &domain.ProviderConfig{
+				ID:      providerID,
+				Name:    providerID,
+				BaseURL: baseURL,
+				Format:  format,
+				Auth:    auth,
+			}
+			_ = s.ProviderConfigs.Create(r.Context(), cfg)
+		}
+	}
+
 	if err := s.Providers.Create(r.Context(), conn); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -202,13 +214,28 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 			}
 			conn := &domain.Connection{
 				ID: uuid.NewString(), ProviderID: providerID, Name: name,
-				APIKey: tok.AccessToken, BaseURL: baseURL, Format: format, Auth: auth,
+				APIKey: tok.AccessToken, 
 				IsActive: true, RefreshToken: tok.RefreshToken, Meta: oauth.MetaJSON(tok),
 				CreatedAt: time.Now(), UpdatedAt: time.Now(),
 			}
 			if tok.ExpiresIn > 0 {
 				conn.TokenExpiresAt = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
 			}
+			
+			if s.ProviderConfigs != nil {
+				cfg, err := s.ProviderConfigs.GetByProviderID(r.Context(), providerID)
+				if err == domain.ErrNotFound {
+					cfg = &domain.ProviderConfig{
+						ID:      providerID,
+						Name:    providerID,
+						BaseURL: baseURL,
+						Format:  format,
+						Auth:    auth,
+					}
+					_ = s.ProviderConfigs.Create(r.Context(), cfg)
+				}
+			}
+
 			_ = s.Providers.Create(r.Context(), conn)
 			fmt.Fprintf(w, `<!doctype html><html><body style="font-family:system-ui;padding:2rem">
 <h1>Connected</h1><p>%s linked as <strong>%s</strong>.</p>

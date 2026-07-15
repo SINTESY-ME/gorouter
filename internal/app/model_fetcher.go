@@ -23,8 +23,8 @@ func NewHTTPModelFetcher() *HTTPModelFetcher {
 	return &HTTPModelFetcher{Client: &http.Client{Timeout: 10 * time.Second}}
 }
 
-func (f *HTTPModelFetcher) Fetch(ctx context.Context, c *domain.Connection) ([]domain.ModelInfo, error) {
-	url := f.modelsURL(c)
+func (f *HTTPModelFetcher) Fetch(ctx context.Context, c *domain.Connection, cfg *domain.ProviderConfig) ([]domain.ModelInfo, error) {
+	url := f.modelsURL(cfg)
 	if url == "" {
 		return nil, nil
 	}
@@ -32,7 +32,7 @@ func (f *HTTPModelFetcher) Fetch(ctx context.Context, c *domain.Connection) ([]d
 	if err != nil {
 		return nil, err
 	}
-	f.applyAuth(req, c)
+	f.applyAuth(req, c, cfg)
 	resp, err := f.Client.Do(req)
 	if err != nil {
 		return nil, err
@@ -48,22 +48,22 @@ func (f *HTTPModelFetcher) Fetch(ctx context.Context, c *domain.Connection) ([]d
 	return parseModelList(buf)
 }
 
-func (f *HTTPModelFetcher) modelsURL(c *domain.Connection) string {
-	base := strings.TrimRight(c.BaseURL, "/")
+func (f *HTTPModelFetcher) modelsURL(cfg *domain.ProviderConfig) string {
+	base := strings.TrimRight(cfg.BaseURL, "/")
 	if base == "" {
 		return ""
 	}
 	if strings.HasSuffix(base, "/v1") && base != "/v1" {
 		base = base[:len(base)-3]
 	}
-	if c.Format == domain.FormatAnthropic {
+	if cfg.Format == domain.FormatAnthropic {
 		return base + "/v1/messages/models"
 	}
 	return base + "/v1/models"
 }
 
-func (f *HTTPModelFetcher) applyAuth(req *http.Request, c *domain.Connection) {
-	switch c.Auth {
+func (f *HTTPModelFetcher) applyAuth(req *http.Request, c *domain.Connection, cfg *domain.ProviderConfig) {
+	switch cfg.Auth {
 	case domain.AuthXAPIKey:
 		req.Header.Set("x-api-key", c.APIKey)
 		req.Header.Set("anthropic-version", "2023-06-01")

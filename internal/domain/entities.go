@@ -74,9 +74,6 @@ type Connection struct {
 	ProviderID       string       `json:"provider_id" gorm:"column:provider_id;uniqueIndex:idx_provider_name,priority:1;index:idx_conn_provider,priority:1"`
 	Name             string       `json:"name" gorm:"uniqueIndex:idx_provider_name,priority:2"`
 	APIKey           string       `json:"api_key" gorm:"column:api_key"` // access token for oauth
-	BaseURL          string       `json:"base_url" gorm:"column:base_url"`
-	Format           Format       `json:"format" gorm:"default:openai"`
-	Auth             AuthScheme   `json:"auth" gorm:"default:bearer"`
 	Priority         int          `json:"priority" gorm:"index:idx_conn_provider,priority:2"`
 	IsActive         bool         `json:"is_active" gorm:"column:is_active;default:true"`
 	RateLimitedUntil time.Time    `json:"rate_limited_until" gorm:"column:rate_limited_until"`
@@ -94,14 +91,17 @@ type Connection struct {
 // and the load-balance strategy applied to all its connections. The
 // ID field matches the provider_id used by Connection.ProviderID.
 type ProviderConfig struct {
-	ID          string    `json:"id" gorm:"primaryKey"`
-	Name        string    `json:"name"`        // human-friendly display name (optional)
-	Description string    `json:"description,omitempty"`
+	ID          string     `json:"id" gorm:"primaryKey"`
+	Name        string     `json:"name"`        // human-friendly display name (optional)
+	Description string     `json:"description,omitempty"`
+	BaseURL     string     `json:"base_url" gorm:"column:base_url"`
+	Format      Format     `json:"format" gorm:"default:openai"`
+	Auth        AuthScheme `json:"auth" gorm:"default:bearer"`
 	// LoadBalance controls how connections are selected for this provider.
 	// "failover" (default): always try the first active connection, only
 	// fall through on failure. "round-robin": rotate the starting index
 	// across requests to distribute load evenly.
-	LoadBalance string `json:"load_balance" gorm:"column:load_balance;default:failover"`
+	LoadBalance string    `json:"load_balance" gorm:"column:load_balance;default:failover"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

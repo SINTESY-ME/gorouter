@@ -75,11 +75,11 @@ type RouterService struct {
 	// the router falls back to failover for all providers.
 	Providers domain.ProviderConfigRepo
 
-	// providerCache holds load-balance strategies keyed by provider_id.
+	// providerCache holds configs keyed by provider_id.
 	// Refreshed by RefreshProviderCache at startup and after provider
 	// changes. The hot path reads this with an RLock — zero DB overhead.
 	providerMu    sync.RWMutex
-	providerCache map[string]string // providerID -> loadBalance strategy
+	providerCache map[string]*domain.ProviderConfig
 
 	// connRotation is an atomic counter for round-robin connection
 	// selection. Incremented per request when the provider's strategy
@@ -417,7 +417,14 @@ func (s *RouterService) runHealthProbe(comboName, modelStr string, m domain.Mode
 	}
 
 	probeBody := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"."}],"max_tokens":1,"stream":false}`, m.Model)
-	targetFmt := conn.Format
+	s.providerMu.RLock()
+	cfg := s.providerCache[m.Provider]
+	s.providerMu.RUnlock()
+	if cfg == nil {
+		cfg = &domain.ProviderConfig{ID: m.Provider, Format: domain.FormatOpenAI}
+	}
+
+	targetFmt := cfg.Format
 	if targetFmt == "" {
 		targetFmt = domain.FormatOpenAI
 	}
@@ -430,6 +437,7 @@ func (s *RouterService) runHealthProbe(comboName, modelStr string, m domain.Mode
 	execReq := domain.ExecuteRequest{
 		ProviderID:    m.Provider,
 		Connection:    conn,
+		Config:        cfg,
 		UpstreamModel: m.Model,
 		Body:          io.NopCloser(bytes.NewReader(translated)),
 		Stream:        false,
@@ -532,6 +540,14 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 			// continue with existing token; upstream may 401
 		}
 	}
+
+	s.providerMu.RLock()
+	cfg := s.providerCache[m.Provider]
+	s.providerMu.RUnlock()
+	if cfg == nil {
+		cfg = &domain.ProviderConfig{ID: m.Provider, Format: domain.FormatOpenAI}
+	}
+
 	translated := body
 	var respBody io.ReadCloser
 	if opts.Endpoint == "" {
@@ -541,7 +557,7 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 		if inputFmt == "" {
 			inputFmt = domain.FormatOpenAI
 		}
-		targetFmt := conn.Format
+		targetFmt := cfg.Format
 		if targetFmt == "" || targetFmt == domain.FormatAuto {
 			targetFmt = domain.FormatOpenAI
 		}
@@ -582,6 +598,7 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 		execReq := domain.ExecuteRequest{
 			ProviderID:   m.Provider,
 			Connection:   conn,
+			Config:       cfg,
 			UpstreamModel: m.Model,
 			Body:         io.NopCloser(bytes.NewReader(translated)),
 			Stream:       stream,
@@ -654,6 +671,7 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 	execReq := domain.ExecuteRequest{
 		ProviderID:   m.Provider,
 		Connection:   conn,
+		Config:       cfg,
 		UpstreamModel: m.Model,
 		Body:         io.NopCloser(bytes.NewReader(translated)),
 		Stream:       false,
@@ -872,8 +890,12 @@ func (s *RouterService) connStartIndex(conns []domain.Connection) int {
 		return 0
 	}
 	s.providerMu.RLock()
-	strategy := s.providerCache[conns[0].ProviderID]
+	cfg := s.providerCache[conns[0].ProviderID]
 	s.providerMu.RUnlock()
+	strategy := "failover"
+	if cfg != nil {
+		strategy = cfg.LoadBalance
+	}
 	if strategy == "round-robin" {
 		return int(atomic.AddUint32(&s.connRotation, 1)) % len(conns)
 	}
@@ -892,13 +914,13 @@ func (s *RouterService) RefreshProviderCache(ctx context.Context) {
 		slog.Error("provider cache refresh failed", "err", err)
 		return
 	}
-	m := make(map[string]string, len(ps))
-	for _, p := range ps {
-		lb := p.LoadBalance
-		if lb == "" {
-			lb = "failover"
+	m := make(map[string]*domain.ProviderConfig, len(ps))
+	for i := range ps {
+		p := &ps[i]
+		if p.LoadBalance == "" {
+			p.LoadBalance = "failover"
 		}
-		m[p.ID] = lb
+		m[p.ID] = p
 	}
 	s.providerMu.Lock()
 	s.providerCache = m

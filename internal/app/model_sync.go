@@ -16,6 +16,7 @@ import (
 type ModelSyncService struct {
 	Connections domain.ConnectionRepo
 	Models      domain.ModelRepo
+	Configs     domain.ProviderConfigRepo
 	Fetcher     domain.ModelFetcher
 	Registry    *ModelRegistry
 	// OnSynced is called after each provider sync completes (even on
@@ -47,7 +48,11 @@ func (s *ModelSyncService) SyncAll(ctx context.Context) {
 // name heuristic), and upserts entries. Models that were sync-sourced and are
 // no longer returned are deactivated.
 func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connection) error {
-	fetched, err := s.Fetcher.Fetch(ctx, conn)
+	cfg, err := s.Configs.GetByProviderID(ctx, conn.ProviderID)
+	if err != nil {
+		return err
+	}
+	fetched, err := s.Fetcher.Fetch(ctx, conn, cfg)
 	if err != nil {
 		return err
 	}

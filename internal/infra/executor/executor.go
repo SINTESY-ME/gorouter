@@ -90,7 +90,7 @@ func (e *HTTPExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) (
 // OpenAI-compatible nodes may override the base url; we honor it verbatim
 // and append the canonical path.
 func buildURL(req domain.ExecuteRequest) string {
-	base := strings.TrimRight(req.Connection.BaseURL, "/")
+	base := strings.TrimRight(req.Config.BaseURL, "/")
 	if base == "" {
 		return ""
 	}
@@ -108,7 +108,7 @@ func buildURL(req domain.ExecuteRequest) string {
 	case "audio/transcriptions":
 		return base + "/v1/audio/transcriptions"
 	}
-	switch req.Connection.Format {
+	switch req.Config.Format {
 	case domain.FormatAnthropic:
 		// Anthropic native: base + /v1/messages. Caller has already built
 		// the body in anthropic format if needed.
@@ -128,7 +128,7 @@ func buildURL(req domain.ExecuteRequest) string {
 }
 
 func applyAuth(h *http.Request, req domain.ExecuteRequest) {
-	switch req.Connection.Auth {
+	switch req.Config.Auth {
 	case domain.AuthXAPIKey:
 		h.Header.Set("x-api-key", req.Connection.APIKey)
 		h.Header.Set("anthropic-version", "2023-06-01")
@@ -139,7 +139,7 @@ func applyAuth(h *http.Request, req domain.ExecuteRequest) {
 	default:
 		// Gemini also uses ?key= but for compatibility with OpenAI-style
 		// gemini-compatible proxies (OpenRouter, etc.) we default to Bearer.
-		if isGeminiNative(req.Connection.Format, req.Connection.Auth) {
+		if isGeminiNative(req.Config.Format, req.Config.Auth) {
 			q := h.URL.Query()
 			q.Set("key", req.Connection.APIKey)
 			h.URL.RawQuery = q.Encode()

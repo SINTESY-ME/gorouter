@@ -12,13 +12,14 @@ import (
 // has already been applied by the Translator). The executor's only job is to
 // send the request and return the response — it is a thin, fast reverse proxy.
 type ExecuteRequest struct {
-	ProviderID  string
-	Connection  *Connection
+	ProviderID    string
+	Connection    *Connection
+	Config        *ProviderConfig
 	UpstreamModel string // the model id at the upstream (after alias resolution)
-	Body        io.ReadCloser // already in target format
-	Stream      bool
-	Headers     map[string]string // extra headers (e.g. anthropic-version)
-	Endpoint    string // "" = chat (format-based URL); "embeddings" | "images/generations" force OpenAI-style paths
+	Body          io.ReadCloser // already in target format
+	Stream        bool
+	Headers       map[string]string // extra headers (e.g. anthropic-version)
+	Endpoint      string // "" = chat (format-based URL); "embeddings" | "images/generations" force OpenAI-style paths
 }
 
 // ExecuteResult is the upstream's response. The caller owns closing Body.
@@ -42,7 +43,7 @@ type Executor interface {
 // (nil, nil) when the upstream has no model list endpoint or it is
 // unreachable; callers fall back to the static registry list.
 type ModelFetcher interface {
-	Fetch(ctx context.Context, conn *Connection) ([]ModelInfo, error)
+	Fetch(ctx context.Context, conn *Connection, cfg *ProviderConfig) ([]ModelInfo, error)
 }
 
 // Translator converts a request/response between two Formats. The router

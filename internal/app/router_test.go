@@ -178,8 +178,8 @@ func TestRouteSingle_NonStreaming_UsageRecorded(t *testing.T) {
 			ID:         "c1",
 			ProviderID: "openai",
 			Name:       "test",
-			Format:     domain.FormatOpenAI,
-			Auth:       domain.AuthBearer,
+			
+			
 			IsActive:   true,
 		}},
 	}
@@ -243,8 +243,8 @@ func TestRouteCombo_OrderedFallback(t *testing.T) {
 			ID:         "c1",
 			ProviderID: "openai",
 			Name:       "test",
-			Format:     domain.FormatOpenAI,
-			Auth:       domain.AuthBearer,
+			
+			
 			IsActive:   true,
 		}},
 	}
@@ -282,8 +282,8 @@ func TestRoutePassthrough_Embeddings_UsageRecorded(t *testing.T) {
 			ID:         "c1",
 			ProviderID: "openai",
 			Name:       "test",
-			Format:     domain.FormatOpenAI,
-			Auth:       domain.AuthBearer,
+			
+			
 			IsActive:   true,
 		}},
 	}
@@ -332,8 +332,8 @@ func TestRoutePassthrough_Images(t *testing.T) {
 			ID:         "c1",
 			ProviderID: "openai",
 			Name:       "test",
-			Format:     domain.FormatOpenAI,
-			Auth:       domain.AuthBearer,
+			
+			
 			IsActive:   true,
 		}},
 	}
@@ -376,8 +376,8 @@ func TestRoutePassthrough_AudioSpeech(t *testing.T) {
 			ID:         "c1",
 			ProviderID: "openai",
 			Name:       "test",
-			Format:     domain.FormatOpenAI,
-			Auth:       domain.AuthBearer,
+			
+			
 			IsActive:   true,
 		}},
 	}
@@ -434,8 +434,8 @@ func TestRoutePassthrough_AudioTranscriptions_Multipart(t *testing.T) {
 			ID:         "c1",
 			ProviderID: "openai",
 			Name:       "test",
-			Format:     domain.FormatOpenAI,
-			Auth:       domain.AuthBearer,
+			
+			
 			IsActive:   true,
 		}},
 	}
@@ -479,16 +479,16 @@ func twoProviderConnRepo() *mockConnectionRepo {
 				ID:         "c-openai",
 				ProviderID: "openai",
 				Name:       "primary",
-				Format:     domain.FormatOpenAI,
-				Auth:       domain.AuthBearer,
+				
+				
 				IsActive:   true,
 			},
 			{
 				ID:         "c-anthropic",
 				ProviderID: "anthropic",
 				Name:       "primary",
-				Format:     domain.FormatOpenAI,
-				Auth:       domain.AuthBearer,
+				
+				
 				IsActive:   true,
 			},
 		},

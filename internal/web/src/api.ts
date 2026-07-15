@@ -43,9 +43,27 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export interface Provider {
-  id: string; provider_id: string; name: string; api_key: string;
-  base_url: string; format: string; auth: string; priority: number;
-  is_active: boolean; rate_limited_until: string; created_at: string; updated_at: string;
+  id: string;
+  name: string;
+  description: string;
+  base_url: string;
+  format: string;
+  auth: string;
+  load_balance: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface Connection {
+  id: string;
+  provider_id: string;
+  name: string;
+  api_key: string;
+  priority: number;
+  is_active: boolean;
+  rate_limited_until?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 export interface ModelInfo {
   id: string; object: string; owned_by: string; kind?: string;
@@ -130,14 +148,7 @@ export interface SavingsStats {
   rtk_bytes_saved: number;
   rtk_tokens_saved: number;
 }
-export interface ProviderConfig {
-  id: string;
-  name: string;
-  description: string;
-  load_balance: string;
-  created_at: string;
-  updated_at: string;
-}
+
 
 export const api = {
   auth: {
@@ -154,7 +165,6 @@ export const api = {
       request<Provider>("/api/providers", { method: "POST", body: JSON.stringify(p) }),
     update: (id: string, p: Partial<Provider>) => request<Provider>(`/api/providers/${id}`, { method: "PUT", body: JSON.stringify(p) }),
     remove: (id: string) => request<void>(`/api/providers/${id}`, { method: "DELETE" }),
-    reorder: (ids: string[]) => request<void>("/api/providers/reorder", { method: "POST", body: JSON.stringify(ids) }),
     models: (id: string) => request<ModelEntry[]>(`/api/providers/${id}/models`),
     syncModels: (id: string) => request<ModelEntry[]>(`/api/providers/${id}/models/sync`, { method: "POST" }),
     addModel: (id: string, m: { model_id: string; name?: string; kind?: string; context?: number }) =>
@@ -167,6 +177,13 @@ export const api = {
       remove: (id: string) => request<void>(`/api/provider-store/${id}`, { method: "DELETE" }),
     },
   },
+  connections: {
+    list: () => request<Connection[]>("/api/connections"),
+    create: (c: Partial<Connection>) => request<Connection>("/api/connections", { method: "POST", body: JSON.stringify(c) }),
+    update: (id: string, c: Partial<Connection>) => request<Connection>(`/api/connections/${id}`, { method: "PUT", body: JSON.stringify(c) }),
+    remove: (id: string) => request<void>(`/api/connections/${id}`, { method: "DELETE" }),
+    reorder: (ids: string[]) => request<void>("/api/connections/reorder", { method: "POST", body: JSON.stringify(ids) }),
+  },
   oauth: {
     list: () => request<string[]>("/api/oauth/providers"),
     start: (provider: string, redirect_uri?: string) =>
@@ -175,7 +192,7 @@ export const api = {
         { method: "POST", body: JSON.stringify({ redirect_uri: redirect_uri || "" }) }
       ),
     complete: (provider: string, body: { state: string; code: string; name?: string }) =>
-      request<Provider>(`/api/oauth/${provider}/complete`, { method: "POST", body: JSON.stringify(body) }),
+      request<Connection>(`/api/oauth/${provider}/complete`, { method: "POST", body: JSON.stringify(body) }),
   },
   models: {
     list: () => request<ModelInfo[]>("/api/models"),
@@ -206,11 +223,6 @@ export const api = {
     get: () => request<{ rtk_enabled: boolean; cache_enabled: boolean }>("/api/settings"),
     update: (s: { rtk_enabled?: boolean; cache_enabled?: boolean }) =>
       request<{ status: string }>("/api/settings", { method: "PUT", body: JSON.stringify(s) }),
-  },
-  providerConfigs: {
-    list: () => request<ProviderConfig[]>("/api/provider-configs"),
-    update: (id: string, c: Partial<ProviderConfig>) =>
-      request<ProviderConfig>(`/api/provider-configs/${id}`, { method: "PUT", body: JSON.stringify(c) }),
   },
   cache: {
     stats: () => request<{ enabled: boolean; entries?: number; hits?: number; misses?: number }>("/api/cache/stats"),

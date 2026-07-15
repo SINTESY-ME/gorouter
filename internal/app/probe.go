@@ -40,13 +40,13 @@ type ProbeResult struct {
 // Probe validates a connection configuration against the upstream. If the
 // format is "auto", it detects the best format. The base_url is normalized
 // (trailing /v1 stripped) before probing.
-func (p *ProviderProbe) Probe(ctx context.Context, conn *domain.Connection) ProbeResult {
-	conn = normalizeConn(conn)
+func (p *ProviderProbe) Probe(ctx context.Context, conn *domain.Connection, cfg *domain.ProviderConfig) ProbeResult {
+	cfg = normalizeConfig(cfg)
 
-	if conn.Format != "auto" && conn.Format != "" {
+	if cfg.Format != "auto" && cfg.Format != "" {
 		// Fixed format: just validate.
-		models, err := p.tryFormat(ctx, conn, conn.Format)
-		return ProbeResult{Format: conn.Format, Models: models, Error: err}
+		models, err := p.tryFormat(ctx, conn, cfg, cfg.Format)
+		return ProbeResult{Format: cfg.Format, Models: models, Error: err}
 	}
 
 	// Auto: try formats in priority order — openai first (most common and
@@ -54,9 +54,9 @@ func (p *ProviderProbe) Probe(ctx context.Context, conn *domain.Connection) Prob
 	// others. /v1/models is the same endpoint for both openai and responses,
 	// so openai is tried first as the safer default.
 	for _, f := range []domain.Format{domain.FormatOpenAI, domain.FormatResponses, domain.FormatAnthropic, domain.FormatGemini} {
-		probe := *conn
-		probe.Format = f
-		models, err := p.tryFormat(ctx, &probe, f)
+		probeCfg := *cfg
+		probeCfg.Format = f
+		models, err := p.tryFormat(ctx, conn, &probeCfg, f)
 		if err == nil && len(models) > 0 {
 			return ProbeResult{Format: f, Models: models}
 		}
@@ -65,8 +65,8 @@ func (p *ProviderProbe) Probe(ctx context.Context, conn *domain.Connection) Prob
 }
 
 // tryFormat probes a single format by hitting its models endpoint.
-func (p *ProviderProbe) tryFormat(ctx context.Context, conn *domain.Connection, f domain.Format) ([]domain.ModelInfo, error) {
-	url := modelsURLForFormat(conn.BaseURL, f)
+func (p *ProviderProbe) tryFormat(ctx context.Context, conn *domain.Connection, cfg *domain.ProviderConfig, f domain.Format) ([]domain.ModelInfo, error) {
+	url := modelsURLForFormat(cfg.BaseURL, f)
 	if url == "" {
 		return nil, fmt.Errorf("empty base url")
 	}
@@ -74,7 +74,7 @@ func (p *ProviderProbe) tryFormat(ctx context.Context, conn *domain.Connection, 
 	if err != nil {
 		return nil, err
 	}
-	applyAuthForProbe(req, conn, f)
+	applyAuthForProbe(req, conn, cfg, f)
 	resp, err := p.Client.Do(req)
 	if err != nil {
 		return nil, err
@@ -105,8 +105,8 @@ func modelsURLForFormat(baseURL string, f domain.Format) string {
 	}
 }
 
-func applyAuthForProbe(req *http.Request, conn *domain.Connection, f domain.Format) {
-	switch conn.Auth {
+func applyAuthForProbe(req *http.Request, conn *domain.Connection, cfg *domain.ProviderConfig, f domain.Format) {
+	switch cfg.Auth {
 	case domain.AuthXAPIKey:
 		req.Header.Set("x-api-key", conn.APIKey)
 		req.Header.Set("anthropic-version", "2023-06-01")
@@ -123,10 +123,10 @@ func applyAuthForProbe(req *http.Request, conn *domain.Connection, f domain.Form
 	}
 }
 
-// normalizeConn returns a copy of conn with a normalized BaseURL (no trailing
+// normalizeConfig returns a copy of config with a normalized BaseURL (no trailing
 // /v1, no trailing slash). The original is not modified.
-func normalizeConn(conn *domain.Connection) *domain.Connection {
-	c := *conn
+func normalizeConfig(cfg *domain.ProviderConfig) *domain.ProviderConfig {
+	c := *cfg
 	c.BaseURL = NormalizeBaseURL(c.BaseURL)
 	return &c
 }

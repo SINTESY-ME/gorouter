@@ -52,9 +52,6 @@ func (r *ConnectionRepo) Update(ctx context.Context, c *domain.Connection) error
 	res := r.db.WithContext(ctx).Model(&domain.Connection{}).Where("id = ?", c.ID).Updates(map[string]any{
 		"name":               c.Name,
 		"api_key":            c.APIKey,
-		"base_url":           c.BaseURL,
-		"format":             c.Format,
-		"auth":               c.Auth,
 		"priority":           c.Priority,
 		"is_active":          c.IsActive,
 		"rate_limited_until": c.RateLimitedUntil,

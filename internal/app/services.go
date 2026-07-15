@@ -29,12 +29,6 @@ func (s *ConnectionService) Create(ctx context.Context, c *domain.Connection) er
 	if c.UpdatedAt.IsZero() {
 		c.UpdatedAt = time.Now()
 	}
-	if c.Format == "" {
-		c.Format = domain.FormatOpenAI
-	}
-	if c.Auth == "" {
-		c.Auth = domain.AuthBearer
-	}
 	if c.Name == "" {
 		return fmtValidation("name is required")
 	}
