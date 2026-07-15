@@ -135,6 +135,7 @@ func run() error {
 	usage := &app.UsageService{Repo: usageRepo}
 	modelSync := &app.ModelSyncService{
 		Connections: cachedConns,
+		Configs:     providerConfigRepo,
 		Models:      modelRepo,
 		Fetcher:     fetcher,
 		Registry:    registry,
