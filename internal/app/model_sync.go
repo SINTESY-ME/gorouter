@@ -56,6 +56,11 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 	if err != nil {
 		return err
 	}
+	if len(fetched) == 0 {
+		slog.Warn("model sync: no models returned by provider, skipping deactivation to prevent mass deletion", "provider", conn.ProviderID)
+		return nil
+	}
+
 	now := time.Now()
 	activeIDs := make([]string, 0, len(fetched))
 	for _, m := range fetched {
