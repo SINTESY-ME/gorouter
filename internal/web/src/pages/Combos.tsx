@@ -149,10 +149,10 @@ function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (
     (async () => {
       setLoading(true);
       try {
+        // Fetch all providers regardless of active state (active is now per-connection)
         const ps = await api.providers.list();
-        const active = ps.filter((p) => p.is_active);
         const results = await Promise.allSettled(
-          active.map((p) => api.providers.models(p.id))
+          ps.map((p) => api.providers.models(p.id))
         );
         if (cancelled) return;
         const models: ModelEntry[] = [];

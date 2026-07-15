@@ -65,9 +65,9 @@ export default function Models() {
     setLoading(true);
     api.providers.list().then((ps) => {
       if (cancelled) return;
-      const active = ps.filter((p) => p.is_active);
       setProviders(ps);
-      return Promise.all(active.map((p) => api.providers.models(p.id).catch(() => [] as ModelEntry[])))
+      // Fetch models for all providers (active state is now per-connection)
+      return Promise.all(ps.map((p) => api.providers.models(p.id).catch(() => [] as ModelEntry[])))
         .then((results) => {
           if (cancelled) return;
           const all: ModelEntry[] = [];
