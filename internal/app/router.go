@@ -610,11 +610,14 @@ func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, a
 
 // resolvePricing looks up the model's pricing first from the persisted
 // catalog (ModelRepo, which may have manual overrides), then from the
-// in-memory registry as a fallback.
+// in-memory registry as a fallback. The catalog lookup normalizes the key
+// to lowercase to handle case-insensitive model names.
 func (s *RouterService) resolvePricing(m domain.ModelID) (domain.ModelPricing, bool) {
 	// Try the persisted catalog first (may have manual overrides).
+	// Normalize the key to lowercase for case-insensitive matching.
 	if s.Models != nil {
-		entry, err := s.Models.Get(context.Background(), m.Provider+"/"+m.Model)
+		normalizedKey := strings.ToLower(m.Provider + "/" + m.Model)
+		entry, err := s.Models.Get(context.Background(), normalizedKey)
 		if err == nil && HasPricing(entry.Pricing) {
 			return entry.Pricing, true
 		}

@@ -70,7 +70,8 @@ func (r *ModelRegistry) ResolveKind(modelID string) (domain.ModelKind, int, bool
 
 // ResolvePricing returns the ModelPricing for the given (gorouterProvider, modelID)
 // pair. It first tries an exact (provider, model) match, then falls back to
-// model-only. Returns (zero, false) if no pricing data is found.
+// model-only, then attempts fuzzy matching (safe suffixes, containment, Levenshtein).
+// Returns (zero, false) if no pricing data is found.
 func (r *ModelRegistry) ResolvePricing(gorouterProvider, modelID string) (domain.ModelPricing, bool) {
 	if !r.ensureLoaded() {
 		return domain.ModelPricing{}, false
@@ -87,6 +88,10 @@ func (r *ModelRegistry) ResolvePricing(gorouterProvider, modelID string) (domain
 	}
 	// 2. Fallback: model-only match.
 	if e, ok := r.entries[normModel]; ok {
+		return e.Pricing, true
+	}
+	// 3. Fuzzy matching: safe suffixes, containment, Levenshtein distance.
+	if e, ok := findBestFuzzyMatch(normModel, r.entries); ok {
 		return e.Pricing, true
 	}
 	return domain.ModelPricing{}, false
