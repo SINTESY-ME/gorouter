@@ -45,7 +45,7 @@ func collectCandidates(normModel string, entries map[string]registryEntry) []can
 	var candidates []candidateMatch
 
 	if stripped, ok := tryStripSafeSuffixes(normModel); ok {
-		if _, exists := entries[stripped]; exists {
+		if e, exists := entries[stripped]; exists && HasPricing(e.Pricing) {
 			score := len(normModel) - len(stripped)
 			candidates = append(candidates, candidateMatch{key: stripped, score: score})
 		}
@@ -91,8 +91,11 @@ func findLevenshteinMatch(normModel string, entries map[string]registryEntry) (s
 	var bestKey string
 	bestDist := maxDist + 1
 
-	for key := range entries {
+	for key, e := range entries {
 		if len(key) < minLevenLen {
+			continue
+		}
+		if !HasPricing(e.Pricing) {
 			continue
 		}
 		dist := levenshteinDistance(normModel, key)
