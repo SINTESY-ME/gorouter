@@ -23,6 +23,7 @@ const chartTooltipStyle = {
   fontSize: "12px",
   color: "#eee",
 };
+const chartItemStyle = { color: "#eee" };
 
 export default function Dashboard() {
   const [stats, setStats] = useState<UsageStats | null>(null);
@@ -100,7 +101,7 @@ export default function Dashboard() {
             <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
             <XAxis dataKey="date" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
             <YAxis stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={(v: number) => formatCompact(v)} />
-            <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: "#888" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
+            <Tooltip contentStyle={chartTooltipStyle} itemStyle={chartItemStyle} labelStyle={{ color: "#888" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
             <Area type="monotone" dataKey="requests" stroke="#00C2A8" strokeWidth={2} fill="url(#gradReq)" />
           </AreaChart>
         </ResponsiveContainer>
@@ -115,11 +116,11 @@ export default function Dashboard() {
           ) : (
             <ResponsiveContainer width="100%" height={260}>
               <PieChart>
-                <Pie data={byProvider} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={95} paddingAngle={2} label={({ name }) => name}>
+                <Pie data={byProvider} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={95} paddingAngle={2} label={(entry: any) => <text x={entry.x} y={entry.y} fill="#aaa" fontSize={11} textAnchor={entry.x > entry.cx ? "start" : "end"} dominantBaseline="central">{entry.name}</text>} labelLine={{ stroke: "#666" }}>
                   {byProvider.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="none" />)}
                 </Pie>
                 <Legend formatter={(v) => <span className="text-xs text-default-600">{v}</span>} />
-                <Tooltip contentStyle={chartTooltipStyle} />
+                <Tooltip contentStyle={chartTooltipStyle} itemStyle={chartItemStyle} labelStyle={{ color: "#aaa" }} />
               </PieChart>
             </ResponsiveContainer>
           )}
@@ -135,7 +136,7 @@ export default function Dashboard() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
                 <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={(v: number) => formatCompact(v)} />
                 <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={90} />
-                <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
+                <Tooltip contentStyle={chartTooltipStyle} itemStyle={chartItemStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
                 <Bar dataKey="value" fill="#4DA3FF" radius={[0, 4, 4, 0]} barSize={20} />
               </BarChart>
             </ResponsiveContainer>
@@ -152,7 +153,7 @@ export default function Dashboard() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
                 <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={(v: number) => formatCost(v)} />
                 <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={90} />
-                <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [`$${v.toFixed(6)}`, "Custo"]} />
+                <Tooltip contentStyle={chartTooltipStyle} itemStyle={chartItemStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [`$${v.toFixed(6)}`, "Custo"]} />
                 <Bar dataKey="value" fill="#FFB347" radius={[0, 4, 4, 0]} barSize={20} />
               </BarChart>
             </ResponsiveContainer>
