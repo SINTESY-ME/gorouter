@@ -207,16 +207,16 @@ export const api = {
     update: (s: { rtk_enabled?: boolean; cache_enabled?: boolean }) =>
       request<{ status: string }>("/api/settings", { method: "PUT", body: JSON.stringify(s) }),
   },
+  providerConfigs: {
+    list: () => request<ProviderConfig[]>("/api/provider-configs"),
+    update: (id: string, c: Partial<ProviderConfig>) =>
+      request<ProviderConfig>(`/api/provider-configs/${id}`, { method: "PUT", body: JSON.stringify(c) }),
+  },
   cache: {
     stats: () => request<{ enabled: boolean; entries?: number; hits?: number; misses?: number }>("/api/cache/stats"),
     flush: () => request<{ status: string }>("/api/cache/flush", { method: "POST" }),
   },
   savings: {
     stats: () => request<SavingsStats>("/api/savings"),
-  },
-  providerConfigs: {
-    list: () => request<ProviderConfig[]>("/api/provider-configs"),
-    update: (id: string, p: Partial<ProviderConfig>) =>
-      request<ProviderConfig>(`/api/provider-configs/${id}`, { method: "PUT", body: JSON.stringify(p) }),
   },
 };

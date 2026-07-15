@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   Table, TableHeader, TableColumn, TableBody, TableRow, TableCell,
   Button, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter,
@@ -19,6 +19,7 @@ export default function Providers() {
   const [configs, setConfigs] = useState<ProviderConfig[]>([]);
   const [catalog, setCatalog] = useState<ProviderDef[]>([]);
   const [loading, setLoading] = useState(true);
+  
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [form, setForm] = useState<Record<string, string>>(empty);
   const [editId, setEditId] = useState<string | null>(null);
@@ -31,11 +32,11 @@ export default function Providers() {
   const [oauthProvider, setOauthProvider] = useState("");
   const [oauthAuthURL, setOauthAuthURL] = useState("");
   const [search, setSearch] = useState("");
-  const [savingConfig, setSavingConfig] = useState(false);
+  const [savingConfig, setSavingConfig] = useState<string | null>(null);
 
   const POPULAR = ["openai", "anthropic", "openrouter", "gemini", "groq", "deepseek", "mistral", "together", "ollama", "opencode", "deepinfra", "openadapter"];
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [modelsCache, setModelsCache] = useState<Record<string, ModelEntry[]>>({});
   const [modelErrors, setModelErrors] = useState<Record<string, string>>({});
   const [loadingModels, setLoadingModels] = useState<string | null>(null);
@@ -62,6 +63,16 @@ export default function Providers() {
     api.oauth.list().then(setOauthProviders).catch(() => setOauthProviders([]));
     onOpen();
   };
+  const openNewKey = (providerId: string, baseUrl: string, format: string, auth: string) => {
+    setForm({
+      provider_id: providerId, name: "", api_key: "", base_url: baseUrl,
+      format: format, auth: auth, template_id: "",
+    });
+    setEditId(null);
+    setStep("form");
+    setError("");
+    onOpen();
+  };
   const openEdit = (p: Provider) => {
     setForm({
       provider_id: p.provider_id, name: p.name, api_key: "", base_url: p.base_url,
@@ -74,7 +85,6 @@ export default function Providers() {
   };
 
   const pickTemplate = async (t: ProviderDef) => {
-    // OAuth providers with a registered flow use Connect instead of API key.
     if ((t.category === "oauth" || t.category === "free") && oauthProviders.includes(t.id)) {
       setOauthProvider(t.id);
       setError("");
@@ -156,7 +166,7 @@ export default function Providers() {
       else await api.providers.create(payload as any);
       onClose();
       load();
-      loadConfigs();
+      loadConfigs(); // config may be auto-created
     } catch (e: any) {
       setError(e?.message ?? "falha ao salvar");
     } finally {
@@ -164,175 +174,240 @@ export default function Providers() {
     }
   };
 
-  const remove = async (id: string) => {
-    if (confirm("Remover este provider?")) {
+  const remove = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (confirm("Remover esta conexão?")) {
       await api.providers.remove(id);
-      if (selectedId === id) setSelectedId(null);
       load();
-      loadConfigs();
     }
   };
 
-  const selectProvider = useCallback(async (p: Provider) => {
-    if (selectedId === p.id) {
-      setSelectedId(null);
+  const toggleProvider = useCallback(async (providerId: string) => {
+    if (selectedProviderId === providerId) {
+      setSelectedProviderId(null);
       return;
     }
-    setSelectedId(p.id);
-    if (modelsCache[p.id] || modelErrors[p.id]) return;
-    setLoadingModels(p.id);
+    setSelectedProviderId(providerId);
+    if (modelsCache[providerId] || modelErrors[providerId]) return;
+    setLoadingModels(providerId);
     try {
-      const entries = await api.providers.models(p.id);
-      setModelsCache((c) => ({ ...c, [p.id]: entries }));
+      // Find the first connection ID for this provider to fetch models
+      // models are synced per provider_id, we can pass any valid conn ID or the provider_id itself.
+      // Wait, the API endpoint is /api/providers/{id}/models where {id} is the CONNECTION ID!
+      const conn = items.find(c => c.provider_id === providerId);
+      if (!conn) {
+        setLoadingModels(null);
+        return;
+      }
+      const entries = await api.providers.models(conn.id);
+      setModelsCache((c) => ({ ...c, [providerId]: entries }));
     } catch (e: any) {
-      setModelErrors((m) => ({ ...m, [p.id]: e.message }));
+      setModelErrors((m) => ({ ...m, [providerId]: e.message }));
     } finally {
       setLoadingModels(null);
     }
-  }, [selectedId, modelsCache, modelErrors]);
+  }, [selectedProviderId, modelsCache, modelErrors, items]);
 
-  const syncProviderModels = async (p: Provider) => {
-    setLoadingModels(p.id);
+  const syncProviderModels = async (providerId: string) => {
+    const conn = items.find(c => c.provider_id === providerId);
+    if (!conn) return;
+    setLoadingModels(providerId);
     try {
-      const entries = await api.providers.syncModels(p.id);
-      setModelsCache((c) => ({ ...c, [p.id]: entries }));
+      const entries = await api.providers.syncModels(conn.id);
+      setModelsCache((c) => ({ ...c, [providerId]: entries }));
       setModelErrors((m) => {
         const n = { ...m };
-        delete n[p.id];
+        delete n[providerId];
         return n;
       });
     } catch (e: any) {
-      setModelErrors((m) => ({ ...m, [p.id]: e.message }));
+      setModelErrors((m) => ({ ...m, [providerId]: e.message }));
     } finally {
       setLoadingModels(null);
     }
   };
 
-  const selected = items.find((p) => p.id === selectedId);
-  const selectedConfig = configs.find((c) => c.id === selected?.provider_id);
-
-  const updateLoadBalance = async (lb: string) => {
-    if (!selectedConfig) return;
-    setSavingConfig(true);
+  const updateLoadBalance = async (configId: string, lb: string) => {
+    setSavingConfig(configId);
     try {
-      await api.providerConfigs.update(selectedConfig.id, { load_balance: lb });
+      await api.providerConfigs.update(configId, { load_balance: lb });
       loadConfigs();
     } catch (e: any) {
-      // surface error via modelErrors? keep silent for now
     } finally {
-      setSavingConfig(false);
+      setSavingConfig(null);
     }
   };
+
+  // Group connections by provider_id
+  const grouped = useMemo(() => {
+    const groups: Record<string, Provider[]> = {};
+    items.forEach(c => {
+      if (!groups[c.provider_id]) groups[c.provider_id] = [];
+      groups[c.provider_id].push(c);
+    });
+    return groups;
+  }, [items]);
+
+  // Merge with configs to get all providers
+  const allProviderIds = useMemo(() => {
+    const ids = new Set<string>();
+    configs.forEach(c => ids.add(c.id));
+    Object.keys(grouped).forEach(id => ids.add(id));
+    return Array.from(ids).sort();
+  }, [configs, grouped]);
 
   return (
     <div className="space-y-5">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Providers</h1>
-          <p className="text-sm text-default-500 mt-0.5">{items.length} conexões cadastradas</p>
+          <p className="text-sm text-default-500 mt-0.5">{allProviderIds.length} providers cadastrados</p>
         </div>
         <Button color="primary" variant="bordered" onPress={openNew} startContent={<IconPlus />}>Novo provider</Button>
       </div>
-      <div className="bg-content1 rounded-2xl border border-default-100 overflow-hidden">
-        {loading ? (
-          <div className="p-10 text-center text-default-500 text-sm">Carregando...</div>
-        ) : items.length === 0 ? (
-          <div className="p-10 text-center text-default-500 text-sm">
-            Nenhum provider ainda. Clique em <strong>Novo provider</strong> e escolha um preset ou custom.
-          </div>
-        ) : (
-          <Table aria-label="providers" removeWrapper>
-            <TableHeader>
-              <TableColumn width={40}>{""}</TableColumn>
-              <TableColumn>PROVIDER</TableColumn>
-              <TableColumn>NOME</TableColumn>
-              <TableColumn>BASE URL</TableColumn>
-              <TableColumn>FORMATO</TableColumn>
-              <TableColumn>STATUS</TableColumn>
-              <TableColumn align="end">AÇÕES</TableColumn>
-            </TableHeader>
-            <TableBody items={items}>
-              {(p) => (
-                <TableRow
-                  key={p.id}
-                  className={`cursor-pointer hover:bg-default-100 transition-colors ${selectedId === p.id ? "bg-primary/10" : ""}`}
-                  onClick={() => selectProvider(p)}
+      
+      {loading ? (
+        <div className="p-10 text-center text-default-500 text-sm bg-content1 rounded-2xl border border-default-100">Carregando...</div>
+      ) : allProviderIds.length === 0 ? (
+        <div className="p-10 text-center text-default-500 text-sm bg-content1 rounded-2xl border border-default-100">
+          Nenhum provider ainda. Clique em <strong>Novo provider</strong> e escolha um preset ou custom.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {allProviderIds.map((pid) => {
+            const config = configs.find(c => c.id === pid);
+            const conns = grouped[pid] || [];
+            const isExpanded = selectedProviderId === pid;
+            const activeCount = conns.filter(c => c.is_active).length;
+            const totalCount = conns.length;
+            const baseConn = conns[0];
+            
+            return (
+              <div key={pid} className="bg-content1 rounded-2xl border border-default-100 overflow-hidden">
+                {/* Header / Summary */}
+                <div 
+                  className={`flex items-center justify-between p-4 cursor-pointer hover:bg-default-100 transition-colors ${isExpanded ? "bg-primary/5" : ""}`}
+                  onClick={() => toggleProvider(pid)}
                 >
-                  <TableCell>
-                    <IconChevron expanded={selectedId === p.id} />
-                  </TableCell>
-                  <TableCell><span className="font-medium">{p.provider_id}</span></TableCell>
-                  <TableCell>{p.name}</TableCell>
-                  <TableCell><code className="text-xs text-default-500">{p.base_url}</code></TableCell>
-                  <TableCell><Chip size="sm" variant="flat" color="primary">{p.format}</Chip></TableCell>
-                  <TableCell>
-                    <Chip size="sm" variant="flat" color={p.is_active ? "success" : "default"}>
-                      {p.is_active ? "ativo" : "inativo"}
-                    </Chip>
-                  </TableCell>
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <div className="flex gap-1 justify-end">
-                      <Button isIconOnly size="sm" variant="light" onPress={() => openEdit(p)} aria-label="editar"><IconPencil /></Button>
-                      <Button isIconOnly size="sm" variant="light" color="danger" onPress={() => remove(p.id)} aria-label="excluir"><IconTrash /></Button>
+                  <div className="flex items-center gap-3">
+                    <IconChevron expanded={isExpanded} />
+                    <div>
+                      <div className="font-semibold">{pid}</div>
+                      <div className="text-xs text-default-500">
+                        {totalCount} {totalCount === 1 ? 'conexão' : 'conexões'} ({activeCount} ativas)
+                      </div>
                     </div>
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        )}
-      </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-4">
+                    {config?.load_balance && (
+                      <Chip size="sm" variant="flat" color="default" className="hidden sm:flex">
+                        {config.load_balance}
+                      </Chip>
+                    )}
+                    <Button 
+                      size="sm" 
+                      variant="flat" 
+                      color="primary"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity"
+                      onPress={(e) => { e.stopPropagation(); if (baseConn) openNewKey(pid, baseConn.base_url, baseConn.format, baseConn.auth); else openNew(); }}
+                      startContent={<IconPlus />}
+                    >
+                      Add Chave
+                    </Button>
+                  </div>
+                </div>
+                
+                {/* Expanded Content */}
+                {isExpanded && (
+                  <div className="border-t border-default-100 p-4 bg-content1">
+                    
+                    <div className="flex flex-col md:flex-row gap-6 mb-6">
+                      <div className="flex-1 bg-content2 p-4 rounded-xl">
+                        <div className="text-sm font-semibold mb-3">Balanceamento de Carga</div>
+                        <Select
+                          selectedKeys={[config?.load_balance || "failover"]}
+                          onChange={(e) => updateLoadBalance(pid, e.target.value)}
+                          size="sm"
+                          isDisabled={savingConfig === pid}
+                          className="max-w-xs"
+                        >
+                          <SelectItem key="failover">Failover (prioriza a primeira chave ativa)</SelectItem>
+                          <SelectItem key="round-robin">Round-robin (distribui entre as chaves)</SelectItem>
+                        </Select>
+                        <p className="text-xs text-default-500 mt-2">
+                          {config?.load_balance === "round-robin" 
+                            ? "Requisições são distribuídas sequencialmente entre todas as chaves ativas deste provider." 
+                            : "Sempre usa a primeira chave da lista; só tenta as outras se a primeira falhar."}
+                        </p>
+                      </div>
+                      
+                      <div className="flex-1 bg-content2 p-4 rounded-xl">
+                        <div className="flex justify-between items-center mb-3">
+                          <div className="text-sm font-semibold">Modelos do Provider</div>
+                          <Button size="sm" variant="light" color="primary" onPress={() => syncProviderModels(pid)} isLoading={loadingModels === pid}>
+                            Sincronizar
+                          </Button>
+                        </div>
+                        <div className="max-h-[140px] overflow-y-auto pr-2">
+                          <ModelsPanel
+                            loading={loadingModels === pid}
+                            models={modelsCache[pid]}
+                            error={modelErrors[pid]}
+                          />
+                        </div>
+                      </div>
+                    </div>
 
-      {selected && (
-        <div className="bg-content1 rounded-2xl border border-default-100 p-5">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h3 className="font-semibold">Models de {selected.provider_id}/{selected.name}</h3>
-              <p className="text-xs text-default-500 mt-0.5">Catálogo sincronizado do provider</p>
-            </div>
-            <div className="flex gap-2 items-center">
-              <Button size="sm" variant="flat" onPress={() => syncProviderModels(selected)} isLoading={loadingModels === selected.id}>
-                Sincronizar
-              </Button>
-              <Button isIconOnly size="sm" variant="light" onPress={() => setSelectedId(null)} aria-label="fechar"><IconX /></Button>
-            </div>
-          </div>
-
-          {selectedConfig && (
-            <div className="mb-4 flex items-end gap-3 bg-content2 rounded-xl p-3">
-              <div className="flex-1">
-                <label className="text-xs text-default-500 font-medium">Estratégia de balanceamento</label>
-                <Select
-                  selectedKeys={[selectedConfig.load_balance || "failover"]}
-                  onChange={(e) => updateLoadBalance(e.target.value)}
-                  size="sm"
-                  className="mt-1"
-                  isDisabled={savingConfig}
-                >
-                  <SelectItem key="failover">Failover (try first key, fall through)</SelectItem>
-                  <SelectItem key="round-robin">Round-robin (rotate keys)</SelectItem>
-                </Select>
+                    <div className="mb-2 text-sm font-semibold flex justify-between items-center">
+                      Conexões (Chaves API)
+                      <Button size="sm" variant="flat" onPress={() => { if (baseConn) openNewKey(pid, baseConn.base_url, baseConn.format, baseConn.auth); else openNew(); }} startContent={<IconPlus />}>Add Chave</Button>
+                    </div>
+                    {conns.length === 0 ? (
+                      <div className="text-sm text-default-400 py-2">Nenhuma conexão cadastrada.</div>
+                    ) : (
+                      <Table aria-label="connections" removeWrapper className="bg-content2/50 rounded-xl">
+                        <TableHeader>
+                          <TableColumn>NOME</TableColumn>
+                          <TableColumn>URL</TableColumn>
+                          <TableColumn>FORMATO</TableColumn>
+                          <TableColumn>STATUS</TableColumn>
+                          <TableColumn align="end">AÇÕES</TableColumn>
+                        </TableHeader>
+                        <TableBody items={conns}>
+                          {(p) => (
+                            <TableRow key={p.id}>
+                              <TableCell className="font-medium">{p.name}</TableCell>
+                              <TableCell><code className="text-xs text-default-500 truncate max-w-[200px] inline-block">{p.base_url}</code></TableCell>
+                              <TableCell><Chip size="sm" variant="flat">{p.format}</Chip></TableCell>
+                              <TableCell>
+                                <Chip size="sm" variant="flat" color={p.is_active ? "success" : "default"}>
+                                  {p.is_active ? "ativo" : "inativo"}
+                                </Chip>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex gap-1 justify-end">
+                                  <Button isIconOnly size="sm" variant="light" onPress={() => openEdit(p)} aria-label="editar"><IconPencil /></Button>
+                                  <Button isIconOnly size="sm" variant="light" color="danger" onPress={(e) => remove(p.id, e as any)} aria-label="excluir"><IconTrash /></Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
+                )}
               </div>
-              <div className="text-xs text-default-400 max-w-[200px] pb-1">
-                {selectedConfig.load_balance === "round-robin"
-                  ? "Distribui requisições entre as chaves ativas."
-                  : "Usa sempre a primeira chave ativa; cai para a próxima só em falha."}
-              </div>
-            </div>
-          )}
-
-          <ModelsPanel
-            loading={loadingModels === selected.id}
-            models={modelsCache[selected.id]}
-            error={modelErrors[selected.id]}
-          />
+            );
+          })}
         </div>
       )}
 
       <Modal isOpen={isOpen} onClose={onClose} size="lg">
         <ModalContent>
           <ModalHeader>
-            {editId ? "Editar provider" : step === "pick" ? "Escolher provider" : "Configurar conexão"}
+            {editId ? "Editar conexão" : step === "pick" ? "Escolher provider" : "Configurar conexão"}
           </ModalHeader>
           <ModalBody className="gap-4">
             {!editId && step === "pick" && (
@@ -407,12 +482,12 @@ export default function Providers() {
             )}
             {(editId || step === "form") && (
               <>
-                {!editId && (
+                {!editId && form.template_id === "" && form.provider_id === "" && (
                   <Button size="sm" variant="light" className="self-start" onPress={() => setStep("pick")}>← voltar</Button>
                 )}
                 <div className="grid grid-cols-2 gap-4">
-                  <Input label="Provider ID" placeholder="ex: openai" value={form.provider_id} onValueChange={(v) => setForm({ ...form, provider_id: v })} isDisabled={!!editId || !!form.template_id} />
-                  <Input label="Nome" placeholder="ex: conta-1" value={form.name} onValueChange={(v) => setForm({ ...form, name: v })} />
+                  <Input label="Provider ID" placeholder="ex: openai" value={form.provider_id} onValueChange={(v) => setForm({ ...form, provider_id: v })} isDisabled={!!editId || !!form.template_id || (form.provider_id !== "" && step === "form" && form.template_id === "")} />
+                  <Input label="Nome (opcional)" placeholder="ex: conta-1" value={form.name} onValueChange={(v) => setForm({ ...form, name: v })} />
                 </div>
                 <Input label="Base URL" placeholder="https://api.openai.com" value={form.base_url} onValueChange={(v) => setForm({ ...form, base_url: v })} />
                 <Input label="API Key" type="password" placeholder="sk-..." value={form.api_key} onValueChange={(v) => setForm({ ...form, api_key: v })} />
@@ -446,24 +521,21 @@ export default function Providers() {
 
 function ModelsPanel({ loading, models, error }: { loading: boolean; models?: ModelEntry[]; error?: string }) {
   if (loading) {
-    return <div className="py-4 flex items-center gap-2 text-sm text-default-500"><Spinner size="sm" /> Sincronizando...</div>;
+    return <div className="py-2 flex items-center gap-2 text-sm text-default-500"><Spinner size="sm" /> Sincronizando...</div>;
   }
   if (error) {
-    return <div className="py-4 text-sm text-danger">Erro: {error}</div>;
+    return <div className="py-2 text-sm text-danger">Erro: {error}</div>;
   }
   if (!models || models.length === 0) {
-    return <div className="py-4 text-sm text-default-500">Nenhum model no catálogo. Clique em Sincronizar.</div>;
+    return <div className="py-2 text-sm text-default-500">Nenhum model no catálogo. Clique em Sincronizar.</div>;
   }
   return (
     <div className="space-y-1">
       {models.map((m) => (
-        <div key={m.id} className="flex items-center gap-2 bg-content2 rounded-lg px-3 py-2">
-          <code className="text-xs flex-1 truncate">{m.id}</code>
-          <Chip size="sm" variant="flat" color="primary">{m.kind}</Chip>
-          <Chip size="sm" variant="bordered">{m.source}</Chip>
-          <Chip size="sm" variant="flat" color={m.is_active ? "success" : "default"}>
-            {m.is_active ? "ativo" : "inativo"}
-          </Chip>
+        <div key={m.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-default-100 rounded-md transition-colors">
+          <code className="text-xs flex-1 truncate font-medium">{m.id}</code>
+          {m.kind && <Chip size="sm" variant="flat" color="primary" className="h-5 text-[10px]">{m.kind}</Chip>}
+          <Chip size="sm" variant="bordered" className="h-5 text-[10px] border-default-200">{m.source}</Chip>
         </div>
       ))}
     </div>
