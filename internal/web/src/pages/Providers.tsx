@@ -4,7 +4,7 @@ import {
   Button, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter,
   Input, Select, SelectItem, Chip, useDisclosure, Spinner,
 } from "@heroui/react";
-import { api, type Provider, type ModelEntry, type ProviderDef } from "../api";
+import { api, type Provider, type ModelEntry, type ProviderDef, type ProviderConfig } from "../api";
 
 const FORMATS = ["auto", "openai", "anthropic", "gemini", "responses"];
 const AUTHS = ["bearer", "x-api-key", "none"];
@@ -16,6 +16,7 @@ const empty = {
 
 export default function Providers() {
   const [items, setItems] = useState<Provider[]>([]);
+  const [configs, setConfigs] = useState<ProviderConfig[]>([]);
   const [catalog, setCatalog] = useState<ProviderDef[]>([]);
   const [loading, setLoading] = useState(true);
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -30,6 +31,7 @@ export default function Providers() {
   const [oauthProvider, setOauthProvider] = useState("");
   const [oauthAuthURL, setOauthAuthURL] = useState("");
   const [search, setSearch] = useState("");
+  const [savingConfig, setSavingConfig] = useState(false);
 
   const POPULAR = ["openai", "anthropic", "openrouter", "gemini", "groq", "deepseek", "mistral", "together", "ollama", "opencode", "deepinfra", "openadapter"];
 
@@ -42,7 +44,10 @@ export default function Providers() {
     setLoading(true);
     api.providers.list().then(setItems).catch(() => setItems([])).finally(() => setLoading(false));
   };
-  useEffect(load, []);
+  const loadConfigs = () => {
+    api.providerConfigs.list().then(setConfigs).catch(() => setConfigs([]));
+  };
+  useEffect(() => { load(); loadConfigs(); }, []);
 
   const openNew = () => {
     setForm(empty);
@@ -151,6 +156,7 @@ export default function Providers() {
       else await api.providers.create(payload as any);
       onClose();
       load();
+      loadConfigs();
     } catch (e: any) {
       setError(e?.message ?? "falha ao salvar");
     } finally {
@@ -163,6 +169,7 @@ export default function Providers() {
       await api.providers.remove(id);
       if (selectedId === id) setSelectedId(null);
       load();
+      loadConfigs();
     }
   };
 
@@ -202,6 +209,20 @@ export default function Providers() {
   };
 
   const selected = items.find((p) => p.id === selectedId);
+  const selectedConfig = configs.find((c) => c.id === selected?.provider_id);
+
+  const updateLoadBalance = async (lb: string) => {
+    if (!selectedConfig) return;
+    setSavingConfig(true);
+    try {
+      await api.providerConfigs.update(selectedConfig.id, { load_balance: lb });
+      loadConfigs();
+    } catch (e: any) {
+      // surface error via modelErrors? keep silent for now
+    } finally {
+      setSavingConfig(false);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -276,6 +297,30 @@ export default function Providers() {
               <Button isIconOnly size="sm" variant="light" onPress={() => setSelectedId(null)} aria-label="fechar"><IconX /></Button>
             </div>
           </div>
+
+          {selectedConfig && (
+            <div className="mb-4 flex items-end gap-3 bg-content2 rounded-xl p-3">
+              <div className="flex-1">
+                <label className="text-xs text-default-500 font-medium">Estratégia de balanceamento</label>
+                <Select
+                  selectedKeys={[selectedConfig.load_balance || "failover"]}
+                  onChange={(e) => updateLoadBalance(e.target.value)}
+                  size="sm"
+                  className="mt-1"
+                  isDisabled={savingConfig}
+                >
+                  <SelectItem key="failover">Failover (try first key, fall through)</SelectItem>
+                  <SelectItem key="round-robin">Round-robin (rotate keys)</SelectItem>
+                </Select>
+              </div>
+              <div className="text-xs text-default-400 max-w-[200px] pb-1">
+                {selectedConfig.load_balance === "round-robin"
+                  ? "Distribui requisições entre as chaves ativas."
+                  : "Usa sempre a primeira chave ativa; cai para a próxima só em falha."}
+              </div>
+            </div>
+          )}
+
           <ModelsPanel
             loading={loadingModels === selected.id}
             models={modelsCache[selected.id]}

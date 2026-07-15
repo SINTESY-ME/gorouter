@@ -43,6 +43,7 @@ type Server struct {
 	Router    *app.RouterService
 	Models    *app.ModelsService
 	Providers *app.ConnectionService
+	ProviderConfigs domain.ProviderConfigRepo
 	Combos    *app.ComboService
 	Keys      *app.ApiKeyService
 	Usage     *app.UsageService
@@ -127,6 +128,9 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/provider-store", s.handleListStore)
 		r.Post("/provider-store/install/{id}", s.handleInstallStore)
 		r.Delete("/provider-store/{id}", s.handleRemoveStore)
+
+		r.Get("/provider-configs", s.handleListProviderConfigs)
+		r.Put("/provider-configs/{id}", s.handleUpdateProviderConfig)
 
 		r.Get("/oauth/providers", s.handleOAuthProviders)
 		r.Post("/oauth/{provider}/start", s.handleOAuthStart)

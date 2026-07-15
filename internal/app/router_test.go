@@ -38,7 +38,11 @@ func (m *mockExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) (
 			status = s
 		}
 	}
-	m.called = append(m.called, model)
+	// Don't record probe calls in `called` — they're background health
+	// checks, not real request routing decisions.
+	if !IsProbeCall(ctx) {
+		m.called = append(m.called, model)
+	}
 	m.mu.Unlock()
 	hdr := m.headers
 	if hdr == nil {
@@ -539,10 +543,10 @@ func TestRouteCombo_OrderedFallback_SkipUnhealthyAndProbe(t *testing.T) {
 	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4", "claude-3"}) {
 		t.Fatalf("req1: called = %v, want [gpt-4 claude-3]", got)
 	}
-	if !srv.Health.IsUnhealthy("mycombo", "openai/gpt-4") {
+	if !srv.Health.IsUnhealthy("mycombo", "openai/gpt-4", "c-openai") {
 		t.Fatalf("req1: A should be unhealthy after failing")
 	}
-	if srv.Health.IsUnhealthy("mycombo", "anthropic/claude-3") {
+	if srv.Health.IsUnhealthy("mycombo", "anthropic/claude-3", "c-anthropic") {
 		t.Fatalf("req1: B should still be healthy")
 	}
 
@@ -573,7 +577,7 @@ func TestRouteCombo_OrderedFallback_SkipUnhealthyAndProbe(t *testing.T) {
 
 	// Wait for the background probe to run and restore A.
 	probeDone := waitForCondition(500*time.Millisecond, func() bool {
-		return !srv.Health.IsUnhealthy("mycombo", "openai/gpt-4")
+		return !srv.Health.IsUnhealthy("mycombo", "openai/gpt-4", "c-openai")
 	})
 	if !probeDone {
 		t.Fatalf("probe did not restore A within timeout")
@@ -622,8 +626,8 @@ func TestRouteCombo_OrderedFallback_LastResort(t *testing.T) {
 	srv := NewRouterService(comboRepo, twoProviderConnRepo(), exec, &mockTranslator{}, usage)
 
 	// Pre-seed both models as unhealthy so the first pass skips them entirely.
-	srv.Health.MarkUnhealthy("lrcombo", "openai/gpt-4")
-	srv.Health.MarkUnhealthy("lrcombo", "anthropic/claude-3")
+	srv.Health.MarkUnhealthy("lrcombo", "openai/gpt-4", "c-openai")
+	srv.Health.MarkUnhealthy("lrcombo", "anthropic/claude-3", "c-anthropic")
 
 	body := []byte(`{"model":"lrcombo","messages":[{"role":"user","content":"hi"}]}`)
 	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
@@ -638,7 +642,7 @@ func TestRouteCombo_OrderedFallback_LastResort(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	// B should be healthy now (last-resort succeeded for it).
-	if srv.Health.IsUnhealthy("lrcombo", "anthropic/claude-3") {
+	if srv.Health.IsUnhealthy("lrcombo", "anthropic/claude-3", "c-anthropic") {
 		t.Fatalf("B should have been marked healthy by last-resort success")
 	}
 }
@@ -664,7 +668,7 @@ func TestRouteCombo_RoundRobin_SkipUnhealthy(t *testing.T) {
 	srv := NewRouterService(comboRepo, twoProviderConnRepo(), exec, &mockTranslator{}, usage)
 
 	// Pre-seed A unhealthy.
-	srv.Health.MarkUnhealthy("rrcombo", "openai/gpt-4")
+	srv.Health.MarkUnhealthy("rrcombo", "openai/gpt-4", "c-openai")
 
 	body := []byte(`{"model":"rrcombo","messages":[{"role":"user","content":"hi"}]}`)
 	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
@@ -709,8 +713,8 @@ func TestRouteCombo_AllUnhealthy_AllFail(t *testing.T) {
 	srv := NewRouterService(comboRepo, twoProviderConnRepo(), exec, &mockTranslator{}, usage)
 
 	// Pre-seed both unhealthy.
-	srv.Health.MarkUnhealthy("failcombo", "openai/gpt-4")
-	srv.Health.MarkUnhealthy("failcombo", "anthropic/claude-3")
+	srv.Health.MarkUnhealthy("failcombo", "openai/gpt-4", "c-openai")
+	srv.Health.MarkUnhealthy("failcombo", "anthropic/claude-3", "c-anthropic")
 
 	body := []byte(`{"model":"failcombo","messages":[{"role":"user","content":"hi"}]}`)
 	_, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})

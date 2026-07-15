@@ -89,6 +89,23 @@ type Connection struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// ProviderConfig is a logical grouping of one or more Connections (API
+// keys) under a single provider_id. It holds provider-level metadata
+// and the load-balance strategy applied to all its connections. The
+// ID field matches the provider_id used by Connection.ProviderID.
+type ProviderConfig struct {
+	ID          string    `json:"id" gorm:"primaryKey"`
+	Name        string    `json:"name"`        // human-friendly display name (optional)
+	Description string    `json:"description,omitempty"`
+	// LoadBalance controls how connections are selected for this provider.
+	// "failover" (default): always try the first active connection, only
+	// fall through on failure. "round-robin": rotate the starting index
+	// across requests to distribute load evenly.
+	LoadBalance string `json:"load_balance" gorm:"column:load_balance;default:failover"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // ModelInfo is one model surfaced through /v1/models. Combos appear as
 // models with OwnedBy == "combo".
 type ModelInfo struct {

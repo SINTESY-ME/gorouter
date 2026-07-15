@@ -130,6 +130,14 @@ export interface SavingsStats {
   rtk_bytes_saved: number;
   rtk_tokens_saved: number;
 }
+export interface ProviderConfig {
+  id: string;
+  name: string;
+  description: string;
+  load_balance: string;
+  created_at: string;
+  updated_at: string;
+}
 
 export const api = {
   auth: {
@@ -205,5 +213,10 @@ export const api = {
   },
   savings: {
     stats: () => request<SavingsStats>("/api/savings"),
+  },
+  providerConfigs: {
+    list: () => request<ProviderConfig[]>("/api/provider-configs"),
+    update: (id: string, p: Partial<ProviderConfig>) =>
+      request<ProviderConfig>(`/api/provider-configs/${id}`, { method: "PUT", body: JSON.stringify(p) }),
   },
 };

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jhon/gorouter/internal/domain"
@@ -64,7 +65,38 @@ type RouterService struct {
 	// Health tracks per-(combo, model) failures so that subsequent requests
 	// skip unhealthy models and a background probe restores them when they
 	// recover. Not persisted; resets on process restart.
+	// Health tracks per-(combo, model, connection) failures so that
+	// subsequent requests skip unhealthy keys and a background probe
+	// restores them when they recover. Not persisted; resets on restart.
 	Health *HealthTracker
+
+	// Providers is the persisted provider metadata (load-balance
+	// strategy, display name). Nil means no provider-level config;
+	// the router falls back to failover for all providers.
+	Providers domain.ProviderConfigRepo
+
+	// providerCache holds load-balance strategies keyed by provider_id.
+	// Refreshed by RefreshProviderCache at startup and after provider
+	// changes. The hot path reads this with an RLock — zero DB overhead.
+	providerMu    sync.RWMutex
+	providerCache map[string]string // providerID -> loadBalance strategy
+
+	// connRotation is an atomic counter for round-robin connection
+	// selection. Incremented per request when the provider's strategy
+	// is "round-robin".
+	connRotation uint32
+}
+
+// probeCtxKey is used to mark a context as originating from a health probe
+// so that test doubles (mock executors) can distinguish probe calls from
+// real request calls and avoid polluting call snapshots.
+type probeCtxKey struct{}
+
+// IsProbeCall reports whether the given context originated from a health
+// probe. Exported for test doubles.
+func IsProbeCall(ctx context.Context) bool {
+	v, _ := ctx.Value(probeCtxKey{}).(bool)
+	return v
 }
 
 // NewRouterService constructs a RouterService with the round-robin state
@@ -195,22 +227,39 @@ func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body 
 	if len(conns) == 0 {
 		return nil, domain.ErrNoConnection
 	}
-	for i := range conns {
-		conn := pickConnection(conns, i)
+	modelStr := m.Provider + "/" + m.Model
+	startIdx := s.connStartIndex(conns)
+	for i := 0; i < len(conns); i++ {
+		conn := pickConnection(conns, startIdx+i)
 		if !conn.IsActive || conn.RateLimitedUntil.After(time.Now()) {
+			continue
+		}
+		if s.Health.IsUnhealthy("", modelStr, conn.ID) {
+			if s.Health.TryStartProbe("", modelStr, conn.ID) {
+				go s.runHealthProbe("", modelStr, m, conn.ID)
+			}
 			continue
 		}
 		res, err := s.executeOne(ctx, m, conn, body, stream, opts, ct)
 		if err != nil {
+			s.Health.MarkUnhealthy("", modelStr, conn.ID)
+			if s.Health.TryStartProbe("", modelStr, conn.ID) {
+				go s.runHealthProbe("", modelStr, m, conn.ID)
+			}
 			continue
 		}
-		// For passthrough (embeddings, audio, images) there is no fallback
-		// and a 5xx from one endpoint doesn't mean the connection is bad for
-		// chat. Return the response as-is; only rate-limit for chat (endpoint=="").
 		if endpoint == "" && res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
+			s.Health.MarkUnhealthy("", modelStr, conn.ID)
 			s.markRateLimited(ctx, conn, res)
+			if s.Health.TryStartProbe("", modelStr, conn.ID) {
+				go s.runHealthProbe("", modelStr, m, conn.ID)
+			}
+			if res.Body != nil {
+				res.Body.Close()
+			}
 			continue
 		}
+		s.Health.MarkHealthy("", modelStr, conn.ID)
 		s.wrapUsageTracking(ctx, res, m, conn, apiKey, endpoint, "", start)
 		res.Provider = m.Provider
 		res.Model = m.Model
@@ -231,51 +280,44 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 		models = s.rotatedModels(combo.Name, models)
 	}
 	var lastErr error
-	var skipped []string // unhealthy models skipped in the first pass
+	var skipped []string // models where all connections are unhealthy
 	for _, modelStr := range models {
 		m, ok := domain.SplitModelID(modelStr)
 		if !ok {
 			lastErr = fmt.Errorf("combo model %q invalid", modelStr)
 			continue
 		}
-		if s.Health.IsUnhealthy(combo.Name, modelStr) {
-			// Launch a background probe (at most one in flight per pair) so the
-			// model can recover without a real request hitting it. The probe is
-			// debounced by probeInFlight; subsequent requests that find it still
-			// unhealthy while a probe is running simply skip it.
-			if s.Health.TryStartProbe(combo.Name, modelStr) {
-				go s.runHealthProbe(combo.Name, modelStr, m)
-			}
+		// Check if ALL connections for this model are unhealthy. If so,
+		// skip and launch background probes. tryModel handles the
+		// per-connection health tracking internally.
+		if s.allConnectionsUnhealthy(combo.Name, modelStr, m.Provider) {
+			s.launchProbesForProvider(combo.Name, modelStr, m)
 			skipped = append(skipped, modelStr)
 			continue
 		}
 		res, err := s.tryModel(ctx, m, body, stream, apiKey, opts, combo.Name, start, ct)
 		if err != nil {
-			s.Health.MarkUnhealthy(combo.Name, modelStr)
 			lastErr = err
 			continue
 		}
 		if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
-			s.Health.MarkUnhealthy(combo.Name, modelStr)
 			lastErr = fmt.Errorf("upstream %d", res.StatusCode)
 			if res.Body != nil {
 				res.Body.Close()
 			}
 			continue
 		}
-		s.Health.MarkHealthy(combo.Name, modelStr)
 		return res, nil
 	}
-	// Last resort: every model is unhealthy (or no healthy model worked).
-	// Retry the skipped models inline — a real request can succeed where the
-	// probe hasn't run yet (e.g. transient failure already resolved). On
-	// success the model is marked healthy; on failure it stays unhealthy.
+	// Last resort: every model's connections are all unhealthy (or no
+	// healthy model worked). Retry the skipped models inline — a real
+	// request can succeed where the probe hasn't run yet.
 	for _, modelStr := range skipped {
 		m, ok := domain.SplitModelID(modelStr)
 		if !ok {
 			continue
 		}
-		res, err := s.tryModel(ctx, m, body, stream, apiKey, opts, combo.Name, start, ct)
+		res, err := s.tryModelForceTries(ctx, m, body, stream, apiKey, opts, combo.Name, start, ct)
 		if err != nil {
 			lastErr = err
 			continue
@@ -287,7 +329,6 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 			}
 			continue
 		}
-		s.Health.MarkHealthy(combo.Name, modelStr)
 		return res, nil
 	}
 	if lastErr != nil {
@@ -296,34 +337,82 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 	return nil, domain.ErrAllModelsFailed
 }
 
+// allConnectionsUnhealthy checks whether every active connection for the
+// given provider is currently marked unhealthy for this (combo, model).
+// If at least one connection is healthy (or not yet tried), returns false.
+func (s *RouterService) allConnectionsUnhealthy(comboName, modelStr, providerID string) bool {
+	conns, err := s.Connections.ListByProvider(context.Background(), providerID)
+	if err != nil || len(conns) == 0 {
+		return true
+	}
+	for i := range conns {
+		conn := &conns[i]
+		if !conn.IsActive || conn.RateLimitedUntil.After(time.Now()) {
+			continue
+		}
+		if !s.Health.IsUnhealthy(comboName, modelStr, conn.ID) {
+			return false
+		}
+	}
+	return true
+}
+
+// launchProbesForProvider launches background probes for all unhealthy
+// connections of this provider that don't already have a probe in flight.
+func (s *RouterService) launchProbesForProvider(comboName, modelStr string, m domain.ModelID) {
+	conns, err := s.Connections.ListByProvider(context.Background(), m.Provider)
+	if err != nil {
+		return
+	}
+	for i := range conns {
+		conn := &conns[i]
+		if !conn.IsActive {
+			continue
+		}
+		if s.Health.IsUnhealthy(comboName, modelStr, conn.ID) {
+			if s.Health.TryStartProbe(comboName, modelStr, conn.ID) {
+				go s.runHealthProbe(comboName, modelStr, m, conn.ID)
+			}
+		}
+	}
+}
+
 // runHealthProbe is a background goroutine that sends a minimal chat request
-// to an unhealthy (combo, model) pair to check if it has recovered. It uses
-// a detached context with a 20s timeout (longer than the executor's default
-// upstream timeout, so probes don't race). On 2xx it marks the pair healthy;
-// otherwise it leaves the unhealthy flag set and clears the probe-in-flight
-// flag so the next request can launch a new probe. The probe does NOT go
-// through wrapUsageTracking, so it does not pollute the usage table.
-func (s *RouterService) runHealthProbe(comboName, modelStr string, m domain.ModelID) {
+// to an unhealthy (combo, model, connection) triple to check if the specific
+// key has recovered. It uses a detached context with a 20s timeout. On 2xx
+// it marks the triple healthy; otherwise it leaves the unhealthy flag set
+// and clears the probe-in-flight flag so the next request can launch a new
+// probe. The probe does NOT go through wrapUsageTracking, so it does not
+// pollute the usage table.
+func (s *RouterService) runHealthProbe(comboName, modelStr string, m domain.ModelID, connID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	// Mark this context as a probe so test mocks can distinguish probe
+	// calls from real request calls.
+	ctx = context.WithValue(ctx, probeCtxKey{}, true)
 
 	conns, err := s.Connections.ListByProvider(ctx, m.Provider)
 	if err != nil || len(conns) == 0 {
-		s.Health.ProbeFailed(comboName, modelStr)
-		slog.Debug("health probe: no connections for provider", "combo", comboName, "model", modelStr, "provider", m.Provider)
+		s.Health.ProbeFailed(comboName, modelStr, connID)
+		slog.Debug("health probe: no connections for provider", "combo", comboName, "model", modelStr, "conn", connID)
 		return
 	}
+	// Find the specific connection by ID.
 	var conn *domain.Connection
 	for i := range conns {
-		c := pickConnection(conns, i)
-		if c.IsActive && !c.RateLimitedUntil.After(time.Now()) {
-			conn = c
+		if conns[i].ID == connID {
+			conn = &conns[i]
 			break
 		}
 	}
 	if conn == nil {
-		s.Health.ProbeFailed(comboName, modelStr)
-		slog.Debug("health probe: no active connection", "combo", comboName, "model", modelStr, "provider", m.Provider)
+		s.Health.ProbeFailed(comboName, modelStr, connID)
+		slog.Debug("health probe: connection not found", "combo", comboName, "model", modelStr, "conn", connID)
+		return
+	}
+	if !conn.IsActive || conn.RateLimitedUntil.After(time.Now()) {
+		s.Health.ProbeFailed(comboName, modelStr, connID)
+		slog.Debug("health probe: connection inactive or rate-limited", "combo", comboName, "model", modelStr, "conn", connID)
 		return
 	}
 
@@ -334,8 +423,8 @@ func (s *RouterService) runHealthProbe(comboName, modelStr string, m domain.Mode
 	}
 	translated, err := s.Translator.TranslateRequest(domain.FormatOpenAI, targetFmt, m.Model, []byte(probeBody))
 	if err != nil {
-		s.Health.ProbeFailed(comboName, modelStr)
-		slog.Debug("health probe: translate failed", "combo", comboName, "model", modelStr, "error", err)
+		s.Health.ProbeFailed(comboName, modelStr, connID)
+		slog.Debug("health probe: translate failed", "combo", comboName, "model", modelStr, "conn", connID, "error", err)
 		return
 	}
 	execReq := domain.ExecuteRequest{
@@ -347,23 +436,38 @@ func (s *RouterService) runHealthProbe(comboName, modelStr string, m domain.Mode
 	}
 	res, err := s.Executor.Execute(ctx, execReq)
 	if err != nil {
-		s.Health.ProbeFailed(comboName, modelStr)
-		slog.Debug("health probe: execute failed", "combo", comboName, "model", modelStr, "error", err)
+		s.Health.ProbeFailed(comboName, modelStr, connID)
+		slog.Debug("health probe: execute failed", "combo", comboName, "model", modelStr, "conn", connID, "error", err)
 		return
 	}
 	defer res.Body.Close()
 	io.Copy(io.Discard, res.Body)
 
 	if res.StatusCode >= 200 && res.StatusCode < 400 {
-		s.Health.MarkHealthy(comboName, modelStr)
-		slog.Info("health probe: model recovered", "combo", comboName, "model", modelStr)
+		s.Health.MarkHealthy(comboName, modelStr, connID)
+		slog.Info("health probe: connection recovered", "combo", comboName, "model", modelStr, "conn", connID)
 	} else {
-		s.Health.ProbeFailed(comboName, modelStr)
-		slog.Debug("health probe: still unhealthy", "combo", comboName, "model", modelStr, "status", res.StatusCode)
+		s.Health.ProbeFailed(comboName, modelStr, connID)
+		slog.Debug("health probe: still unhealthy", "combo", comboName, "model", modelStr, "conn", connID, "status", res.StatusCode)
 	}
 }
 
 func (s *RouterService) tryModel(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, opts RouteOptions, comboName string, start time.Time, contentType ...string) (*RouterResponse, error) {
+	return s.tryModelWithSkip(ctx, m, body, stream, apiKey, opts, comboName, start, true, contentType...)
+}
+
+// tryModelForceTries iterates connections without skipping unhealthy ones.
+// Used in the last-resort pass: a real request can succeed where a probe
+// hasn't run yet (e.g. transient failure already resolved).
+func (s *RouterService) tryModelForceTries(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, opts RouteOptions, comboName string, start time.Time, contentType ...string) (*RouterResponse, error) {
+	return s.tryModelWithSkip(ctx, m, body, stream, apiKey, opts, comboName, start, false, contentType...)
+}
+
+// tryModelWithSkip is the shared connection iteration logic. When skipUnhealthy
+// is true, connections marked unhealthy are skipped and a background probe is
+// launched. When false (last-resort), all active connections are tried inline
+// regardless of health state.
+func (s *RouterService) tryModelWithSkip(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, opts RouteOptions, comboName string, start time.Time, skipUnhealthy bool, contentType ...string) (*RouterResponse, error) {
 	conns, err := s.Connections.ListByProvider(ctx, m.Provider)
 	if err != nil {
 		return nil, err
@@ -375,15 +479,43 @@ func (s *RouterService) tryModel(ctx context.Context, m domain.ModelID, body []b
 	if len(contentType) > 0 {
 		ct = contentType[0]
 	}
-	for i := range conns {
-		conn := pickConnection(conns, i)
+	modelStr := m.Provider + "/" + m.Model
+	startIdx := s.connStartIndex(conns)
+	for i := 0; i < len(conns); i++ {
+		conn := pickConnection(conns, startIdx+i)
 		if !conn.IsActive || conn.RateLimitedUntil.After(time.Now()) {
+			continue
+		}
+		if skipUnhealthy && s.Health.IsUnhealthy(comboName, modelStr, conn.ID) {
+			if s.Health.TryStartProbe(comboName, modelStr, conn.ID) {
+				go s.runHealthProbe(comboName, modelStr, m, conn.ID)
+			}
 			continue
 		}
 		res, err := s.executeOne(ctx, m, conn, body, stream, opts, ct)
 		if err != nil {
+			s.Health.MarkUnhealthy(comboName, modelStr, conn.ID)
+			if skipUnhealthy {
+				if s.Health.TryStartProbe(comboName, modelStr, conn.ID) {
+					go s.runHealthProbe(comboName, modelStr, m, conn.ID)
+				}
+			}
 			continue
 		}
+		if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
+			s.Health.MarkUnhealthy(comboName, modelStr, conn.ID)
+			s.markRateLimited(ctx, conn, res)
+			if skipUnhealthy {
+				if s.Health.TryStartProbe(comboName, modelStr, conn.ID) {
+					go s.runHealthProbe(comboName, modelStr, m, conn.ID)
+				}
+			}
+			if res.Body != nil {
+				res.Body.Close()
+			}
+			continue
+		}
+		s.Health.MarkHealthy(comboName, modelStr, conn.ID)
 		s.wrapUsageTracking(ctx, res, m, conn, apiKey, opts.Endpoint, comboName, start)
 		res.Provider = m.Provider
 		res.Model = m.Model
@@ -718,6 +850,9 @@ func (s *RouterService) rotatedModels(name string, models []string) []string {
 	return rotated
 }
 
+// pickConnection returns a pointer to the connection at position
+// (start+j) % len(conns), preferring active connections. If the connection
+// at the computed index is inactive, it continues scanning.
 func pickConnection(conns []domain.Connection, start int) *domain.Connection {
 	for j := 0; j < len(conns); j++ {
 		c := &conns[(start+j)%len(conns)]
@@ -726,6 +861,48 @@ func pickConnection(conns []domain.Connection, start int) *domain.Connection {
 		}
 	}
 	return &conns[0]
+}
+
+// connStartIndex returns the starting index for iterating connections.
+// If the provider's load-balance strategy is "round-robin", it returns
+// an atomically incremented index to distribute load across keys.
+// Otherwise returns 0 (failover: always starts from the first).
+func (s *RouterService) connStartIndex(conns []domain.Connection) int {
+	if len(conns) == 0 {
+		return 0
+	}
+	s.providerMu.RLock()
+	strategy := s.providerCache[conns[0].ProviderID]
+	s.providerMu.RUnlock()
+	if strategy == "round-robin" {
+		return int(atomic.AddUint32(&s.connRotation, 1)) % len(conns)
+	}
+	return 0
+}
+
+// RefreshProviderCache loads all provider metadata from the database
+// and populates the in-memory provider cache. Called at startup and
+// after provider changes.
+func (s *RouterService) RefreshProviderCache(ctx context.Context) {
+	if s.Providers == nil {
+		return
+	}
+	ps, err := s.Providers.List(ctx)
+	if err != nil {
+		slog.Error("provider cache refresh failed", "err", err)
+		return
+	}
+	m := make(map[string]string, len(ps))
+	for _, p := range ps {
+		lb := p.LoadBalance
+		if lb == "" {
+			lb = "failover"
+		}
+		m[p.ID] = lb
+	}
+	s.providerMu.Lock()
+	s.providerCache = m
+	s.providerMu.Unlock()
 }
 
 type openAIChatRequest struct {

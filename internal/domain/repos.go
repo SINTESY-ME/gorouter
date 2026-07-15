@@ -14,6 +14,16 @@ type ConnectionRepo interface {
 	SetRateLimited(ctx context.Context, id string, until interface{}) error // until is time.Time; interface{} avoids import cycle noise
 }
 
+// ProviderConfigRepo persists provider metadata (grouping of connections).
+type ProviderConfigRepo interface {
+	List(ctx context.Context) ([]ProviderConfig, error)
+	Get(ctx context.Context, id string) (*ProviderConfig, error)
+	GetByProviderID(ctx context.Context, providerID string) (*ProviderConfig, error)
+	Create(ctx context.Context, p *ProviderConfig) error
+	Update(ctx context.Context, p *ProviderConfig) error
+	Delete(ctx context.Context, id string) error
+}
+
 // ComboRepo persists combos (virtual models).
 type ComboRepo interface {
 	List(ctx context.Context) ([]Combo, error)

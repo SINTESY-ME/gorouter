@@ -61,10 +61,14 @@ func Open(ctx context.Context, driver, dsn string) (*gorm.DB, error) {
 			sqlDB.SetMaxOpenConns(1)
 		}
 	}
-	if err := db.AutoMigrate(&domain.Connection{}, &domain.Combo{}, &domain.ApiKey{}, &domain.UsageEntry{}, &domain.ModelEntry{}, &domain.Setting{}); err != nil {
+	if err := db.AutoMigrate(&domain.Connection{}, &domain.ProviderConfig{}, &domain.Combo{}, &domain.ApiKey{}, &domain.UsageEntry{}, &domain.ModelEntry{}, &domain.Setting{}); err != nil {
 		_ = Close(db)
 		return nil, fmt.Errorf("auto-migrate: %w", err)
 	}
+	// Backfill: create ProviderConfig rows for any provider_id that exists
+	// in connections but has no ProviderConfig row yet. This ensures
+	// existing deployments get the Provider entity without manual migration.
+	backfillProviderConfigs(db)
 	return db, nil
 }
 
@@ -75,4 +79,24 @@ func Close(db *gorm.DB) error {
 		return err
 	}
 	return sqlDB.Close()
+}
+
+// backfillProviderConfigs creates ProviderConfig rows for every distinct
+// provider_id found in connections that doesn't yet have a ProviderConfig
+// row. This is a one-time migration that runs after AutoMigrate. Existing
+// providers get default load_balance = "failover".
+func backfillProviderConfigs(db *gorm.DB) {
+	var providerIDs []string
+	db.Model(&domain.Connection{}).Distinct("provider_id").Pluck("provider_id", &providerIDs)
+	for _, pid := range providerIDs {
+		var count int64
+		db.Model(&domain.ProviderConfig{}).Where("id = ?", pid).Count(&count)
+		if count == 0 {
+			db.Create(&domain.ProviderConfig{
+				ID:          pid,
+				Name:        pid,
+				LoadBalance: "failover",
+			})
+		}
+	}
 }

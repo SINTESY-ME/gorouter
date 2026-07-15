@@ -56,6 +56,7 @@ func run() error {
 
 	// Repos
 	connRepo := db.NewConnectionRepo(gdb)
+	providerConfigRepo := db.NewProviderConfigRepo(gdb)
 	comboRepo := db.NewComboRepo(gdb)
 	keyRepo := db.NewApiKeyRepo(gdb)
 	usageRepo := db.NewUsageRepo(gdb)
@@ -91,6 +92,7 @@ func run() error {
 	router := app.NewRouterService(comboRepo, cachedConns, exec, tr, asyncUsage)
 	router.Tokens = tokenRefresher
 	router.Models = modelRepo
+	router.Providers = providerConfigRepo
 	savings := app.NewSavingsTracker()
 	router.Savings = savings
 
@@ -153,26 +155,27 @@ func run() error {
 
 	httpx.SetStaticHandler(web.Handler)
 	srv := &httpx.Server{
-		Router:      router,
-		Models:      models,
-		Providers:   connSvc,
-		Combos:      combos,
-		Keys:        apiKeys,
-		Usage:       usage,
-		Fetcher:     fetcher,
-		Prober:      prober,
-		ModelSync:   modelSync,
-		ModelRepo:   modelRepo,
-		Cache:       cacheSvc,
-		Settings:    settingRepo,
-		Savings:     savings,
+		Router:          router,
+		Models:          models,
+		Providers:       connSvc,
+		ProviderConfigs: providerConfigRepo,
+		Combos:          combos,
+		Keys:            apiKeys,
+		Usage:           usage,
+		Fetcher:         fetcher,
+		Prober:          prober,
+		ModelSync:       modelSync,
+		ModelRepo:       modelRepo,
+		Cache:           cacheSvc,
+		Settings:        settingRepo,
+		Savings:         savings,
 		RTKCompressorFactory: rtkFactory,
-		CacheFactory: cacheFactory,
-		RequireKey:  cfg.RequireKey,
-		Auth:        auth,
-		RateLimiter: app.NewRateLimiter(),
-		Catalog:     catalogSvc,
-		OAuth:       oauthMgr,
+		CacheFactory:    cacheFactory,
+		RequireKey:      cfg.RequireKey,
+		Auth:            auth,
+		RateLimiter:     app.NewRateLimiter(),
+		Catalog:         catalogSvc,
+		OAuth:           oauthMgr,
 	}
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -207,6 +210,8 @@ func run() error {
 	// Pre-load pricing cache from the DB so the first requests have
 	// pricing data before the initial sync completes.
 	router.RefreshPricingCache(context.Background())
+	// Pre-load provider config cache (load-balance strategies).
+	router.RefreshProviderCache(context.Background())
 
 	select {
 	case <-ctx.Done():

@@ -605,3 +605,59 @@ func lookupKey(s *app.ApiKeyService, ctx context.Context, id string) (*domain.Ap
 	}
 	return nil, domain.ErrNotFound
 }
+
+// --- ProviderConfig (provider grouping metadata) ---
+
+func (s *Server) handleListProviderConfigs(w http.ResponseWriter, r *http.Request) {
+	if s.ProviderConfigs == nil {
+		writeJSON(w, http.StatusOK, []domain.ProviderConfig{})
+		return
+	}
+	ps, err := s.ProviderConfigs.List(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, ps)
+}
+
+func (s *Server) handleUpdateProviderConfig(w http.ResponseWriter, r *http.Request) {
+	if s.ProviderConfigs == nil {
+		writeError(w, http.StatusServiceUnavailable, "provider configs not available")
+		return
+	}
+	id := chi.URLParam(r, "id")
+	existing, err := s.ProviderConfigs.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	var req struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		LoadBalance string `json:"load_balance"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Name != "" {
+		existing.Name = req.Name
+	}
+	if req.Description != "" {
+		existing.Description = req.Description
+	}
+	if req.LoadBalance == "failover" || req.LoadBalance == "round-robin" {
+		existing.LoadBalance = req.LoadBalance
+	}
+	if err := s.ProviderConfigs.Update(r.Context(), existing); err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	// Refresh the router's in-memory cache so the new strategy takes effect
+	// immediately without waiting for the next sync.
+	if s.Router != nil {
+		s.Router.RefreshProviderCache(r.Context())
+	}
+	writeJSON(w, http.StatusOK, existing)
+}
