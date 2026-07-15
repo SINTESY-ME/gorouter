@@ -272,13 +272,18 @@ func (r *ModelRegistry) loadOpenRouter(ctx context.Context, entries map[string]r
 			orProvider = id[:i]
 		}
 		kind := domain.KindLLM
+		supportsVision := false
 		arch, _ := m["architecture"].(map[string]any)
 		if modality, ok := arch["modality"].(string); ok {
-			if strings.Contains(modality, "image") {
+			s := strings.ToLower(modality)
+			if strings.Contains(s, "image") && !strings.Contains(s, "text") {
 				kind = domain.KindImage
+			} else if strings.Contains(s, "image") {
+				supportsVision = true
 			}
 		}
 		e := registryEntry{Kind: kind}
+		e.SupportsVision = supportsVision
 		e.SupportsToolCall = hasParam(m, "tools")
 		e.SupportsReasoning = hasParam(m, "reasoning")
 		// Parse pricing (per-token, but values are strings)
