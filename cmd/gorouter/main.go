@@ -91,7 +91,6 @@ func run() error {
 	router := app.NewRouterService(comboRepo, cachedConns, exec, tr, asyncUsage)
 	router.Tokens = tokenRefresher
 	router.Models = modelRepo
-	router.Registry = registry
 	savings := app.NewSavingsTracker()
 	router.Savings = savings
 
@@ -137,6 +136,7 @@ func run() error {
 		Models:      modelRepo,
 		Fetcher:     fetcher,
 		Registry:    registry,
+		OnSynced:    router.RefreshPricingCache,
 	}
 
 	// Provider catalog + store (YAML presets; install from origin repo)
@@ -203,6 +203,10 @@ func run() error {
 			}
 		}
 	}()
+
+	// Pre-load pricing cache from the DB so the first requests have
+	// pricing data before the initial sync completes.
+	router.RefreshPricingCache(context.Background())
 
 	select {
 	case <-ctx.Done():

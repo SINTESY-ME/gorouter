@@ -43,17 +43,23 @@ type RouterService struct {
 	// Savings tracks cumulative token/byte savings from cache hits and RTK
 	// compression. Nil disables tracking.
 	Savings *SavingsTracker
-	// Models is the persisted model catalog, used for pricing lookup in
-	// recordUsage. Nil means pricing falls back to Registry only.
-	Models   domain.ModelRepo
-	// Registry is the in-memory model registry, used for pricing fallback
-	// when the model is not yet in the persisted catalog.
-	Registry *ModelRegistry
+	// Models is the persisted model catalog. Pricing is resolved during
+	// model sync (by ModelSyncService) and stored in the database. The
+	// hot path reads pricing from an in-memory cache (pricingCache) that
+	// is refreshed after each sync — no DB or registry lookup per request.
+	Models domain.ModelRepo
 
 	// comboRotation is in-memory state for round-robin combo strategy.
 	// Not persisted; rotation resets on process restart (acceptable).
 	rotationMu sync.Mutex
 	rotation   map[string]int
+
+	// pricingCache holds the pricing data for all models, keyed by
+	// lowercase "provider/model". Refreshed by RefreshPricingCache after
+	// each model sync. The hot path reads this with an RLock — zero DB
+	// or registry overhead per request.
+	pricingMu    sync.RWMutex
+	pricingCache map[string]domain.ModelPricing
 
 	// Health tracks per-(combo, model) failures so that subsequent requests
 	// skip unhealthy models and a background probe restores them when they
@@ -572,7 +578,7 @@ func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterRespon
 // recordUsage parses token counts from the buffered response body and writes
 // a single UsageEntry. Uses a detached context (the request may be done by
 // the time the body is closed). When the model has pricing data in the
-// catalog or registry, the dollar cost is calculated and recorded.
+// in-memory pricing cache, the dollar cost is calculated and recorded.
 func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, status int, stream bool, buf []byte, comboName string, start time.Time) {
 	prompt, completion, cacheRead, cacheCreation := 0, 0, 0, 0
 	if endpoint == "" {
@@ -608,29 +614,42 @@ func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, a
 	_ = s.Usage.Record(ctx, entry)
 }
 
-// resolvePricing looks up the model's pricing first from the persisted
-// catalog (ModelRepo, which may have manual overrides), then from the
-// in-memory registry as a fallback. The catalog lookup normalizes the key
-// to lowercase to handle case-insensitive model names.
+// resolvePricing reads the model's pricing from the in-memory cache.
+// Pricing is resolved once during model sync and cached here. The hot
+// path does no DB or registry lookup — just an RLock + map read.
 func (s *RouterService) resolvePricing(m domain.ModelID) (domain.ModelPricing, bool) {
-	// Try the persisted catalog first (may have manual overrides).
-	// Normalize the key to lowercase for case-insensitive matching.
-	if s.Models != nil {
-		normalizedKey := strings.ToLower(m.Provider + "/" + m.Model)
-		entry, err := s.Models.Get(context.Background(), normalizedKey)
-		if err == nil && HasPricing(entry.Pricing) {
-			return entry.Pricing, true
+	s.pricingMu.RLock()
+	defer s.pricingMu.RUnlock()
+	if s.pricingCache == nil {
+		return domain.ModelPricing{}, false
+	}
+	key := strings.ToLower(m.Provider + "/" + m.Model)
+	p, ok := s.pricingCache[key]
+	return p, ok
+}
+
+// RefreshPricingCache loads all model entries from the database and
+// populates the in-memory pricing cache. Called at startup and after
+// each model sync. Models without pricing data are skipped.
+func (s *RouterService) RefreshPricingCache(ctx context.Context) {
+	if s.Models == nil {
+		return
+	}
+	entries, err := s.Models.List(ctx)
+	if err != nil {
+		slog.Error("pricing cache refresh failed", "err", err)
+		return
+	}
+	m := make(map[string]domain.ModelPricing, len(entries))
+	for _, e := range entries {
+		if HasPricing(e.Pricing) {
+			m[strings.ToLower(e.ID)] = e.Pricing
 		}
 	}
-	// Fallback: in-memory registry.
-	if s.Registry != nil {
-		if pricing, ok := s.Registry.ResolvePricing(m.Provider, m.Model); ok {
-			if HasPricing(pricing) {
-				return pricing, true
-			}
-		}
-	}
-	return domain.ModelPricing{}, false
+	s.pricingMu.Lock()
+	s.pricingCache = m
+	s.pricingMu.Unlock()
+	slog.Info("pricing cache refreshed", "models", len(m))
 }
 
 // teeReadCloser wraps an io.ReadCloser, copying bytes into an internal buffer

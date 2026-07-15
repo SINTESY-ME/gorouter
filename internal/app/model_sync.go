@@ -18,6 +18,10 @@ type ModelSyncService struct {
 	Models      domain.ModelRepo
 	Fetcher     domain.ModelFetcher
 	Registry    *ModelRegistry
+	// OnSynced is called after each provider sync completes (even on
+	// partial errors). Used to refresh in-memory caches (e.g. the pricing
+	// cache in RouterService). Optional; nil means no callback.
+	OnSynced func(ctx context.Context)
 }
 
 // SyncAll syncs every active connection. Errors for individual providers are
@@ -93,6 +97,9 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 		slog.Warn("model sync: deactivate stale failed", "provider", conn.ProviderID, "err", err)
 	}
 	slog.Info("model sync: provider synced", "provider", conn.ProviderID, "models", len(fetched))
+	if s.OnSynced != nil {
+		s.OnSynced(ctx)
+	}
 	return nil
 }
 
