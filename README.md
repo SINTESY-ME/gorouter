@@ -130,16 +130,62 @@ Não é só texto. O gorouter roteia **todos os tipos de modelo** via combos com
 Cada tipo tem seu próprio endpoint (`/v1/chat/completions`, `/v1/embeddings`, `/v1/images/generations`, `/v1/audio/speech`, etc.) e todos funcionam com combos. Crie um combo `image-gen` que tenta DALL-E 3, depois Stable Diffusion, depois Midjourney — o fallback é automático.
 
 ### Catálogo de modelos enriquecido
-O gorouter sincroniza o catálogo automaticamente com 4 APIs externas (LiteLLM, models.dev, OpenRouter, HuggingFace) a cada 24h para descobrir o *kind* dos modelos, context window, e capacidades.
+O gorouter sincroniza o catálogo automaticamente com 3 APIs externas (LiteLLM, models.dev, OpenRouter) a cada 2h para descobrir o *kind* dos modelos, context window, e capacidades.
 
-### Dashboard embutido
-Interface React + Vite + Tailwind + HeroUI compilada e embutida via `go:embed`. Gerencie providers, combos, keys, modelos, e visualize uso e analytics em tempo real — sem precisar rodar um frontend separado.
+### Pricing automático
+O gorouter resolve o preço de cada modelo automaticamente durante o sync, em cascata: **LiteLLM → models.dev → OpenRouter**, com **fuzzy matching** como fallback:
+
+- **Match exato** (provider + model): lookup direto no registry
+- **Match por nome**: modelo sem provider prefix
+- **Fuzzy matching**: 3 estratégias quando o modelo não existe no registry:
+  - **Safe suffix strip**: remove sufixos como `-free`, `-latest`, `-preview`, `-alpha`, `-beta`
+  - **Containment**: substring mais longa contida no nome (ex: `0g-glm-5.2` → `glm-5.2`)
+  - **Levenshtein**: distância adaptativa para typos e variantes
+- **Modelos free ($0)**: modelos com cost=0 em qualquer fonte são aceitos como pricing válido (source set, cost=0) — o dashboard mostra "Free" em vez de "sem preço"
+- **Best-wins**: se uma fonte tem pricing data e outra não, a com data ganha (não first-wins cego)
+- **Zero overhead no hot path**: pricing é resolvido uma vez no sync e guardado em cache em memória; o hot path faz apenas `RLock + map[string]` lookup (nanosegundos)
+
+```bash
+# Override manual de preço (dashboard ou API)
+POST /api/model-pricing
+```
+
+### RTK token compression
+Compressão de requests para reduzir tokens enviados ao upstream. 11 filtros automáticos (gitDiff, gitLog, grep, find, ls, tree, buildOutput, dedupLog, readNumbered, smartTruncate, searchList) com auto-detecção pelo primeiro 1KB. Fail-open: se algo falha, a request original vai intacta.
+
+```bash
+# Ativar (env)
+GOROUTER_RTK_ENABLED=true
+
+# Toggle live via dashboard (aba Performance)
+```
+
+### Savings tracker
+Métricas em tempo real de economia: tokens poupados por cache hits e bytes poupados por compressão RTK. Contadores atômicos in-memory (resetam no restart).
+
+```bash
+GET /api/savings
+# { "cache_hit_tokens": 8200000, "rtk_bytes_saved": 1500000, "rtk_tokens_saved": 375000 }
+```
 
 ### Segurança
 - **API keys** rotacionáveis com rate limit por chave (token bucket)
 - **Dashboard auth** com password definida na primeira abertura ou via env var
 - **Rate limiting** upstream automático — conexões que falham com 429/5xx são temporariamente pausadas
 - **Secrets via Docker Swarm secrets** ou env vars
+
+### OAuth (Codex + Gemini CLI)
+Tokens OAuth para providers que suportam PKCE. Refresh automático antes do upstream call. Fluxo paste-code no dashboard.
+
+### Dashboard embutido
+Interface React + Vite + Tailwind + HeroUI compilada e embutida via `go:embed`. Gerencie providers, combos, keys, modelos, e visualize uso e analytics em tempo real — sem precisar rodar um frontend separado.
+
+**Abas:**
+- **Dashboard** — stats, cost chart, savings section (cache + RTK), pie charts por provider/model
+- **Models** — cards com preço, kind, stats, botões de ação (editar preço, ativar/desativar, excluir); clique no nome para copiar
+- **Performance** — toggles live para RTK e cache, cache stats (entries/hits/misses/hit rate), flush button
+- **Logs** — requests com cost e tokens
+- **Combos** — criação com searchable model selector (Autocomplete com fuzzy search)
 
 ---
 
@@ -210,6 +256,10 @@ Todas variáveis são opcionais:
 | `GOROUTER_REQUIRE_KEY` | `true` | Exigir API key em `/v1/*` |
 | `GOROUTER_DASHBOARD_TOKEN` | — | Senha fixa do dashboard (env-only) |
 | `GOROUTER_UPSTREAM_TIMEOUT` | `600` | Timeout de requests não-streaming (segundos) |
+| `GOROUTER_CACHE_ENABLED` | `false` | Ativar response cache (direct-hash LRU + TTL) |
+| `GOROUTER_CACHE_TTL` | `5m` | TTL por entry do cache |
+| `GOROUTER_CACHE_MAX_ENTRIES` | `10000` | Limite de entries no cache (eviction LRU) |
+| `GOROUTER_RTK_ENABLED` | `false` | Ativar compressão RTK de requests |
 
 ---
 
@@ -245,6 +295,15 @@ curl http://localhost:20128/v1/chat/completions \
 ### Dashboard API (`/api/*`)
 
 Protegida por senha. Endpoints para CRUD de providers, combos, keys, modelos, e consultas de uso/analytics.
+
+| Endpoint | Descrição |
+|---|---|
+| `GET /api/savings` | Savings (cache hit tokens + RTK bytes saved) |
+| `GET /api/cache/stats` | Cache stats (entries, hits, misses, hit rate) |
+| `POST /api/cache/flush` | Limpa cache |
+| `GET /api/settings` | Settings (RTK + cache enabled flags) |
+| `PUT /api/settings` | Atualiza settings (toggle live RTK + cache) |
+| `POST /api/model-pricing` | Override manual de preço de um modelo |
 
 ---
 
