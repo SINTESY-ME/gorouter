@@ -13,7 +13,7 @@ import "sync"
 // tracking: if key A fails for gpt-4o but key B works, only
 // (combo, gpt-4o, keyA) is marked unhealthy — key B continues to serve.
 type HealthTracker struct {
-	mu     sync.Mutex
+	mu     sync.RWMutex
 	states map[string]*healthState
 }
 
@@ -30,7 +30,19 @@ func healthKey(comboName, modelStr, connID string) string {
 	return comboName + "|" + modelStr + "|" + connID
 }
 
-func (h *HealthTracker) state(comboName, modelStr, connID string) *healthState {
+// stateLocked must be called with h.mu held (write or read). If the entry
+// doesn't exist it returns a zero healthState without creating one; callers
+// that need to persist a new entry must call stateOrCreate.
+func (h *HealthTracker) stateLocked(comboName, modelStr, connID string) healthState {
+	if s, ok := h.states[healthKey(comboName, modelStr, connID)]; ok {
+		return *s
+	}
+	return healthState{}
+}
+
+// stateOrCreate returns the existing state or creates a new one. Must be
+// called with h.mu write-locked.
+func (h *HealthTracker) stateOrCreate(comboName, modelStr, connID string) *healthState {
 	key := healthKey(comboName, modelStr, connID)
 	if s, ok := h.states[key]; ok {
 		return s
@@ -42,11 +54,11 @@ func (h *HealthTracker) state(comboName, modelStr, connID string) *healthState {
 
 // IsUnhealthy reports whether the (combo, model, connection) triple is
 // currently marked unhealthy (i.e. should be skipped when iterating
-// connections for this model).
+// connections for this model). Uses RLock — hot path.
 func (h *HealthTracker) IsUnhealthy(comboName, modelStr, connID string) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.state(comboName, modelStr, connID).unhealthy
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.stateLocked(comboName, modelStr, connID).unhealthy
 }
 
 // MarkUnhealthy flags the (combo, model, connection) triple as unhealthy.
@@ -54,7 +66,7 @@ func (h *HealthTracker) IsUnhealthy(comboName, modelStr, connID string) bool {
 func (h *HealthTracker) MarkUnhealthy(comboName, modelStr, connID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.state(comboName, modelStr, connID).unhealthy = true
+	h.stateOrCreate(comboName, modelStr, connID).unhealthy = true
 }
 
 // MarkHealthy clears the unhealthy flag and the probe-in-flight flag for
@@ -63,7 +75,7 @@ func (h *HealthTracker) MarkUnhealthy(comboName, modelStr, connID string) {
 func (h *HealthTracker) MarkHealthy(comboName, modelStr, connID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	s := h.state(comboName, modelStr, connID)
+	s := h.stateOrCreate(comboName, modelStr, connID)
 	s.unhealthy = false
 	s.probeInFlight = false
 }
@@ -76,7 +88,7 @@ func (h *HealthTracker) MarkHealthy(comboName, modelStr, connID string) {
 func (h *HealthTracker) TryStartProbe(comboName, modelStr, connID string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	s := h.state(comboName, modelStr, connID)
+	s := h.stateOrCreate(comboName, modelStr, connID)
 	if !s.unhealthy || s.probeInFlight {
 		return false
 	}
@@ -89,5 +101,6 @@ func (h *HealthTracker) TryStartProbe(comboName, modelStr, connID string) bool {
 func (h *HealthTracker) ProbeFailed(comboName, modelStr, connID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.state(comboName, modelStr, connID).probeInFlight = false
+	s := h.stateOrCreate(comboName, modelStr, connID)
+	s.probeInFlight = false
 }

@@ -105,10 +105,7 @@ func run() error {
 		return responsecache.NewMemory(cfg.CacheMaxEntries, cfg.CacheTTL, cfg.CacheSweepInterval)
 	}
 	if cfg.CacheEnabled {
-		mc := cacheFactory().(interface {
-			domain.ResponseCache
-			Close()
-		})
+		mc := cacheFactory()
 		defer mc.Close()
 		cacheSvc = app.NewCacheService(mc)
 		router.Cache = cacheSvc
