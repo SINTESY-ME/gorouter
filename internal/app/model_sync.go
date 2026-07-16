@@ -45,8 +45,8 @@ func (s *ModelSyncService) SyncAll(ctx context.Context) {
 
 // SyncProvider fetches models from the provider's /v1/models endpoint,
 // resolves each model's Kind (from provider metadata, external registries, or
-// name heuristic), and upserts entries. Models that were sync-sourced and are
-// no longer returned are deactivated.
+// name heuristic), and upserts entries in a single batch. Models that were
+// sync-sourced and are no longer returned are deactivated.
 func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connection) error {
 	cfg, err := s.Configs.GetByProviderID(ctx, conn.ProviderID)
 	if err != nil {
@@ -57,12 +57,27 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 		return err
 	}
 	if len(fetched) == 0 {
+		// An empty list usually means a flaky provider API, not a real
+		// removal of all models. Skipping deactivation prevents mass
+		// catalog wipeouts on transient errors. The trade-off is that a
+		// genuine full removal won't be reflected until the list comes
+		// back non-empty.
 		slog.Warn("model sync: no models returned by provider, skipping deactivation to prevent mass deletion", "provider", conn.ProviderID)
 		return nil
 	}
 
+	// Load existing entries once to resolve pricing in memory (avoid N Get
+	// queries). Build a map keyed by entry ID.
+	existing := map[string]*domain.ModelEntry{}
+	if cur, err := s.Models.ListByProvider(ctx, conn.ProviderID); err == nil {
+		for i := range cur {
+			existing[cur[i].ID] = &cur[i]
+		}
+	}
+
 	now := time.Now()
 	activeIDs := make([]string, 0, len(fetched))
+	batch := make([]*domain.ModelEntry, 0, len(fetched))
 	for _, m := range fetched {
 		kind, contextLen, vision, toolCall, reasoning := s.resolveKind(m)
 		entry := &domain.ModelEntry{
@@ -80,33 +95,35 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 			LastSyncedAt:      now,
 			UpdatedAt:         now,
 		}
-		// Resolve pricing from the registry (LiteLLM → OpenRouter → models.dev
-		// with fuzzy fallback). Preserve manual overrides; if the registry
-		// doesn't return pricing, keep the existing DB pricing rather than
-		// overwriting with an empty value.
-		if existing, err := s.Models.Get(ctx, entry.ID); err == nil {
-			if existing.Pricing.Source == "manual" {
-				entry.Pricing = existing.Pricing
+		// Resolve pricing: preserve manual overrides; otherwise ask the
+		// registry; if neither has data, keep the existing DB pricing.
+		if prev, ok := existing[entry.ID]; ok {
+			if prev.Pricing.Source == "manual" {
+				entry.Pricing = prev.Pricing
 			} else if s.Registry != nil {
 				if pricing, ok := s.Registry.ResolvePricing(conn.ProviderID, m.ID); ok {
 					entry.Pricing = pricing
 				} else {
-					entry.Pricing = existing.Pricing
+					entry.Pricing = prev.Pricing
 				}
 			} else {
-				entry.Pricing = existing.Pricing
+				entry.Pricing = prev.Pricing
 			}
+			entry.CreatedAt = prev.CreatedAt
 		} else if s.Registry != nil {
 			if pricing, ok := s.Registry.ResolvePricing(conn.ProviderID, m.ID); ok {
 				entry.Pricing = pricing
 			}
 		}
-		if err := s.Models.Upsert(ctx, entry); err != nil {
-			slog.Warn("model sync: upsert failed", "model", entry.ID, "err", err)
-			continue
-		}
+		batch = append(batch, entry)
 		activeIDs = append(activeIDs, entry.ID)
 	}
+
+	if err := s.Models.UpsertBatch(ctx, batch); err != nil {
+		slog.Error("model sync: batch upsert failed", "provider", conn.ProviderID, "err", err)
+		return err
+	}
+
 	// Deactivate sync-sourced models that disappeared from the provider.
 	if err := s.Models.DeactivateStaleSync(ctx, conn.ProviderID, activeIDs); err != nil {
 		slog.Warn("model sync: deactivate stale failed", "provider", conn.ProviderID, "err", err)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/jhon/gorouter/internal/domain"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ModelRepo implements domain.ModelRepo via GORM.
@@ -51,6 +52,26 @@ func (r *ModelRepo) Upsert(ctx context.Context, m *domain.ModelEntry) error {
 	}
 	m.UpdatedAt = time.Now()
 	return r.db.WithContext(ctx).Save(m).Error
+}
+
+func (r *ModelRepo) UpsertBatch(ctx context.Context, entries []*domain.ModelEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	now := time.Now()
+	for _, m := range entries {
+		if m.CreatedAt.IsZero() {
+			m.CreatedAt = now
+		}
+		m.UpdatedAt = now
+	}
+	// OnConflict DoAll updates every column on conflict, preserving
+	// CreatedAt via the AssignAttributes path. SaveInBatches keeps
+	// memory bounded for large model lists.
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return tx.Clauses(clause.OnConflict{UpdateAll: true}).
+			CreateInBatches(entries, 100).Error
+	})
 }
 
 func (r *ModelRepo) Delete(ctx context.Context, id string) error {

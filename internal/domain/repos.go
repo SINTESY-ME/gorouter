@@ -66,6 +66,10 @@ type ModelRepo interface {
 	ListActive(ctx context.Context) ([]ModelEntry, error)
 	Get(ctx context.Context, id string) (*ModelEntry, error)
 	Upsert(ctx context.Context, m *ModelEntry) error
+	// UpsertBatch upserts multiple entries in a single transaction. Used by
+	// the model sync to avoid N individual queries. Entries missing
+	// CreatedAt get the current time; existing rows keep their CreatedAt.
+	UpsertBatch(ctx context.Context, entries []*ModelEntry) error
 	Delete(ctx context.Context, id string) error
 	SetActive(ctx context.Context, id string, active bool) error
 	// DeactivateStaleSync marks inactive any sync-source entries for the
