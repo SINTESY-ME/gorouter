@@ -96,10 +96,9 @@ func (r *ConnectionRepo) Reorder(ctx context.Context, orderedIDs []string) error
 	})
 }
 
-func (r *ConnectionRepo) SetRateLimited(ctx context.Context, id string, until interface{}) error {
-	t, _ := until.(time.Time)
+func (r *ConnectionRepo) SetRateLimited(ctx context.Context, id string, until time.Time) error {
 	res := r.db.WithContext(ctx).Model(&domain.Connection{}).Where("id = ?", id).
-		Updates(map[string]any{"rate_limited_until": t, "updated_at": time.Now()})
+		Updates(map[string]any{"rate_limited_until": until, "updated_at": time.Now()})
 	if res.Error != nil {
 		return res.Error
 	}

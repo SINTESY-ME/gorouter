@@ -1,6 +1,9 @@
 package domain
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // ConnectionRepo persists provider connections (credentials).
 type ConnectionRepo interface {
@@ -11,7 +14,7 @@ type ConnectionRepo interface {
 	Update(ctx context.Context, c *Connection) error
 	Delete(ctx context.Context, id string) error
 	Reorder(ctx context.Context, orderedIDs []string) error
-	SetRateLimited(ctx context.Context, id string, until interface{}) error // until is time.Time; interface{} avoids import cycle noise
+	SetRateLimited(ctx context.Context, id string, until time.Time) error
 }
 
 // ProviderConfigRepo persists provider metadata (grouping of connections).

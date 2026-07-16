@@ -129,7 +129,7 @@ func run() error {
 		_ = settingRepo.Set(ctx, "rtk_enabled", strconv.FormatBool(cfg.RTKEnabled))
 	}
 
-	models := &app.ModelsService{Combos: comboRepo, Connections: cachedConns, Fetcher: fetcher, Models: modelRepo}
+	models := &app.ModelsService{Combos: comboRepo, Models: modelRepo}
 	connSvc := &app.ConnectionService{Repo: cachedConns}
 	combos := &app.ComboService{Repo: comboRepo, Models: modelRepo}
 	usage := &app.UsageService{Repo: usageRepo}
@@ -163,7 +163,6 @@ func run() error {
 		Combos:          combos,
 		Keys:            apiKeys,
 		Usage:           usage,
-		Fetcher:         fetcher,
 		Prober:          prober,
 		ModelSync:       modelSync,
 		ModelRepo:       modelRepo,

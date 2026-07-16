@@ -19,12 +19,6 @@ import (
 	"github.com/jhon/gorouter/internal/providers/oauth"
 )
 
-// Fetcher is used by the dashboard to auto-fetch models for a given provider
-// connection. Injected at the composition root.
-type FetcherProvider interface {
-	Fetch(ctx context.Context, c *domain.Connection, cfg *domain.ProviderConfig) ([]domain.ModelInfo, error)
-}
-
 // Prober validates a provider connection at save time by probing the
 // upstream. When the format is "auto", it detects the best format.
 type Prober interface {
@@ -47,7 +41,6 @@ type Server struct {
 	Combos    *app.ComboService
 	Keys      *app.ApiKeyService
 	Usage     *app.UsageService
-	Fetcher   FetcherProvider
 	Prober    Prober
 	ModelSync ModelSyncer
 	ModelRepo domain.ModelRepo

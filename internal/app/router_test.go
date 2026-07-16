@@ -116,7 +116,7 @@ func (r *mockConnectionRepo) Create(ctx context.Context, c *domain.Connection) e
 func (r *mockConnectionRepo) Update(ctx context.Context, c *domain.Connection) error    { return nil }
 func (r *mockConnectionRepo) Delete(ctx context.Context, id string) error               { return nil }
 func (r *mockConnectionRepo) Reorder(ctx context.Context, orderedIDs []string) error    { return nil }
-func (r *mockConnectionRepo) SetRateLimited(ctx context.Context, id string, until interface{}) error {
+func (r *mockConnectionRepo) SetRateLimited(ctx context.Context, id string, until time.Time) error {
 	return nil
 }
 

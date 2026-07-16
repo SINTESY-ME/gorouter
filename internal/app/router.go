@@ -1010,10 +1010,8 @@ func rewriteMultipartModel(body []byte, upstreamModel string) []byte {
 // model catalog (synced from providers). It no longer fetches live from
 // upstreams on every request — the catalog is kept fresh by ModelSyncService.
 type ModelsService struct {
-	Combos      domain.ComboRepo
-	Connections domain.ConnectionRepo
-	Fetcher     domain.ModelFetcher // kept for backward compat; not used in List
-	Models      domain.ModelRepo
+	Combos domain.ComboRepo
+	Models domain.ModelRepo
 }
 
 func (s *ModelsService) List(ctx context.Context) ([]domain.ModelInfo, error) {

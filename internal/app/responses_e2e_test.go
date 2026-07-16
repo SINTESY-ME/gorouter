@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/jhon/gorouter/internal/domain"
 	"github.com/jhon/gorouter/internal/infra/translator"
@@ -42,7 +43,7 @@ func (m *memConnRepo) Get(ctx context.Context, id string) (*domain.Connection, e
 func (m *memConnRepo) Create(ctx context.Context, c *domain.Connection) error { return nil }
 func (m *memConnRepo) Update(ctx context.Context, c *domain.Connection) error { return nil }
 func (m *memConnRepo) Delete(ctx context.Context, id string) error             { return nil }
-func (m *memConnRepo) SetRateLimited(ctx context.Context, id string, until interface{}) error {
+func (m *memConnRepo) SetRateLimited(ctx context.Context, id string, until time.Time) error {
 	return nil
 }
 func (m *memConnRepo) Reorder(ctx context.Context, ids []string) error { return nil }

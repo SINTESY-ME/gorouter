@@ -191,7 +191,7 @@ func (c *connCache) Reorder(ctx context.Context, orderedIDs []string) error {
 	return nil
 }
 
-func (c *connCache) SetRateLimited(ctx context.Context, id string, until interface{}) error {
+func (c *connCache) SetRateLimited(ctx context.Context, id string, until time.Time) error {
 	if err := c.repo.SetRateLimited(ctx, id, until); err != nil {
 		return err
 	}
