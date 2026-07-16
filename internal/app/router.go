@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/jhon/gorouter/internal/domain"
@@ -46,8 +45,8 @@ type RouterService struct {
 	Savings *SavingsTracker
 	// Models is the persisted model catalog. Pricing is resolved during
 	// model sync (by ModelSyncService) and stored in the database. The
-	// hot path reads pricing from an in-memory cache (pricingCache) that
-	// is refreshed after each sync — no DB or registry lookup per request.
+	// hot path reads pricing from an in-memory cache (Pricing) — no DB or
+	// registry lookup per request.
 	Models domain.ModelRepo
 
 	// comboRotation is in-memory state for round-robin combo strategy.
@@ -55,33 +54,18 @@ type RouterService struct {
 	rotationMu sync.Mutex
 	rotation   map[string]int
 
-	// pricingCache holds the pricing data for all models, keyed by
-	// lowercase "provider/model". Refreshed by RefreshPricingCache after
-	// each model sync. The hot path reads this with an RLock — zero DB
-	// or registry overhead per request.
-	pricingMu    sync.RWMutex
-	pricingCache map[string]domain.ModelPricing
-
 	// Health tracks per-(combo, model, connection) failures so that
 	// subsequent requests skip unhealthy keys and a background probe
 	// restores them when they recover. Not persisted; resets on restart.
 	Health *HealthTracker
 
-	// Providers is the persisted provider metadata (load-balance
-	// strategy, display name). Nil means no provider-level config;
-	// the router falls back to failover for all providers.
-	Providers domain.ProviderConfigRepo
-
-	// providerCache holds configs keyed by provider_id.
-	// Refreshed by RefreshProviderCache at startup and after provider
-	// changes. The hot path reads this with an RLock — zero DB overhead.
-	providerMu    sync.RWMutex
-	providerCache map[string]*domain.ProviderConfig
-
-	// connRotation is an atomic counter for round-robin connection
-	// selection. Incremented per request when the provider's strategy
-	// is "round-robin".
-	connRotation uint32
+	// Pricing is the in-memory pricing cache. Nil-safe on the hot path.
+	Pricing *PricingCache
+	// Selector owns the provider config cache and connection rotation.
+	// Nil-safe: callers fall back to a default openai config.
+	Selector *ConnectionSelector
+	// Prober owns background health probing. Nil-safe: disables probing.
+	Prober *HealthProber
 }
 
 // probeCtxKey is used to mark a context as originating from a health probe
@@ -99,7 +83,7 @@ func IsProbeCall(ctx context.Context) bool {
 // NewRouterService constructs a RouterService with the round-robin state
 // initialised. Use this rather than a bare struct literal.
 func NewRouterService(combos domain.ComboRepo, conns domain.ConnectionRepo, exec domain.Executor, tr domain.Translator, usage domain.UsageRepo) *RouterService {
-	return &RouterService{
+	s := &RouterService{
 		Combos:      combos,
 		Connections: conns,
 		Executor:    exec,
@@ -107,7 +91,10 @@ func NewRouterService(combos domain.ComboRepo, conns domain.ConnectionRepo, exec
 		Usage:       usage,
 		rotation:    map[string]int{},
 		Health:      NewHealthTracker(),
+		Selector:    NewConnectionSelector(nil),
 	}
+	s.Prober = NewHealthProber(s.Health, conns, exec, tr, s.Selector)
+	return s
 }
 
 // RouteOptions tunes how a chat request is processed. The zero value is
@@ -225,31 +212,34 @@ func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body 
 		return nil, domain.ErrNoConnection
 	}
 	modelStr := m.Provider + "/" + m.Model
-	startIdx := s.connStartIndex(conns)
+	startIdx := 0
+	if s.Selector != nil {
+		startIdx = s.Selector.StartIndex(conns)
+	}
 	for i := 0; i < len(conns); i++ {
 		conn := &conns[(startIdx+i)%len(conns)]
 		if !conn.IsActive || conn.RateLimitedUntil.After(time.Now()) {
 			continue
 		}
 		if s.Health.IsUnhealthy("", modelStr, conn.ID) {
-			if s.Health.TryStartProbe("", modelStr, conn.ID) {
-				go s.runHealthProbe("", modelStr, m, conn.ID)
+			if s.Prober != nil && s.Health.TryStartProbe("", modelStr, conn.ID) {
+				go s.Prober.RunProbe("", modelStr, m, conn.ID)
 			}
 			continue
 		}
 		res, err := s.executeOne(ctx, m, conn, body, stream, opts, ct)
 		if err != nil {
 			s.Health.MarkUnhealthy("", modelStr, conn.ID)
-			if s.Health.TryStartProbe("", modelStr, conn.ID) {
-				go s.runHealthProbe("", modelStr, m, conn.ID)
+			if s.Prober != nil && s.Health.TryStartProbe("", modelStr, conn.ID) {
+				go s.Prober.RunProbe("", modelStr, m, conn.ID)
 			}
 			continue
 		}
 		if endpoint == "" && res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
 			s.Health.MarkUnhealthy("", modelStr, conn.ID)
 			s.markRateLimited(ctx, conn, res)
-			if s.Health.TryStartProbe("", modelStr, conn.ID) {
-				go s.runHealthProbe("", modelStr, m, conn.ID)
+			if s.Prober != nil && s.Health.TryStartProbe("", modelStr, conn.ID) {
+				go s.Prober.RunProbe("", modelStr, m, conn.ID)
 			}
 			if res.Body != nil {
 				res.Body.Close()
@@ -293,7 +283,9 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 		// skip and launch background probes. tryModel handles the
 		// per-connection health tracking internally.
 		if s.allConnectionsUnhealthy(combo.Name, modelStr, conns) {
-			s.launchProbesForProvider(combo.Name, modelStr, m, conns)
+			if s.Prober != nil {
+				s.Prober.LaunchProbes(combo.Name, modelStr, m, conns)
+			}
 			skipped = append(skipped, skipEntry{modelStr: modelStr, m: m, conns: conns})
 			continue
 		}
@@ -344,8 +336,8 @@ type skipEntry struct {
 }
 
 // allConnectionsUnhealthy checks whether every active connection for the
-// given provider is currently marked unhealthy for this (combo, model).
-// If at least one connection is healthy (or not yet tried), returns false.
+// given model is currently marked unhealthy for this (combo, model). If at
+// least one connection is healthy (or not yet tried), returns false.
 func (s *RouterService) allConnectionsUnhealthy(comboName, modelStr string, conns []domain.Connection) bool {
 	if len(conns) == 0 {
 		return true
@@ -360,105 +352,6 @@ func (s *RouterService) allConnectionsUnhealthy(comboName, modelStr string, conn
 		}
 	}
 	return true
-}
-
-// launchProbesForProvider launches background probes for all unhealthy
-// connections of this provider that don't already have a probe in flight.
-func (s *RouterService) launchProbesForProvider(comboName, modelStr string, m domain.ModelID, conns []domain.Connection) {
-	for i := range conns {
-		conn := &conns[i]
-		if !conn.IsActive {
-			continue
-		}
-		if s.Health.IsUnhealthy(comboName, modelStr, conn.ID) {
-			if s.Health.TryStartProbe(comboName, modelStr, conn.ID) {
-				go s.runHealthProbe(comboName, modelStr, m, conn.ID)
-			}
-		}
-	}
-}
-
-// runHealthProbe is a background goroutine that sends a minimal chat request
-// to an unhealthy (combo, model, connection) triple to check if the specific
-// key has recovered. It uses a detached context with a 20s timeout. On 2xx
-// it marks the triple healthy; otherwise it leaves the unhealthy flag set
-// and clears the probe-in-flight flag so the next request can launch a new
-// probe. The probe does NOT go through wrapUsageTracking, so it does not
-// pollute the usage table.
-func (s *RouterService) runHealthProbe(comboName, modelStr string, m domain.ModelID, connID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	// Mark this context as a probe so test mocks can distinguish probe
-	// calls from real request calls.
-	ctx = context.WithValue(ctx, probeCtxKey{}, true)
-
-	conns, err := s.Connections.ListByProvider(ctx, m.Provider)
-	if err != nil || len(conns) == 0 {
-		s.Health.ProbeFailed(comboName, modelStr, connID)
-		slog.Debug("health probe: no connections for provider", "combo", comboName, "model", modelStr, "conn", connID)
-		return
-	}
-	// Find the specific connection by ID.
-	var conn *domain.Connection
-	for i := range conns {
-		if conns[i].ID == connID {
-			conn = &conns[i]
-			break
-		}
-	}
-	if conn == nil {
-		s.Health.ProbeFailed(comboName, modelStr, connID)
-		slog.Debug("health probe: connection not found", "combo", comboName, "model", modelStr, "conn", connID)
-		return
-	}
-	if !conn.IsActive || conn.RateLimitedUntil.After(time.Now()) {
-		s.Health.ProbeFailed(comboName, modelStr, connID)
-		slog.Debug("health probe: connection inactive or rate-limited", "combo", comboName, "model", modelStr, "conn", connID)
-		return
-	}
-
-	probeBody := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"."}],"max_tokens":1,"stream":false}`, m.Model)
-	s.providerMu.RLock()
-	cfg := s.providerCache[m.Provider]
-	s.providerMu.RUnlock()
-	if cfg == nil {
-		cfg = &domain.ProviderConfig{ID: m.Provider, Format: domain.FormatOpenAI}
-	}
-
-	targetFmt := cfg.Format
-	if targetFmt == "" {
-		targetFmt = domain.FormatOpenAI
-	}
-	translated, err := s.Translator.TranslateRequest(domain.FormatOpenAI, targetFmt, m.Model, []byte(probeBody))
-	if err != nil {
-		s.Health.ProbeFailed(comboName, modelStr, connID)
-		slog.Debug("health probe: translate failed", "combo", comboName, "model", modelStr, "conn", connID, "error", err)
-		return
-	}
-	execReq := domain.ExecuteRequest{
-		ProviderID:    m.Provider,
-		Connection:    conn,
-		Config:        cfg,
-		UpstreamModel: m.Model,
-		Body:          io.NopCloser(bytes.NewReader(translated)),
-		Stream:        false,
-	}
-	res, err := s.Executor.Execute(ctx, execReq)
-	if err != nil {
-		s.Health.ProbeFailed(comboName, modelStr, connID)
-		slog.Debug("health probe: execute failed", "combo", comboName, "model", modelStr, "conn", connID, "error", err)
-		return
-	}
-	defer res.Body.Close()
-	io.Copy(io.Discard, res.Body)
-
-	if res.StatusCode >= 200 && res.StatusCode < 400 {
-		s.Health.MarkHealthy(comboName, modelStr, connID)
-		slog.Info("health probe: connection recovered", "combo", comboName, "model", modelStr, "conn", connID)
-	} else {
-		s.Health.ProbeFailed(comboName, modelStr, connID)
-		slog.Debug("health probe: still unhealthy", "combo", comboName, "model", modelStr, "conn", connID, "status", res.StatusCode)
-	}
 }
 
 func (s *RouterService) tryModel(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, opts RouteOptions, comboName string, start time.Time, contentType ...string) (*RouterResponse, error) {
@@ -493,24 +386,27 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 		ct = contentType[0]
 	}
 	modelStr := m.Provider + "/" + m.Model
-	startIdx := s.connStartIndex(conns)
+	startIdx := 0
+	if s.Selector != nil {
+		startIdx = s.Selector.StartIndex(conns)
+	}
 	for i := 0; i < len(conns); i++ {
 		conn := &conns[(startIdx+i)%len(conns)]
 		if !conn.IsActive || conn.RateLimitedUntil.After(time.Now()) {
 			continue
 		}
 		if skipUnhealthy && s.Health.IsUnhealthy(comboName, modelStr, conn.ID) {
-			if s.Health.TryStartProbe(comboName, modelStr, conn.ID) {
-				go s.runHealthProbe(comboName, modelStr, m, conn.ID)
+			if s.Prober != nil && s.Health.TryStartProbe(comboName, modelStr, conn.ID) {
+				go s.Prober.RunProbe(comboName, modelStr, m, conn.ID)
 			}
 			continue
 		}
 		res, err := s.executeOne(ctx, m, conn, body, stream, opts, ct)
 		if err != nil {
 			s.Health.MarkUnhealthy(comboName, modelStr, conn.ID)
-			if skipUnhealthy {
+			if skipUnhealthy && s.Prober != nil {
 				if s.Health.TryStartProbe(comboName, modelStr, conn.ID) {
-					go s.runHealthProbe(comboName, modelStr, m, conn.ID)
+					go s.Prober.RunProbe(comboName, modelStr, m, conn.ID)
 				}
 			}
 			continue
@@ -518,9 +414,9 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 		if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
 			s.Health.MarkUnhealthy(comboName, modelStr, conn.ID)
 			s.markRateLimited(ctx, conn, res)
-			if skipUnhealthy {
+			if skipUnhealthy && s.Prober != nil {
 				if s.Health.TryStartProbe(comboName, modelStr, conn.ID) {
-					go s.runHealthProbe(comboName, modelStr, m, conn.ID)
+					go s.Prober.RunProbe(comboName, modelStr, m, conn.ID)
 				}
 			}
 			if res.Body != nil {
@@ -546,11 +442,9 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 		}
 	}
 
-	s.providerMu.RLock()
-	cfg := s.providerCache[m.Provider]
-	s.providerMu.RUnlock()
-	if cfg == nil {
-		cfg = &domain.ProviderConfig{ID: m.Provider, Format: domain.FormatOpenAI}
+	cfg := &domain.ProviderConfig{ID: m.Provider, Format: domain.FormatOpenAI}
+	if s.Selector != nil {
+		cfg = s.Selector.Config(m.Provider)
 	}
 
 	translated := body
@@ -739,8 +633,10 @@ func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, a
 		}
 	}
 	var cost float64
-	if pricing, ok := s.resolvePricing(m); ok {
-		cost = CalculateCost(pricing, endpoint, prompt, completion, cacheRead, cacheCreation)
+	if s.Pricing != nil {
+		if pricing, ok := s.Pricing.Get(m); ok {
+			cost = CalculateCost(pricing, endpoint, prompt, completion, cacheRead, cacheCreation)
+		}
 	}
 	entry := domain.UsageEntry{
 		Timestamp:         time.Now(),
@@ -759,44 +655,6 @@ func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, a
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = s.Usage.Record(ctx, entry)
-}
-
-// resolvePricing reads the model's pricing from the in-memory cache.
-// Pricing is resolved once during model sync and cached here. The hot
-// path does no DB or registry lookup — just an RLock + map read.
-func (s *RouterService) resolvePricing(m domain.ModelID) (domain.ModelPricing, bool) {
-	s.pricingMu.RLock()
-	defer s.pricingMu.RUnlock()
-	if s.pricingCache == nil {
-		return domain.ModelPricing{}, false
-	}
-	key := strings.ToLower(m.Provider + "/" + m.Model)
-	p, ok := s.pricingCache[key]
-	return p, ok
-}
-
-// RefreshPricingCache loads all model entries from the database and
-// populates the in-memory pricing cache. Called at startup and after
-// each model sync. Models without pricing data are skipped.
-func (s *RouterService) RefreshPricingCache(ctx context.Context) {
-	if s.Models == nil {
-		return
-	}
-	entries, err := s.Models.List(ctx)
-	if err != nil {
-		slog.Error("pricing cache refresh failed", "err", err)
-		return
-	}
-	m := make(map[string]domain.ModelPricing, len(entries))
-	for _, e := range entries {
-		if HasPricingData(e.Pricing) {
-			m[strings.ToLower(e.ID)] = e.Pricing
-		}
-	}
-	s.pricingMu.Lock()
-	s.pricingCache = m
-	s.pricingMu.Unlock()
-	slog.Info("pricing cache refreshed", "models", len(m))
 }
 
 // teeReadCloser wraps an io.ReadCloser, copying bytes into an internal buffer
@@ -865,50 +723,20 @@ func (s *RouterService) rotatedModels(name string, models []string) []string {
 	return rotated
 }
 
-// connStartIndex returns the starting index for iterating connections.
-// If the provider's load-balance strategy is "round-robin", it returns
-// an atomically incremented index to distribute load across keys.
-// Otherwise returns 0 (failover: always starts from the first).
-func (s *RouterService) connStartIndex(conns []domain.Connection) int {
-	if len(conns) == 0 {
-		return 0
+// RefreshProviderCache delegates to the ConnectionSelector. Called by
+// handlers after provider config changes.
+func (s *RouterService) RefreshProviderCache(ctx context.Context) {
+	if s.Selector != nil {
+		s.Selector.Refresh(ctx)
 	}
-	s.providerMu.RLock()
-	cfg := s.providerCache[conns[0].ProviderID]
-	s.providerMu.RUnlock()
-	strategy := "failover"
-	if cfg != nil {
-		strategy = cfg.LoadBalance
-	}
-	if strategy == "round-robin" {
-		return int(atomic.AddUint32(&s.connRotation, 1)) % len(conns)
-	}
-	return 0
 }
 
-// RefreshProviderCache loads all provider metadata from the database
-// and populates the in-memory provider cache. Called at startup and
-// after provider changes.
-func (s *RouterService) RefreshProviderCache(ctx context.Context) {
-	if s.Providers == nil {
-		return
+// RefreshPricingCache delegates to the PricingCache. Called at startup and
+// after each model sync.
+func (s *RouterService) RefreshPricingCache(ctx context.Context) {
+	if s.Pricing != nil {
+		s.Pricing.Refresh(ctx)
 	}
-	ps, err := s.Providers.List(ctx)
-	if err != nil {
-		slog.Error("provider cache refresh failed", "err", err)
-		return
-	}
-	m := make(map[string]*domain.ProviderConfig, len(ps))
-	for i := range ps {
-		p := &ps[i]
-		if p.LoadBalance == "" {
-			p.LoadBalance = "failover"
-		}
-		m[p.ID] = p
-	}
-	s.providerMu.Lock()
-	s.providerCache = m
-	s.providerMu.Unlock()
 }
 
 type openAIChatRequest struct {

@@ -92,7 +92,9 @@ func run() error {
 	router := app.NewRouterService(comboRepo, cachedConns, exec, tr, asyncUsage)
 	router.Tokens = tokenRefresher
 	router.Models = modelRepo
-	router.Providers = providerConfigRepo
+	router.Pricing = app.NewPricingCache(modelRepo)
+	router.Selector = app.NewConnectionSelector(providerConfigRepo)
+	router.Prober = app.NewHealthProber(router.Health, cachedConns, exec, tr, router.Selector)
 	savings := app.NewSavingsTracker()
 	router.Savings = savings
 
