@@ -51,10 +51,3 @@ func (rl *RateLimiter) Allow(key string, rpm int) bool {
 	}
 	return false
 }
-
-func min(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
-}

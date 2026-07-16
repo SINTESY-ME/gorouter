@@ -47,26 +47,6 @@ func (m *memConnRepo) SetRateLimited(ctx context.Context, id string, until inter
 }
 func (m *memConnRepo) Reorder(ctx context.Context, ids []string) error { return nil }
 
-// Fix SetRateLimited signature - check domain
-type memConnRepo2 struct{ c domain.Connection }
-
-func (m *memConnRepo2) List(ctx context.Context) ([]domain.Connection, error) {
-	return []domain.Connection{m.c}, nil
-}
-func (m *memConnRepo2) ListByProvider(ctx context.Context, providerID string) ([]domain.Connection, error) {
-	return []domain.Connection{m.c}, nil
-}
-func (m *memConnRepo2) Get(ctx context.Context, id string) (*domain.Connection, error) {
-	return &m.c, nil
-}
-func (m *memConnRepo2) Create(ctx context.Context, c *domain.Connection) error { return nil }
-func (m *memConnRepo2) Update(ctx context.Context, c *domain.Connection) error { return nil }
-func (m *memConnRepo2) Delete(ctx context.Context, id string) error             { return nil }
-func (m *memConnRepo2) SetRateLimited(ctx context.Context, id string, until interface{ /* time.Time */ }) error {
-	return nil
-}
-func (m *memConnRepo2) Reorder(ctx context.Context, ids []string) error { return nil }
-
 func TestResponsesPathBody(t *testing.T) {
 	// Use existing mock patterns from router_test.go if available - keep simple
 	// Just test translate + injectStreamUsage path manually

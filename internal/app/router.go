@@ -62,9 +62,6 @@ type RouterService struct {
 	pricingMu    sync.RWMutex
 	pricingCache map[string]domain.ModelPricing
 
-	// Health tracks per-(combo, model) failures so that subsequent requests
-	// skip unhealthy models and a background probe restores them when they
-	// recover. Not persisted; resets on process restart.
 	// Health tracks per-(combo, model, connection) failures so that
 	// subsequent requests skip unhealthy keys and a background probe
 	// restores them when they recover. Not persisted; resets on restart.
@@ -587,14 +584,6 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 				s.Savings.RecordRTKCompression(before - len(translated))
 			}
 		}
-		bp, tp := body, translated
-		if len(bp) > 300 {
-			bp = bp[:300]
-		}
-		if len(tp) > 300 {
-			tp = tp[:300]
-		}
-		slog.Info("executeOne translate", "inputFmt", inputFmt, "targetFmt", targetFmt, "model", m.Model, "body_preview", string(bp), "translated_preview", string(tp))
 		execReq := domain.ExecuteRequest{
 			ProviderID:   m.Provider,
 			Connection:   conn,
