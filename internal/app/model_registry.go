@@ -214,27 +214,70 @@ func (r *ModelRegistry) loadModelsDev(ctx context.Context, entries map[string]re
 				continue
 			}
 			key := normalizeModelName(modelID)
-			// models.dev is LLM-focused; kind is always llm unless output has image.
-			kind := domain.KindLLM
-			e := registryEntry{Kind: kind}
-			e.SupportsVision, _ = m["attachment"].(bool)
+			e := registryEntry{Kind: domain.KindLLM}
+			// Detect kind from output modalities: image-only output → KindImage,
+			// audio-only output → KindTTS, text+image output → LLM with vision.
+			if mods, ok := m["modalities"].(map[string]any); ok {
+				kind, vision := detectKindFromModalities(mods)
+				if kind != "" {
+					e.Kind = kind
+				}
+				if vision {
+					e.SupportsVision = true
+				}
+			}
+			if !e.SupportsVision {
+				e.SupportsVision, _ = m["attachment"].(bool)
+			}
 			e.SupportsToolCall, _ = m["tool_call"].(bool)
 			e.SupportsReasoning, _ = m["reasoning"].(bool)
+			if limit, ok := m["limit"].(map[string]any); ok {
+				e.Context = int(floatVal(limit["context"]))
+			}
 			// Parse pricing (per-1M-tokens, convert to per-token)
 			if cost, ok := m["cost"].(map[string]any); ok {
 				e.Pricing = parseModelsDevPricing(cost)
 				e.Pricing.Source = "models.dev"
 				e.Pricing.LastSyncedAt = time.Now()
 			}
-		// byModel: best-wins — keep the entry with pricing data; if the
-		// existing entry has no Source (e.g. LiteLLM didn't have it) and
-		// the new one does, overwrite.
-		upsertEntry(entries, key, e)
-		// byProvider: best-wins
-		pk := providerID + "/" + key
-		upsertEntry(byProvider, pk, e)
+			upsertEntry(entries, key, e)
+			pk := providerID + "/" + key
+			upsertEntry(byProvider, pk, e)
 		}
 	}
+}
+
+// detectKindFromModalities inspects the modalities object (from models.dev)
+// to determine the model kind and whether it supports vision. Returns
+// ("", false) when modalities are absent or unparseable.
+func detectKindFromModalities(mods map[string]any) (domain.ModelKind, bool) {
+	out, ok := mods["output"].([]any)
+	if !ok {
+		return "", false
+	}
+	hasText, hasImage, hasAudio := false, false, false
+	for _, v := range out {
+		s, _ := v.(string)
+		switch s {
+		case "text":
+			hasText = true
+		case "image":
+			hasImage = true
+		case "audio":
+			hasAudio = true
+		}
+	}
+	// Image generation: image in output without text.
+	if hasImage && !hasText {
+		return domain.KindImage, true
+	}
+	// TTS: audio in output without text.
+	if hasAudio && !hasText {
+		return domain.KindTTS, false
+	}
+	// Multimodal LLM: text output with image input or output.
+	vision := hasImage
+	return domain.KindLLM, vision
 }
 
 func (r *ModelRegistry) loadOpenRouter(ctx context.Context, entries map[string]registryEntry, byProvider map[string]registryEntry) {

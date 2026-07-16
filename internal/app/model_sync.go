@@ -137,16 +137,35 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 
 // resolveKind determines the ModelKind for a fetched model. Priority:
 // 1. Provider's own metadata (model_type/endpoint_format in the /v1/models JSON)
+//    — the provider is the source of truth for which endpoint to call.
 // 2. External registries (LiteLLM, models.dev, OpenRouter via ModelRegistry)
+//    — used when the provider doesn't expose metadata, and to enrich
+//    capability flags (vision, tool calls, reasoning, context) even when
+//    the provider does give a Kind.
 // 3. Name heuristic
 func (s *ModelSyncService) resolveKind(m domain.ModelInfo) (domain.ModelKind, int, bool, bool, bool) {
-	// If the fetcher already populated Kind from provider metadata, use it.
-	if m.Kind != "" {
-		return m.Kind, 0, false, false, false
-	}
-	// Try external registries + heuristic fallback.
+	providerKind := m.Kind
 	if s.Registry != nil {
-		return s.Registry.ResolveKind(m.ID)
+		regKind, ctxLen, vision, toolCall, reasoning := s.Registry.ResolveKind(m.ID)
+		if providerKind != "" && providerKind != domain.KindLLM {
+			// Non-LLM kinds (image, tts, stt, embedding) are endpoint-specific;
+			// the provider knows best. Don't override with registry, but still
+			// return capability flags if the registry had them (rare for non-LLM).
+			return providerKind, ctxLen, vision, toolCall, reasoning
+		}
+		if regKind != "" || providerKind == "" {
+			// Use registry kind (may be LLM with enriched capabilities) or
+			// fall back to registry when the provider gave no kind.
+			kind := regKind
+			if kind == "" {
+				kind = providerKind
+			}
+			return kind, ctxLen, vision, toolCall, reasoning
+		}
+		return providerKind, 0, false, false, false
+	}
+	if providerKind != "" {
+		return providerKind, 0, false, false, false
 	}
 	k := heuristicKind(m.ID)
 	return k, 0, false, false, false
