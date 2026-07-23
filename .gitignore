@@ -4,3 +4,8 @@ internal/web/dist/
 .DS_Store
 /gorouter
 *.exe
+
+# Environment-internal deploy artifacts
+deploy.sh
+docker-stack.yml
+docker-entrypoint.sh
