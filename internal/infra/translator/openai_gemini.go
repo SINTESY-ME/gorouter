@@ -14,13 +14,13 @@ import (
 func init() {
 	register(domain.FormatOpenAI, domain.FormatGemini, pair{
 		translateRequest:        translateOpenAIToGeminiRequest,
-		translateResponseJSON:   translateGeminiToOpenAIResponseJSON,
-		translateResponseStream: geminiStreamToOpenAI,
+		translateResponseJSON:   translateOpenAIToGeminiResponseJSON,
+		translateResponseStream: openAIStreamToGemini,
 	})
 	register(domain.FormatGemini, domain.FormatOpenAI, pair{
 		translateRequest:        translateGeminiToOpenAIRequest,
-		translateResponseJSON:   translateOpenAIToGeminiResponseJSON,
-		translateResponseStream: openAIStreamToGemini,
+		translateResponseJSON:   translateGeminiToOpenAIResponseJSON,
+		translateResponseStream: geminiStreamToOpenAI,
 	})
 }
 
