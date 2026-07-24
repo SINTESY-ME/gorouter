@@ -354,7 +354,7 @@ func (s *Server) handleSyncProviderModels(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := s.ModelSync.SyncProvider(r.Context(), conn); err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 	entries, _ := s.ModelRepo.ListByProvider(r.Context(), providerID)

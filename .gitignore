@@ -9,3 +9,5 @@ internal/web/dist/
 deploy.sh
 docker-stack.yml
 docker-entrypoint.sh
+.secrets/
+test_gemini.go

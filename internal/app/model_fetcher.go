@@ -49,6 +49,10 @@ func (f *HTTPModelFetcher) Fetch(ctx context.Context, c *domain.Connection, cfg 
 }
 
 func (f *HTTPModelFetcher) modelsURL(cfg *domain.ProviderConfig) string {
+	// Some custom OAuth providers don't have a /models endpoint.
+	if cfg.ID == "gemini-cli" || cfg.ID == "codex" {
+		return ""
+	}
 	base := strings.TrimRight(cfg.ResolvedBaseURL, "/")
 	if base == "" {
 		return ""
@@ -67,7 +71,12 @@ func (f *HTTPModelFetcher) applyAuth(req *http.Request, c *domain.Connection, cf
 	case domain.AuthNone:
 		// nothing
 	default:
-		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+		if cfg.Format == domain.FormatGemini {
+			// Native Gemini API uses x-goog-api-key or ?key=
+			req.Header.Set("x-goog-api-key", c.APIKey)
+		} else {
+			req.Header.Set("Authorization", "Bearer "+c.APIKey)
+		}
 	}
 }
 
@@ -105,6 +114,9 @@ func mapModels(in []map[string]any) []domain.ModelInfo {
 		if id == "" {
 			continue
 		}
+		// Gemini API returns 'models/gemini-1.5-pro'. Strip the prefix so
+		// it doesn't get duplicated in executor URL building.
+		id = strings.TrimPrefix(id, "models/")
 		mi := domain.ModelInfo{ID: id, Object: "model", OwnedBy: firstStr(m, "owned_by", "owner", "provider", "organization")}
 		// Extract Kind from provider metadata if available (e.g. OpenAdapter
 		// sends model_type and endpoint_format).

@@ -377,9 +377,16 @@ export default function Providers() {
                         </div>
                         <div className="max-h-[120px] overflow-y-auto pr-2 custom-scrollbar">
                           <ModelsPanel
+                            providerId={provider.id}
                             loading={loadingModels === provider.id}
                             models={modelsCache[provider.id]}
                             error={modelErrors[provider.id]}
+                            onAdd={(model) => {
+                              setModelsCache((c) => ({
+                                ...c,
+                                [provider.id]: [...(c[provider.id] || []), model]
+                              }));
+                            }}
                           />
                         </div>
                       </div>
@@ -566,18 +573,68 @@ export default function Providers() {
   );
 }
 
-function ModelsPanel({ loading, models, error }: { loading: boolean; models?: ModelEntry[]; error?: string }) {
+function ModelsPanel({ providerId, loading, models, error, onAdd }: { providerId: string; loading: boolean; models?: ModelEntry[]; error?: string; onAdd?: (model: ModelEntry) => void }) {
+  const [adding, setAdding] = useState(false);
+  const [newModel, setNewModel] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const handleAdd = async () => {
+    const val = newModel.trim();
+    if (!val) {
+      setAdding(false);
+      return;
+    }
+    setSaving(true);
+    try {
+      const created = await api.providers.addModel(providerId, { model_id: val });
+      if (onAdd) onAdd(created);
+      setNewModel("");
+      setAdding(false);
+    } catch (err: any) {
+      alert(`Erro ao adicionar modelo: ${err.message || err}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) return <div className="py-2 flex items-center gap-2 text-sm text-default-500"><Spinner size="sm" /> Sincronizando...</div>;
   if (error) return <div className="py-2 text-sm text-danger">Erro: {error}</div>;
-  if (!models || models.length === 0) return <div className="py-2 text-sm text-default-500">Nenhum model sincronizado. Clique em Sincronizar.</div>;
   
   return (
-    <div className="flex flex-wrap gap-2">
-      {models.map((m) => (
+    <div className="flex flex-wrap gap-2 items-center">
+      {models?.map((m) => (
         <Chip key={m.id} size="sm" variant="flat" color="primary" className="text-[11px] font-mono">
           {m.id}
         </Chip>
       ))}
+      {models && models.length === 0 && !adding && (
+        <span className="text-sm text-default-500 mr-2">Nenhum model sincronizado.</span>
+      )}
+      
+      {adding ? (
+        <form onSubmit={(e) => { e.preventDefault(); handleAdd(); }} className="flex items-center gap-1">
+          <Input
+            autoFocus
+            size="sm"
+            className="min-w-[120px] h-6 text-[11px] font-mono"
+            classNames={{ inputWrapper: "h-6 min-h-6" }}
+            placeholder="nome do modelo"
+            value={newModel}
+            onChange={(e) => setNewModel(e.target.value)}
+            isDisabled={saving}
+            onBlur={() => !saving && handleAdd()}
+          />
+        </form>
+      ) : (
+        <Chip
+          size="sm"
+          variant="bordered"
+          className="text-[11px] font-mono cursor-pointer border-dashed border-default-400 hover:bg-default-100 transition-colors"
+          onClick={() => setAdding(true)}
+        >
+          + adicionar
+        </Chip>
+      )}
     </div>
   );
 }
