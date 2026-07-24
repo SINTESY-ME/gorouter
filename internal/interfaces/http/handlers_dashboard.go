@@ -84,7 +84,7 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		ID:          req.ID,
 		Name:        req.Name,
 		Description: req.Description,
-		BaseURL:     app.NormalizeBaseURL(req.BaseURL),
+		BaseURL:     trimBaseURL(req.BaseURL),
 		Format:      domain.Format(req.Format),
 		Auth:        domain.AuthScheme(req.Auth),
 		LoadBalance: req.LoadBalance,
@@ -127,7 +127,11 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 
 	existing.Name = orDefault(req.Name, existing.Name)
 	existing.Description = orDefault(req.Description, existing.Description)
-	existing.BaseURL = app.NormalizeBaseURL(orDefault(req.BaseURL, existing.BaseURL))
+	newBase := trimBaseURL(orDefault(req.BaseURL, existing.BaseURL))
+	if newBase != existing.BaseURL {
+		existing.ResolvedBaseURL = "" // URL changed; will be re-resolved on next connection probe
+	}
+	existing.BaseURL = newBase
 	if req.Format != "" {
 		existing.Format = domain.Format(req.Format)
 	}
@@ -180,6 +184,31 @@ func (s *Server) handleListConnections(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, conns)
 }
 
+// probeAndResolve probes a connection against its provider config and
+// persists the resolved base URL and detected format. If the probe fails
+// and fallback is true, ResolvedBaseURL is set to BaseURL — used by OAuth
+// flows where the user has already authenticated and we don't want to
+// block them. Returns the probe error (if any) for non-fallback callers.
+func (s *Server) probeAndResolve(ctx context.Context, conn *domain.Connection, cfg *domain.ProviderConfig, fallback bool) error {
+	if s.Prober == nil || s.ProviderConfigs == nil {
+		return nil
+	}
+	result := s.Prober.Probe(ctx, conn, cfg)
+	if result.Error != nil {
+		if !fallback {
+			return result.Error
+		}
+		cfg.ResolvedBaseURL = cfg.BaseURL
+	} else {
+		cfg.Format = result.Format
+		cfg.ResolvedBaseURL = result.BaseURL
+	}
+	if err := s.ProviderConfigs.Update(ctx, cfg); err == nil && s.Router != nil {
+		s.Router.RefreshProviderCache(ctx)
+	}
+	return nil
+}
+
 func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) {
 	var req createConnectionRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -201,16 +230,9 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid provider_id: %v", err))
 			return
 		}
-		if s.Prober != nil {
-			result := s.Prober.Probe(r.Context(), c, cfg)
-			if result.Error != nil {
-				writeError(w, http.StatusBadRequest, fmt.Sprintf("connection validation failed: %v", result.Error))
-				return
-			}
-			if cfg.Format == "" || cfg.Format == domain.FormatAuto {
-				cfg.Format = result.Format
-				_ = s.ProviderConfigs.Update(r.Context(), cfg)
-			}
+		if err := s.probeAndResolve(r.Context(), c, cfg, false); err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("connection validation failed: %v", err))
+			return
 		}
 	}
 
@@ -247,15 +269,10 @@ func (s *Server) handleUpdateConnection(w http.ResponseWriter, r *http.Request) 
 
 	if s.ProviderConfigs != nil {
 		cfg, err := s.ProviderConfigs.GetByProviderID(r.Context(), existing.ProviderID)
-		if err == nil && s.Prober != nil {
-			result := s.Prober.Probe(r.Context(), existing, cfg)
-			if result.Error != nil {
-				writeError(w, http.StatusBadRequest, fmt.Sprintf("connection validation failed: %v", result.Error))
+		if err == nil {
+			if err := s.probeAndResolve(r.Context(), existing, cfg, false); err != nil {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("connection validation failed: %v", err))
 				return
-			}
-			if cfg.Format == "" || cfg.Format == domain.FormatAuto {
-				cfg.Format = result.Format
-				_ = s.ProviderConfigs.Update(r.Context(), cfg)
 			}
 		}
 	}
@@ -690,6 +707,15 @@ func orDefault(v, def string) string {
 		return def
 	}
 	return v
+}
+
+// trimBaseURL removes whitespace and trailing slashes from a base URL.
+// Unlike the old NormalizeBaseURL it does NOT strip a trailing /v1 — the
+// probe resolves the final URL (with version prefix) and stores it in
+// ResolvedBaseURL. BaseURL holds what the user typed, verbatim minus
+// trailing slashes.
+func trimBaseURL(u string) string {
+	return strings.TrimRight(strings.TrimSpace(u), "/")
 }
 
 func orDefaultInt(v, def int) int {

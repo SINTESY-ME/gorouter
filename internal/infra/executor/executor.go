@@ -43,9 +43,9 @@ func NewHTTPExecutor(timeout time.Duration) *HTTPExecutor {
 // For streaming requests the upstream timeout is applied only to the headers
 // phase (the client Timeout is left at 0 so long streams aren't killed).
 func (e *HTTPExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) (*domain.ExecuteResult, error) {
-	url := buildURL(req)
-	if url == "" {
-		return nil, fmt.Errorf("executor: empty upstream url for provider %q", req.ProviderID)
+	url, err := buildURL(req)
+	if err != nil {
+		return nil, err
 	}
 
 	body := req.Body
@@ -86,44 +86,40 @@ func (e *HTTPExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) (
 	}, nil
 }
 
-// buildURL picks the path based on the connection's declared format. Custom
-// OpenAI-compatible nodes may override the base url; we honor it verbatim
-// and append the canonical path.
-func buildURL(req domain.ExecuteRequest) string {
-	base := strings.TrimRight(req.Config.BaseURL, "/")
+// buildURL picks the path based on the connection's declared format. The
+// base URL is already resolved (includes the version prefix, e.g. /v1) by
+// the probe at connection-save time. We just append the endpoint path.
+func buildURL(req domain.ExecuteRequest) (string, error) {
+	base := strings.TrimRight(req.Config.ResolvedBaseURL, "/")
 	if base == "" {
-		return ""
-	}
-	// Strip trailing /v1 so we don't get /v1/v1/chat/completions.
-	if strings.HasSuffix(base, "/v1") && base != "/v1" {
-		base = base[:len(base)-3]
+		return "", fmt.Errorf("executor: provider %q has not been validated — add an API key to resolve the base URL", req.ProviderID)
 	}
 	switch req.Endpoint {
 	case "embeddings":
-		return base + "/v1/embeddings"
+		return base + "/embeddings", nil
 	case "images/generations":
-		return base + "/v1/images/generations"
+		return base + "/images/generations", nil
 	case "audio/speech":
-		return base + "/v1/audio/speech"
+		return base + "/audio/speech", nil
 	case "audio/transcriptions":
-		return base + "/v1/audio/transcriptions"
+		return base + "/audio/transcriptions", nil
 	}
 	switch req.Config.Format {
 	case domain.FormatAnthropic:
-		// Anthropic native: base + /v1/messages. Caller has already built
+		// Anthropic native: base + /messages. Caller has already built
 		// the body in anthropic format if needed.
-		return base + "/v1/messages"
+		return base + "/messages", nil
 	case domain.FormatGemini:
-		// Gemini: base + /v1beta/models/<model>:generateContent or
+		// Gemini: base + /models/<model>:generateContent or
 		// :streamGenerateContent?alt=sse for streaming.
 		if req.Stream {
-			return fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent?alt=sse", base, req.UpstreamModel)
+			return fmt.Sprintf("%s/models/%s:streamGenerateContent?alt=sse", base, req.UpstreamModel), nil
 		}
-		return fmt.Sprintf("%s/v1beta/models/%s:generateContent", base, req.UpstreamModel)
+		return fmt.Sprintf("%s/models/%s:generateContent", base, req.UpstreamModel), nil
 	case domain.FormatResponses:
-		return base + "/v1/responses"
+		return base + "/responses", nil
 	default:
-		return base + "/v1/chat/completions"
+		return base + "/chat/completions", nil
 	}
 }
 

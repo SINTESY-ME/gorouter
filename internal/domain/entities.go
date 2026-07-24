@@ -95,6 +95,13 @@ type ProviderConfig struct {
 	Name        string     `json:"name"`        // human-friendly display name (optional)
 	Description string     `json:"description,omitempty"`
 	BaseURL     string     `json:"base_url" gorm:"column:base_url"`
+	// ResolvedBaseURL is the base URL ready for consumption, with the
+	// version prefix (e.g. /v1) included. It is resolved once by the probe
+	// when the first connection is added, and re-resolved whenever BaseURL
+	// changes. Consumers (executor, fetcher) use this field directly — no
+	// runtime URL resolution. If empty, the provider has not been probed
+	// yet; the caller should return an error to the user.
+	ResolvedBaseURL string `json:"resolved_base_url" gorm:"column:resolved_base_url"`
 	Format      Format     `json:"format" gorm:"default:openai"`
 	Auth        AuthScheme `json:"auth" gorm:"default:bearer"`
 	// LoadBalance controls how connections are selected for this provider.

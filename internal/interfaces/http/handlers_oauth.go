@@ -153,6 +153,7 @@ func (s *Server) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 			}
 			_ = s.ProviderConfigs.Create(r.Context(), cfg)
 		}
+		s.probeAndResolve(r.Context(), conn, cfg, true)
 	}
 
 	if err := s.Providers.Create(r.Context(), conn); err != nil {
@@ -234,6 +235,7 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 					}
 					_ = s.ProviderConfigs.Create(r.Context(), cfg)
 				}
+				s.probeAndResolve(r.Context(), conn, cfg, true)
 			}
 
 			_ = s.Providers.Create(r.Context(), conn)

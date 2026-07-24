@@ -13,14 +13,17 @@ import (
 
 // ProviderProbe validates a connection by probing the upstream's models
 // endpoint. When the format is "auto", it tries the formats in order of
-// preference (responses -> openai -> anthropic -> gemini) and returns the
+// preference (openai -> responses -> anthropic -> gemini) and returns the
 // first that responds successfully.
 //
-// Probe order (most modern first):
-//  1. responses — /v1/responses (OpenAI 2025 format)
-//  2. openai    — /v1/models (most common OpenAI-compatible)
-//  3. anthropic — /v1/messages with anthropic headers
-//  4. gemini    — /v1beta/models
+// For each format the probe tries version prefixes in order:
+//   - openai/responses/anthropic: "/v1" first, then "" (no prefix)
+//   - gemini: "/v1beta"
+//
+// The first prefix that returns a non-empty model list wins. The resolved
+// base URL (base + prefix) is returned in ProbeResult and persisted by the
+// caller so that the executor and fetcher never need to resolve URLs at
+// runtime — they just concatenate the endpoint path.
 type ProviderProbe struct {
 	Client *http.Client
 }
@@ -30,46 +33,76 @@ func NewProviderProbe() *ProviderProbe {
 }
 
 // ProbeResult is the outcome of a probe: the detected format (if auto), the
-// fetched model list, and any error.
+// resolved base URL ready for consumption, the fetched model list, and any
+// error.
 type ProbeResult struct {
-	Format domain.Format
-	Models []domain.ModelInfo
-	Error  error
+	Format   domain.Format
+	BaseURL  string // resolved base URL (includes version prefix, e.g. /v1)
+	Models   []domain.ModelInfo
+	Error    error
+}
+
+// versionPrefixes returns the version path prefixes to try for a format,
+// in priority order. The first that yields a non-empty model list wins.
+func versionPrefixes(f domain.Format) []string {
+	if f == domain.FormatGemini {
+		return []string{"/v1beta"}
+	}
+	return []string{"/v1", ""}
 }
 
 // Probe validates a connection configuration against the upstream. If the
-// format is "auto", it detects the best format. The base_url is normalized
-// (trailing /v1 stripped) before probing.
+// format is "auto", it detects the best format. The resolved base URL
+// (with version prefix) is returned in the result.
 func (p *ProviderProbe) Probe(ctx context.Context, conn *domain.Connection, cfg *domain.ProviderConfig) ProbeResult {
-	cfg = normalizeConfig(cfg)
-
 	if cfg.Format != "auto" && cfg.Format != "" {
 		// Fixed format: just validate.
-		models, err := p.tryFormat(ctx, conn, cfg, cfg.Format)
-		return ProbeResult{Format: cfg.Format, Models: models, Error: err}
+		models, resolved, err := p.tryFormat(ctx, conn, cfg, cfg.Format)
+		return ProbeResult{Format: cfg.Format, BaseURL: resolved, Models: models, Error: err}
 	}
 
 	// Auto: try formats in priority order — openai first (most common and
 	// widely supported), then responses (newer OpenAI format), then the
-	// others. /v1/models is the same endpoint for both openai and responses,
-	// so openai is tried first as the safer default.
+	// others.
 	for _, f := range []domain.Format{domain.FormatOpenAI, domain.FormatResponses, domain.FormatAnthropic, domain.FormatGemini} {
 		probeCfg := *cfg
 		probeCfg.Format = f
-		models, err := p.tryFormat(ctx, conn, &probeCfg, f)
+		models, resolved, err := p.tryFormat(ctx, conn, &probeCfg, f)
 		if err == nil && len(models) > 0 {
-			return ProbeResult{Format: f, Models: models}
+			return ProbeResult{Format: f, BaseURL: resolved, Models: models}
 		}
 	}
 	return ProbeResult{Error: fmt.Errorf("could not detect provider format: all probes failed")}
 }
 
-// tryFormat probes a single format by hitting its models endpoint.
-func (p *ProviderProbe) tryFormat(ctx context.Context, conn *domain.Connection, cfg *domain.ProviderConfig, f domain.Format) ([]domain.ModelInfo, error) {
-	url := modelsURLForFormat(cfg.BaseURL, f)
-	if url == "" {
-		return nil, fmt.Errorf("empty base url")
+// tryFormat probes a single format by hitting its models endpoint with
+// each candidate version prefix. Returns the model list, the resolved base
+// URL (base + winning prefix), and any error.
+func (p *ProviderProbe) tryFormat(ctx context.Context, conn *domain.Connection, cfg *domain.ProviderConfig, f domain.Format) ([]domain.ModelInfo, string, error) {
+	base := strings.TrimRight(cfg.BaseURL, "/")
+	if base == "" {
+		return nil, "", fmt.Errorf("empty base url")
 	}
+
+	var lastErr error
+	for _, prefix := range versionPrefixes(f) {
+		url := base + prefix + "/models"
+		models, err := p.probeURL(ctx, conn, cfg, f, url)
+		if err == nil && len(models) > 0 {
+			return models, base + prefix, nil
+		}
+		if err != nil {
+			lastErr = err
+		}
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("probe %s: no models returned", f)
+	}
+	return nil, "", lastErr
+}
+
+// probeURL sends a GET to the models endpoint and parses the model list.
+func (p *ProviderProbe) probeURL(ctx context.Context, conn *domain.Connection, cfg *domain.ProviderConfig, f domain.Format, url string) ([]domain.ModelInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -90,21 +123,6 @@ func (p *ProviderProbe) tryFormat(ctx context.Context, conn *domain.Connection, 
 	return parseModelList(buf)
 }
 
-func modelsURLForFormat(baseURL string, f domain.Format) string {
-	base := strings.TrimRight(baseURL, "/")
-	if base == "" {
-		return ""
-	}
-	switch f {
-	case domain.FormatAnthropic:
-		return base + "/v1/models"
-	case domain.FormatGemini:
-		return base + "/v1beta/models"
-	default: // openai, responses
-		return base + "/v1/models"
-	}
-}
-
 func applyAuthForProbe(req *http.Request, conn *domain.Connection, cfg *domain.ProviderConfig, f domain.Format) {
 	switch cfg.Auth {
 	case domain.AuthXAPIKey:
@@ -121,24 +139,4 @@ func applyAuthForProbe(req *http.Request, conn *domain.Connection, cfg *domain.P
 			req.Header.Set("Authorization", "Bearer "+conn.APIKey)
 		}
 	}
-}
-
-// normalizeConfig returns a copy of config with a normalized BaseURL (no trailing
-// /v1, no trailing slash). The original is not modified.
-func normalizeConfig(cfg *domain.ProviderConfig) *domain.ProviderConfig {
-	c := *cfg
-	c.BaseURL = NormalizeBaseURL(c.BaseURL)
-	return &c
-}
-
-// NormalizeBaseURL strips a trailing /v1 and any trailing slashes from the
-// base URL so the executor can consistently append /v1/<endpoint>.
-func NormalizeBaseURL(u string) string {
-	u = strings.TrimSpace(u)
-	u = strings.TrimRight(u, "/")
-	// Strip trailing /v1 if present (but keep it if the URL is just "/v1").
-	if strings.HasSuffix(u, "/v1") && u != "/v1" {
-		u = u[:len(u)-3]
-	}
-	return u
 }

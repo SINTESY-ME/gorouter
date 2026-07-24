@@ -49,17 +49,14 @@ func (f *HTTPModelFetcher) Fetch(ctx context.Context, c *domain.Connection, cfg 
 }
 
 func (f *HTTPModelFetcher) modelsURL(cfg *domain.ProviderConfig) string {
-	base := strings.TrimRight(cfg.BaseURL, "/")
+	base := strings.TrimRight(cfg.ResolvedBaseURL, "/")
 	if base == "" {
 		return ""
 	}
-	if strings.HasSuffix(base, "/v1") && base != "/v1" {
-		base = base[:len(base)-3]
-	}
 	if cfg.Format == domain.FormatAnthropic {
-		return base + "/v1/messages/models"
+		return base + "/messages/models"
 	}
-	return base + "/v1/models"
+	return base + "/models"
 }
 
 func (f *HTTPModelFetcher) applyAuth(req *http.Request, c *domain.Connection, cfg *domain.ProviderConfig) {
