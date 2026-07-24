@@ -87,6 +87,7 @@ func translateGeminiToOpenAIResponseJSON(body []byte) ([]byte, error) {
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("gemini->openai response: parse: %w", err)
 	}
+	fmt.Printf("RAW GEMINI RESPONSE: %s\n", string(body))
 	var text strings.Builder
 	finishReason := "stop"
 	if len(in.Candidates) > 0 {

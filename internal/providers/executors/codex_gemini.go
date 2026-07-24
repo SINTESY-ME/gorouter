@@ -1,6 +1,7 @@
 package executors
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -117,12 +118,65 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, req domain.ExecuteReque
 	if err != nil {
 		return nil, err
 	}
+	ct := resp.Header.Get("Content-Type")
+	stream := req.Stream || strings.Contains(ct, "text/event-stream")
+
+	var body io.ReadCloser = resp.Body
+	if resp.StatusCode < 400 {
+		if stream {
+			body = unwrapCloudCodeStream(ctx, body)
+		} else {
+			buf, _ := io.ReadAll(body)
+			body.Close()
+			var wrap map[string]any
+			if json.Unmarshal(buf, &wrap) == nil {
+				if r, ok := wrap["response"]; ok {
+					buf, _ = json.Marshal(r)
+				}
+			}
+			body = io.NopCloser(bytes.NewReader(buf))
+		}
+	}
+
 	return &domain.ExecuteResult{
 		StatusCode: resp.StatusCode,
 		Headers:    resp.Header,
-		Body:       resp.Body,
-		Stream:     req.Stream || strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream"),
+		Body:       body,
+		Stream:     stream,
 	}, nil
+}
+
+func unwrapCloudCodeStream(ctx context.Context, rc io.ReadCloser) io.ReadCloser {
+	pr, pw := io.Pipe()
+	go func() {
+		defer rc.Close()
+		scanner := bufio.NewScanner(rc)
+		// Support large lines in SSE
+		buf := make([]byte, 0, 64*1024)
+		scanner.Buffer(buf, 1024*1024)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.HasPrefix(line, "data: ") {
+				dataStr := strings.TrimPrefix(line, "data: ")
+				if dataStr == "[DONE]" {
+					pw.Write([]byte(line + "\n\n"))
+					continue
+				}
+				var wrap map[string]any
+				if err := json.Unmarshal([]byte(dataStr), &wrap); err == nil {
+					if r, ok := wrap["response"]; ok {
+						if b, err := json.Marshal(r); err == nil {
+							pw.Write([]byte("data: " + string(b) + "\n\n"))
+							continue
+						}
+					}
+				}
+			}
+			pw.Write([]byte(line + "\n"))
+		}
+		pw.Close()
+	}()
+	return pr
 }
 
 func openaiToGeminiBody(openAI map[string]any) map[string]any {
