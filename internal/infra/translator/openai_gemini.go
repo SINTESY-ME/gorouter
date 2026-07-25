@@ -42,11 +42,72 @@ func translateOpenAIToGeminiRequest(upstreamModel string, body []byte) ([]byte, 
 			role = "model"
 		}
 		contents, _ := out["contents"].([]map[string]any)
-		contents = append(contents, map[string]any{
+		msg := map[string]any{
 			"role":  role,
 			"parts": []map[string]any{{"text": asStringContent(m.Content)}},
-		})
+		}
+
+		if len(m.ToolCalls) > 0 {
+			var parts []map[string]any
+			for _, tc := range m.ToolCalls {
+				var args map[string]any
+				json.Unmarshal([]byte(tc.Function.Arguments), &args)
+				if args == nil {
+					args = map[string]any{}
+				}
+				parts = append(parts, map[string]any{
+					"functionCall": map[string]any{
+						"name": tc.Function.Name,
+						"args": args,
+					},
+				})
+			}
+			msg["parts"] = parts
+		}
+
+		if m.Role == "tool" {
+			msg["role"] = "user"
+			var contentMap map[string]any
+			contentStr := asStringContent(m.Content)
+			if err := json.Unmarshal([]byte(contentStr), &contentMap); err != nil {
+				contentMap = map[string]any{"result": contentStr}
+			}
+			msg["parts"] = []map[string]any{{
+				"functionResponse": map[string]any{
+					"name": m.ToolCallID,
+					"response": map[string]any{"name": m.ToolCallID, "content": contentMap},
+				},
+			}}
+		}
+
+		contents = append(contents, msg)
 		out["contents"] = contents
+	}
+
+	if len(r.Tools) > 0 {
+		var openAITools []struct {
+			Type     string `json:"type"`
+			Function struct {
+				Name        string         `json:"name"`
+				Description string         `json:"description"`
+				Parameters  map[string]any `json:"parameters"`
+			} `json:"function"`
+		}
+		if err := json.Unmarshal(r.Tools, &openAITools); err == nil {
+			var funcs []map[string]any
+			for _, t := range openAITools {
+				if t.Type == "function" {
+					funcs = append(funcs, map[string]any{
+						"name":        t.Function.Name,
+						"description": t.Function.Description,
+						"parameters":  t.Function.Parameters,
+					})
+				}
+			}
+			if len(funcs) > 0 {
+				out["tools"] = []map[string]any{{"functionDeclarations": funcs}}
+			}
+		}
 	}
 	genCfg := map[string]any{}
 	if r.MaxTokens != nil {
@@ -72,7 +133,8 @@ func translateGeminiToOpenAIResponseJSON(body []byte) ([]byte, error) {
 		Candidates []struct {
 			Content struct {
 				Parts []struct {
-					Text string `json:"text"`
+					Text         string         `json:"text"`
+					FunctionCall map[string]any `json:"functionCall"`
 				} `json:"parts"`
 				Role string `json:"role"`
 			} `json:"content"`
@@ -90,18 +152,35 @@ func translateGeminiToOpenAIResponseJSON(body []byte) ([]byte, error) {
 	fmt.Printf("RAW GEMINI RESPONSE: %s\n", string(body))
 	var text strings.Builder
 	finishReason := "stop"
+	var toolCalls []map[string]any
 	if len(in.Candidates) > 0 {
 		c := in.Candidates[0]
 		for _, p := range c.Content.Parts {
+			if p.FunctionCall != nil {
+				argsStr, _ := json.Marshal(p.FunctionCall["args"])
+				toolCalls = append(toolCalls, map[string]any{
+					"id":   fmt.Sprintf("call_%s", p.FunctionCall["name"]),
+					"type": "function",
+					"function": map[string]any{
+						"name":      p.FunctionCall["name"],
+						"arguments": string(argsStr),
+					},
+				})
+			}
 			text.WriteString(p.Text)
 		}
 		finishReason = geminiFinishToOpenAI(c.FinishReason)
+	}
+	message := map[string]any{"role": "assistant", "content": text.String()}
+	if len(toolCalls) > 0 {
+		message["tool_calls"] = toolCalls
+		finishReason = "tool_calls"
 	}
 	out := map[string]any{
 		"object": "chat.completion",
 		"choices": []map[string]any{{
 			"index":         0,
-			"message":       map[string]any{"role": "assistant", "content": text.String()},
+			"message":       message,
 			"finish_reason": finishReason,
 		}},
 		"usage": map[string]any{
@@ -150,7 +229,8 @@ func streamGeminiToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer) er
 			Candidates []struct {
 				Content struct {
 					Parts []struct {
-						Text string `json:"text"`
+						Text         string         `json:"text"`
+						FunctionCall map[string]any `json:"functionCall"`
 					} `json:"parts"`
 					Role string `json:"role"`
 				} `json:"content"`
@@ -169,24 +249,86 @@ func streamGeminiToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer) er
 			completionTokens = ev.UsageMetadata.CandidatesTokenCount
 		}
 		if len(ev.Candidates) > 0 {
+			var text string
+			var toolCalls []map[string]any
 			for _, p := range ev.Candidates[0].Content.Parts {
-				if p.Text == "" {
-					continue
+				text += p.Text
+				if p.FunctionCall != nil {
+					argsStr, _ := json.Marshal(p.FunctionCall["args"])
+					toolCalls = append(toolCalls, map[string]any{
+						"id":   fmt.Sprintf("call_%s", p.FunctionCall["name"]),
+						"type": "function",
+						"function": map[string]any{
+							"name":      p.FunctionCall["name"],
+							"arguments": string(argsStr),
+						},
+					})
 				}
-				chunk := openAIStreamChunk(id, model, p.Text, first, nil)
-				first = false
-				if _, err := w.Write([]byte("data: " + chunk + "\n\n")); err != nil {
+			}
+			
+			if text != "" || len(toolCalls) > 0 {
+				// Convert to array of tool_calls with index
+				var sseToolCalls []map[string]any
+				for i, tc := range toolCalls {
+					tc["index"] = i
+					sseToolCalls = append(sseToolCalls, tc)
+				}
+				
+				// Need a custom chunk generator for tools
+				delta := map[string]any{}
+				if first {
+					delta["role"] = "assistant"
+					first = false
+				}
+				if text != "" {
+					delta["content"] = text
+				}
+				if len(sseToolCalls) > 0 {
+					delta["tool_calls"] = sseToolCalls
+				}
+				
+				chunkMap := map[string]any{
+					"object": "chat.completion.chunk",
+					"id":     id,
+					"model":  model,
+					"choices": []map[string]any{{
+						"index": 0,
+						"delta": delta,
+					}},
+				}
+				b, _ := json.Marshal(chunkMap)
+				if _, err := w.Write([]byte("data: " + string(b) + "\n\n")); err != nil {
 					return err
 				}
 			}
-			if ev.Candidates[0].FinishReason != "" && ev.Candidates[0].FinishReason != "FINISH_REASON_UNSPECIFIED" {
-				usage := map[string]any{
-					"prompt_tokens":     promptTokens,
-					"completion_tokens": completionTokens,
-					"total_tokens":      promptTokens + completionTokens,
+			finish := ev.Candidates[0].FinishReason
+			if finish != "" && finish != "FINISH_REASON_UNSPECIFIED" {
+				finishStr := geminiFinishToOpenAI(finish)
+				if len(toolCalls) > 0 {
+					finishStr = "tool_calls"
 				}
-				chunk := openAIStreamChunk(id, model, "", first, usage)
-				if _, err := w.Write([]byte("data: " + chunk + "\n\n")); err != nil {
+				
+				chunkMap := map[string]any{
+					"object": "chat.completion.chunk",
+					"id":     id,
+					"model":  model,
+					"choices": []map[string]any{{
+						"index":         0,
+						"delta":         map[string]any{},
+						"finish_reason": finishStr,
+					}},
+				}
+				
+				if ev.UsageMetadata != nil {
+					chunkMap["usage"] = map[string]any{
+						"prompt_tokens":     promptTokens,
+						"completion_tokens": completionTokens,
+						"total_tokens":      promptTokens + completionTokens,
+					}
+				}
+				
+				b, _ := json.Marshal(chunkMap)
+				if _, err := w.Write([]byte("data: " + string(b) + "\n\n")); err != nil {
 					return err
 				}
 			}
