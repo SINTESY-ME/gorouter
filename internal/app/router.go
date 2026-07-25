@@ -494,6 +494,7 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 			Body:         io.NopCloser(bytes.NewReader(translated)),
 			Stream:       stream,
 		}
+		slog.Info("executing upstream request", "provider", m.Provider, "model", m.Model, "payload", string(translated))
 		res, err := s.Executor.Execute(ctx, execReq)
 		if err != nil {
 			return nil, err
