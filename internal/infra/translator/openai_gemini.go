@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/jhon/gorouter/internal/domain"
 )
@@ -216,6 +217,10 @@ func streamGeminiToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer) er
 		}
 		data, done, err := readEvent(&sseReader{r: br})
 		if err != nil {
+			if err == io.EOF {
+				_, _ = w.Write([]byte("data: [DONE]\n\n"))
+				return nil
+			}
 			return err
 		}
 		if done {
@@ -226,6 +231,8 @@ func streamGeminiToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer) er
 			continue
 		}
 		var ev struct {
+			ResponseID   string `json:"responseId"`
+			ModelVersion string `json:"modelVersion"`
 			Candidates []struct {
 				Content struct {
 					Parts []struct {
@@ -243,6 +250,16 @@ func streamGeminiToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer) er
 		}
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
 			continue
+		}
+		if id == "" {
+			if ev.ResponseID != "" {
+				id = ev.ResponseID
+			} else {
+				id = fmt.Sprintf("chatcmpl-gemini-%d", time.Now().UnixNano())
+			}
+		}
+		if model == "" && ev.ModelVersion != "" {
+			model = ev.ModelVersion
 		}
 		if ev.UsageMetadata != nil {
 			promptTokens = ev.UsageMetadata.PromptTokenCount
