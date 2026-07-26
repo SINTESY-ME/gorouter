@@ -491,10 +491,12 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 // ---- Combos ----
 
 type comboDTO struct {
-	ID       string   `json:"id,omitempty"`
-	Name     string   `json:"name"`
-	Models   []string `json:"models"`
-	Strategy string   `json:"strategy"`
+	ID              string                            `json:"id,omitempty"`
+	Name            string                            `json:"name"`
+	Models          []string                          `json:"models"`
+	Strategy        string                            `json:"strategy"`
+	ModelMeta       map[string]domain.ComboModelMeta `json:"model_meta,omitempty"`
+	ClassifierModel string                            `json:"classifier_model,omitempty"`
 }
 
 func (s *Server) handleListCombos(w http.ResponseWriter, r *http.Request) {
@@ -513,9 +515,11 @@ func (s *Server) handleCreateCombo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := &domain.Combo{
-		Name:     req.Name,
-		Models:   req.Models,
-		Strategy: req.Strategy,
+		Name:            req.Name,
+		Models:          req.Models,
+		Strategy:        req.Strategy,
+		ModelMeta:       req.ModelMeta,
+		ClassifierModel: req.ClassifierModel,
 	}
 	if err := s.Combos.Create(r.Context(), c); err != nil {
 		writeError(w, statusForError(err), err.Error())
@@ -538,6 +542,8 @@ func (s *Server) handleUpdateCombo(w http.ResponseWriter, r *http.Request) {
 	}
 	existing.Name = orDefault(req.Name, existing.Name)
 	existing.Strategy = orDefault(req.Strategy, existing.Strategy)
+	existing.ClassifierModel = req.ClassifierModel
+	existing.ModelMeta = req.ModelMeta
 	if len(req.Models) > 0 {
 		existing.Models = req.Models
 	}

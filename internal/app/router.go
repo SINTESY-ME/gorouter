@@ -66,6 +66,12 @@ type RouterService struct {
 	Selector *ConnectionSelector
 	// Prober owns background health probing. Nil-safe: disables probing.
 	Prober *HealthProber
+	// TPS is the in-memory tokens-per-second cache used by the velocity
+	// strategy. Nil-safe: the strategy falls back to the configured order.
+	TPS *TPSCache
+	// Strategies resolves a combo's strategy name to a ComboStrategy. Set
+	// in NewRouterService; nil-safe (routeCombo falls back to ordered).
+	Strategies *StrategyRegistry
 }
 
 // probeCtxKey is used to mark a context as originating from a health probe
@@ -94,6 +100,7 @@ func NewRouterService(combos domain.ComboRepo, conns domain.ConnectionRepo, exec
 		Selector:    NewConnectionSelector(nil, nil),
 	}
 	s.Prober = NewHealthProber(s.Health, conns, exec, tr, s.Selector)
+	s.Strategies = NewStrategyRegistry(s)
 	return s
 }
 
@@ -256,6 +263,44 @@ func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body 
 	return nil, fmt.Errorf("%w: provider %q", domain.ErrNoConnection, m.Provider)
 }
 
+// singleCompletion is a helper used by internal features (such as the
+// intelligence strategy classifier) to issue a non-streaming chat completion
+// call in OpenAI format and return the assistant text response.
+func (s *RouterService) singleCompletion(ctx context.Context, modelStr string, messages []map[string]any, apiKey string) (string, error) {
+	reqBody, err := json.Marshal(map[string]any{
+		"model":       modelStr,
+		"messages":    messages,
+		"max_tokens":  16,
+		"temperature": 0.0,
+	})
+	if err != nil {
+		return "", err
+	}
+	res, err := s.RouteChat(ctx, reqBody, modelStr, false, apiKey, RouteOptions{InputFormat: domain.FormatOpenAI})
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	if res.StatusCode >= 400 {
+		return "", fmt.Errorf("classifier returned status %d", res.StatusCode)
+	}
+	buf, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(buf, &resp); err != nil || len(resp.Choices) == 0 {
+		return "", fmt.Errorf("classifier response unparseable: %s", string(buf))
+	}
+	return resp.Choices[0].Message.Content, nil
+}
+
 func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, body []byte, stream bool, apiKey string, opts RouteOptions, endpoint string, contentType ...string) (*RouterResponse, error) {
 	start := time.Now()
 	ct := ""
@@ -263,8 +308,14 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 		ct = contentType[0]
 	}
 	models := combo.Models
-	if combo.Strategy == "round-robin" {
-		models = s.rotatedModels(combo.Name, models)
+	if s.Strategies != nil {
+		strat := s.Strategies.For(combo.Strategy)
+		ordered, err := strat.Order(ctx, StrategyRequest{Combo: combo, Body: body, APIKey: apiKey})
+		if err != nil {
+			slog.Warn("combo strategy failed; using configured order", "combo", combo.Name, "strategy", combo.Strategy, "err", err)
+		} else if len(ordered) > 0 {
+			models = ordered
+		}
 	}
 	var lastErr error
 	var skipped []skipEntry // models where all connections are unhealthy

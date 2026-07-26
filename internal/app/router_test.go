@@ -141,6 +141,9 @@ func (r *mockUsageRepo) History(ctx context.Context, limit int) ([]domain.UsageE
 func (r *mockUsageRepo) ModelStats(ctx context.Context) (map[string]*domain.ModelStat, error) {
 	return map[string]*domain.ModelStat{}, nil
 }
+func (r *mockUsageRepo) ModelStatsByID(ctx context.Context) (map[string]*domain.ModelStat, error) {
+	return map[string]*domain.ModelStat{}, nil
+}
 
 // mockTranslator implements domain.Translator as passthrough (OpenAI->OpenAI).
 type mockTranslator struct{}
@@ -781,4 +784,109 @@ func waitForCondition(timeout time.Duration, pred func() bool) bool {
 		time.Sleep(10 * time.Millisecond)
 	}
 	return pred()
+}
+
+// mockTPSUsageRepo returns custom ModelStatsByID for TPS tests.
+type mockTPSUsageRepo struct {
+	mockUsageRepo
+	stats map[string]*domain.ModelStat
+}
+
+func (r *mockTPSUsageRepo) ModelStatsByID(ctx context.Context) (map[string]*domain.ModelStat, error) {
+	return r.stats, nil
+}
+
+func TestRouteCombo_VelocityStrategy(t *testing.T) {
+	exec := &mockExecutor{
+		status: 200,
+		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
+	}
+	// Model A (openai/gpt-4) TPS: 20, Model B (anthropic/claude-3) TPS: 80
+	usage := &mockTPSUsageRepo{
+		stats: map[string]*domain.ModelStat{
+			"openai/gpt-4":       {AvgTPS: 20.0},
+			"anthropic/claude-3": {AvgTPS: 80.0},
+		},
+	}
+	comboRepo := &mockComboRepo{
+		combos: map[string]*domain.Combo{
+			"cb1": {
+				ID:       "cb1",
+				Name:     "velcombo",
+				Models:   []string{"openai/gpt-4", "anthropic/claude-3"},
+				Strategy: "velocity",
+			},
+		},
+	}
+	srv := NewRouterService(comboRepo, twoProviderConnRepo(), exec, &mockTranslator{}, usage)
+	srv.TPS = NewTPSCache(usage, time.Minute)
+
+	body := []byte(`{"model":"velcombo","messages":[{"role":"user","content":"fast please"}]}`)
+	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	res.Body.Close()
+
+	syncCalls := calledSnapshot(exec)
+	// anthropic/claude-3 (TPS 80) should be called before openai/gpt-4 (TPS 20)
+	if len(syncCalls) == 0 || syncCalls[0] != "claude-3" {
+		t.Fatalf("expected faster model 'claude-3' first, got calls: %v", syncCalls)
+	}
+}
+
+func TestRouteCombo_IntelligenceStrategy(t *testing.T) {
+	// Mock executor that responds with "2" (simple) or "9" (complex) when classifier model is called
+	exec := &mockExecutor{
+		status: 200,
+		body:   `{"id":"1","choices":[{"message":{"content":"2"}}]}`,
+	}
+	comboRepo := &mockComboRepo{
+		combos: map[string]*domain.Combo{
+			"cb1": {
+				ID:              "cb1",
+				Name:            "intelcombo",
+				Models:          []string{"openai/gpt-4", "anthropic/claude-3"},
+				Strategy:        "intelligence",
+				ClassifierModel: "openai/gpt-4",
+				ModelMeta: map[string]domain.ComboModelMeta{
+					"openai/gpt-4":       {Weight: 9, Description: "Robust model"},
+					"anthropic/claude-3": {Weight: 3, Description: "Lightweight model"},
+				},
+			},
+		},
+	}
+	srv := NewRouterService(comboRepo, twoProviderConnRepo(), exec, &mockTranslator{}, &mockUsageRepo{})
+
+	// Test 1: Classifier rates prompt as complexity 2 -> should route to claude-3 (weight 3 >= 2)
+	body := []byte(`{"model":"intelcombo","messages":[{"role":"user","content":"hello"}]}`)
+	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	res.Body.Close()
+
+	calls := calledSnapshot(exec)
+	// The call list should include the classifier call first (gpt-4), then the actual request (claude-3)
+	if len(calls) < 2 {
+		t.Fatalf("expected classifier call + target call, got: %v", calls)
+	}
+	targetCall := calls[len(calls)-1]
+	if targetCall != "claude-3" {
+		t.Fatalf("expected simple prompt to route to lightweight model 'claude-3', got: %s", targetCall)
+	}
+
+	// Test 2: Classifier rates prompt as complexity 9 -> should route to gpt-4 (weight 9 >= 9)
+	exec.body = `{"id":"1","choices":[{"message":{"content":"9"}}]} `
+	res2, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	res2.Body.Close()
+
+	calls2 := calledSnapshot(exec)
+	targetCall2 := calls2[len(calls2)-1]
+	if targetCall2 != "gpt-4" {
+		t.Fatalf("expected complex prompt to route to robust model 'gpt-4', got: %s", targetCall2)
+	}
 }

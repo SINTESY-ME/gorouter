@@ -170,6 +170,36 @@ func (r *UsageRepo) ModelStats(ctx context.Context) (map[string]*domain.ModelSta
 	return out, nil
 }
 
+// ModelStatsByID aggregates per-model performance keyed by "provider/model".
+func (r *UsageRepo) ModelStatsByID(ctx context.Context) (map[string]*domain.ModelStat, error) {
+	var rows []struct {
+		ID           string
+		AvgTPS       float64
+		AvgLatencyMs int64
+		Requests     int
+	}
+	err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).
+		Where("status < 400 AND completion_tokens > 0 AND latency_ms > 0").
+		Select(`provider || '/' || model as id,
+			AVG(completion_tokens * 1000.0 / latency_ms) as avg_tps,
+			AVG(latency_ms) as avg_latency_ms,
+			COUNT(*) as requests`).
+		Group("provider, model").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]*domain.ModelStat, len(rows))
+	for _, row := range rows {
+		out[row.ID] = &domain.ModelStat{
+			AvgTPS:       row.AvgTPS,
+			AvgLatencyMs: row.AvgLatencyMs,
+			Requests:     row.Requests,
+		}
+	}
+	return out, nil
+}
+
 func periodStart(period string) (time.Time, error) {
 	now := time.Now().UTC()
 	switch period {

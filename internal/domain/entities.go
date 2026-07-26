@@ -189,13 +189,21 @@ type ModelPricing struct {
 // Combo is a named virtual model backed by an ordered fallback list of
 // real model ids (e.g. ["openai/gpt-4o", "anthropic/claude-3-opus"]).
 type Combo struct {
-	ID        string    `json:"id" gorm:"primaryKey"`
-	Name      string    `json:"name" gorm:"uniqueIndex"`
-	Models    []string  `json:"models" gorm:"serializer:json;type:text"`
-	Strategy  string    `json:"strategy" gorm:"default:ordered_fallback"`
-	Kind      ModelKind `json:"kind,omitempty" gorm:"default:llm"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID              string                    `json:"id" gorm:"primaryKey"`
+	Name            string                    `json:"name" gorm:"uniqueIndex"`
+	Models          []string                  `json:"models" gorm:"serializer:json;type:text"`
+	Strategy        string                    `json:"strategy" gorm:"default:ordered_fallback"`
+	ModelMeta       map[string]ComboModelMeta `json:"model_meta,omitempty" gorm:"serializer:json;type:text"`
+	ClassifierModel string                    `json:"classifier_model,omitempty" gorm:"column:classifier_model"`
+	Kind            ModelKind                 `json:"kind,omitempty" gorm:"default:llm"`
+	CreatedAt       time.Time                 `json:"created_at"`
+	UpdatedAt       time.Time                 `json:"updated_at"`
+}
+
+// ComboModelMeta holds per-member metadata for combo routing strategies.
+type ComboModelMeta struct {
+	Weight      int    `json:"weight,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // ApiKey is a client-facing key created in the dashboard. Clients send it

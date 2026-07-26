@@ -64,6 +64,10 @@ func (r *AsyncUsageRecorder) ModelStats(ctx context.Context) (map[string]*domain
 	return r.repo.ModelStats(ctx)
 }
 
+func (r *AsyncUsageRecorder) ModelStatsByID(ctx context.Context) (map[string]*domain.ModelStat, error) {
+	return r.repo.ModelStatsByID(ctx)
+}
+
 // Close drains pending entries. Call during graceful shutdown.
 func (r *AsyncUsageRecorder) Close() {
 	close(r.entries)

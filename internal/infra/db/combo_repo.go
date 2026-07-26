@@ -56,7 +56,7 @@ func (r *ComboRepo) Create(ctx context.Context, c *domain.Combo) error {
 func (r *ComboRepo) Update(ctx context.Context, c *domain.Combo) error {
 	c.UpdatedAt = time.Now()
 	res := r.db.WithContext(ctx).Model(&domain.Combo{}).Where("id = ?", c.ID).
-		Select("Name", "Models", "Strategy", "UpdatedAt").
+		Select("Name", "Models", "Strategy", "ModelMeta", "ClassifierModel", "UpdatedAt").
 		Updates(c)
 	if res.Error != nil {
 		if errors.Is(res.Error, gorm.ErrDuplicatedKey) {

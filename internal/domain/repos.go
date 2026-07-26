@@ -57,6 +57,9 @@ type UsageRepo interface {
 	History(ctx context.Context, limit int) ([]UsageEntry, error)
 	// ModelStats returns per-model aggregate stats (avg TPS, avg latency, requests).
 	ModelStats(ctx context.Context) (map[string]*ModelStat, error)
+	// ModelStatsByID is like ModelStats but keyed by the full "provider/model"
+	// identifier so callers can match combo members unambiguously.
+	ModelStatsByID(ctx context.Context) (map[string]*ModelStat, error)
 }
 
 // ModelRepo persists the model catalog (synced + manual entries).

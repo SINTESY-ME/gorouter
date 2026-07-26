@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -76,7 +77,7 @@ func (s *ComboService) Create(ctx context.Context, c *domain.Combo) error {
 	if len(c.Models) == 0 {
 		return fmtValidation("combo must have at least one model")
 	}
-	if err := normalizeStrategy(&c.Strategy); err != nil {
+	if err := s.validateCombo(c); err != nil {
 		return err
 	}
 	kind, err := s.resolveComboKind(ctx, c.Models)
@@ -88,7 +89,7 @@ func (s *ComboService) Create(ctx context.Context, c *domain.Combo) error {
 }
 
 func (s *ComboService) Update(ctx context.Context, c *domain.Combo) error {
-	if err := normalizeStrategy(&c.Strategy); err != nil {
+	if err := s.validateCombo(c); err != nil {
 		return err
 	}
 	c.UpdatedAt = time.Now()
@@ -98,6 +99,18 @@ func (s *ComboService) Update(ctx context.Context, c *domain.Combo) error {
 	}
 	c.Kind = kind
 	return s.Repo.Update(ctx, c)
+}
+
+func (s *ComboService) validateCombo(c *domain.Combo) error {
+	if err := normalizeStrategy(&c.Strategy); err != nil {
+		return err
+	}
+	if c.Strategy == StrategyIntelligence {
+		if strings.TrimSpace(c.ClassifierModel) == "" {
+			return fmtValidation("classifier_model is required when strategy is intelligence")
+		}
+	}
+	return nil
 }
 
 // resolveComboKind verifies that all models in the combo are the same Kind
@@ -134,10 +147,10 @@ func (s *ComboService) resolveComboKind(ctx context.Context, models []string) (d
 func normalizeStrategy(s *string) error {
 	switch *s {
 	case "":
-		*s = "ordered_fallback"
-	case "ordered_fallback", "round-robin":
+		*s = StrategyOrderedFallback
+	case StrategyOrderedFallback, StrategyRoundRobin, StrategyVelocity, StrategyIntelligence:
 	default:
-		return fmtValidation(fmt.Sprintf("invalid strategy %q: must be ordered_fallback or round-robin", *s))
+		return fmtValidation(fmt.Sprintf("invalid strategy %q: must be ordered_fallback, round-robin, velocity, or intelligence", *s))
 	}
 	return nil
 }
