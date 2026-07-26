@@ -155,10 +155,26 @@ func (s intelligenceStrategy) classify(ctx context.Context, combo *domain.Combo,
 	if prompt == "" {
 		return 1, nil // nothing to classify; treat as trivial
 	}
-	lo, hi := weightRange(combo.ModelMeta)
+	var modelLines []string
+	for _, mID := range combo.Models {
+		w := 5
+		desc := ""
+		if meta, ok := combo.ModelMeta[mID]; ok {
+			if meta.Weight > 0 {
+				w = meta.Weight
+			}
+			desc = meta.Description
+		}
+		line := fmt.Sprintf("- Model: %s (Weight: %d)", mID, w)
+		if desc != "" {
+			line += fmt.Sprintf(" - Description: %s", desc)
+		}
+		modelLines = append(modelLines, line)
+	}
+
 	system := fmt.Sprintf(
-		"You are a routing classifier. Rate the complexity of the user's task on a scale of 1 (trivial: greetings, basic Q&A, formatting, simple lookups) to 10 (very complex: multi-step reasoning, advanced math, coding, deep analysis, long-form synthesis). The available models have capability weights from %d to %d; calibrate your score to that range. Respond with ONLY a single integer between 1 and 10, no words, no punctuation.",
-		lo, hi)
+		"You are an intelligent LLM routing classifier. Analyze the user's prompt and rate its complexity on a scale of 1 (trivial/greetings/formatting) to 10 (highly complex/advanced coding/deep reasoning/architecture).\n\nAvailable models, capability weights, and usage guidelines:\n%s\n\nCalibrate your score to match the appropriate model weight. Respond with ONLY a single integer between 1 and 10, no words, no punctuation.",
+		strings.Join(modelLines, "\n"))
 	messages := []map[string]any{
 		{"role": "system", "content": system},
 		{"role": "user", "content": prompt},
