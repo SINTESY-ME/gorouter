@@ -149,6 +149,7 @@ func run() error {
 		return err
 	}
 	router.Selector.Catalog = catalog
+	modelSync.Catalog = catalog
 	catalogSvc := providers.NewService(
 		catalog,
 		providers.NewStore(providersDir),

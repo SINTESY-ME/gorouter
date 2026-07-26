@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/jhon/gorouter/internal/domain"
+	"github.com/jhon/gorouter/internal/providers"
 )
-
 // ModelSyncService synchronizes the model catalog by fetching /v1/models
 // from each active provider connection, enriching the results with data from
 // the ModelRegistry (external public APIs), and upserting entries into the
@@ -18,6 +18,7 @@ type ModelSyncService struct {
 	Models      domain.ModelRepo
 	Configs     domain.ProviderConfigRepo
 	Fetcher     domain.ModelFetcher
+	Catalog     *providers.Catalog
 	Registry    *ModelRegistry
 	// OnSynced is called after each provider sync completes (even on
 	// partial errors). Used to refresh in-memory caches (e.g. the pricing
@@ -57,12 +58,17 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 		return err
 	}
 	if len(fetched) == 0 {
-		// An empty list usually means a flaky provider API, not a real
-		// removal of all models. Skipping deactivation prevents mass
-		// catalog wipeouts on transient errors. The trade-off is that a
-		// genuine full removal won't be reflected until the list comes
-		// back non-empty.
-		slog.Warn("model sync: no models returned by provider, skipping deactivation to prevent mass deletion", "provider", conn.ProviderID)
+		if s.Catalog != nil {
+			if def := s.Catalog.Lookup(conn.ProviderID); def != nil && len(def.Models) > 0 {
+				fetched = make([]domain.ModelInfo, 0, len(def.Models))
+				for _, m := range def.Models {
+					fetched = append(fetched, domain.ModelInfo{ID: m.ID, Object: "model"})
+				}
+			}
+		}
+	}
+	if len(fetched) == 0 {
+		slog.Warn("model sync: no models returned by provider or catalog preset, skipping deactivation to prevent mass deletion", "provider", conn.ProviderID)
 		return nil
 	}
 

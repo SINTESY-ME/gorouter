@@ -38,15 +38,7 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, req domain.ExecuteReq
 			model = m
 		}
 	}
-	m := strings.ToLower(model)
-	switch {
-	case strings.Contains(m, "flash"):
-		model = "gemini-3-flash-agent"
-	case strings.Contains(m, "pro") || strings.Contains(m, "sonnet") || strings.Contains(m, "opus"):
-		model = "gemini-pro-agent"
-	case strings.Contains(m, "120b") || strings.Contains(m, "gpt"):
-		model = "gpt-oss-120b-medium"
-	}
+	// 1:1 Model pass-through: pass req.UpstreamModel verbatim to Cloud Code API
 	geminiReq := openAI
 	if _, has := openAI["contents"]; !has {
 		geminiReq = openaiToGeminiBody(openAI)
