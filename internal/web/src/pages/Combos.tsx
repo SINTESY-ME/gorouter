@@ -212,7 +212,14 @@ export default function Combos() {
 
             <ModelSelector
               selected={form.models}
-              onChange={(models) => setForm({ ...form, models })}
+              onChange={(models) => {
+                const defaultClassifier = form.classifier_model || models[0] || allCatalogModels[0]?.id || "";
+                setForm({
+                  ...form,
+                  models,
+                  classifier_model: form.strategy === "intelligence" && !form.classifier_model ? defaultClassifier : form.classifier_model
+                });
+              }}
             />
 
             <Select
@@ -221,7 +228,14 @@ export default function Combos() {
               selectedKeys={[form.strategy]}
               onSelectionChange={(keys) => {
                 const v = Array.from(keys)[0] as string;
-                if (v) setForm({ ...form, strategy: v });
+                if (v) {
+                  const defaultClassifier = form.classifier_model || form.models[0] || allCatalogModels[0]?.id || "";
+                  setForm({
+                    ...form,
+                    strategy: v,
+                    classifier_model: v === "intelligence" ? defaultClassifier : form.classifier_model
+                  });
+                }
               }}
             >
               <SelectItem key="ordered_fallback" description="Usa o 1º modelo da lista e cai para os seguintes em caso de falha.">

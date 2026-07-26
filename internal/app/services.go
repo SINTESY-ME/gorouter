@@ -107,7 +107,11 @@ func (s *ComboService) validateCombo(c *domain.Combo) error {
 	}
 	if c.Strategy == StrategyIntelligence {
 		if strings.TrimSpace(c.ClassifierModel) == "" {
-			return fmtValidation("classifier_model is required when strategy is intelligence")
+			if len(c.Models) > 0 {
+				c.ClassifierModel = c.Models[0]
+			} else {
+				return fmtValidation("classifier_model is required when strategy is intelligence")
+			}
 		}
 	}
 	return nil
