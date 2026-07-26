@@ -335,3 +335,49 @@ func TestOpenAIToGeminiToolCalling(t *testing.T) {
 		t.Errorf("expected functionResponse name 'get_weather', got %v", funcResp["name"])
 	}
 }
+func TestCleanGeminiParameters(t *testing.T) {
+	raw := `{
+		"model": "antigravity/gemini-3.6-flash-high",
+		"messages": [{"role": "user", "content": "hi"}],
+		"tools": [{
+			"type": "function",
+			"function": {
+				"name": "test_tool",
+				"description": "test",
+				"parameters": {
+					"$schema": "http://json-schema.org/draft-07/schema#",
+					"type": "object",
+					"properties": {
+						"val": {
+							"type": "number",
+							"exclusiveMinimum": 0
+						}
+					}
+				}
+			}
+		}]
+	}`
+	out, err := translateOpenAIToGeminiRequest("gemini-3.6-flash-high", []byte(raw))
+	if err != nil {
+		t.Fatalf("translate failed: %v", err)
+	}
+
+	var reqObj map[string]any
+	if err := json.Unmarshal(out, &reqObj); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	tools := reqObj["tools"].([]any)
+	funcDecl := tools[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)
+	params := funcDecl["parameters"].(map[string]any)
+
+	if _, hasSchema := params["$schema"]; hasSchema {
+		t.Errorf("expected $schema to be removed")
+	}
+
+	props := params["properties"].(map[string]any)
+	valProp := props["val"].(map[string]any)
+	if _, hasExc := valProp["exclusiveMinimum"]; hasExc {
+		t.Errorf("expected exclusiveMinimum to be removed")
+	}
+}

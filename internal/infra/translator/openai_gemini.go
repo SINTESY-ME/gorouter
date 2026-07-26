@@ -173,10 +173,16 @@ func translateOpenAIToGeminiRequest(upstreamModel string, body []byte) ([]byte, 
 			var funcs []map[string]any
 			for _, t := range openAITools {
 				if t.Type == "function" {
+					params := t.Function.Parameters
+					if params != nil {
+						if cleaned, ok := cleanGeminiParameters(params).(map[string]any); ok {
+							params = cleaned
+						}
+					}
 					funcs = append(funcs, map[string]any{
 						"name":        t.Function.Name,
 						"description": t.Function.Description,
-						"parameters":  t.Function.Parameters,
+						"parameters":  params,
 					})
 				}
 			}
@@ -648,4 +654,28 @@ func openAIToGeminiFinish(s string) string {
 	default:
 		return "STOP"
 	}
+}
+func cleanGeminiParameters(v any) any {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return v
+	}
+	out := make(map[string]any)
+	for k, val := range m {
+		if k == "$schema" || k == "$id" || k == "$comment" || k == "exclusiveMinimum" || k == "exclusiveMaximum" {
+			continue
+		}
+		if childMap, isMap := val.(map[string]any); isMap {
+			out[k] = cleanGeminiParameters(childMap)
+		} else if childSlice, isSlice := val.([]any); isSlice {
+			cleanedSlice := make([]any, 0, len(childSlice))
+			for _, item := range childSlice {
+				cleanedSlice = append(cleanedSlice, cleanGeminiParameters(item))
+			}
+			out[k] = cleanedSlice
+		} else {
+			out[k] = val
+		}
+	}
+	return out
 }
