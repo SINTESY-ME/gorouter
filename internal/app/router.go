@@ -499,6 +499,12 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 		if err != nil {
 			return nil, err
 		}
+		if res.StatusCode >= 400 {
+			bufErr, _ := io.ReadAll(res.Body)
+			res.Body.Close()
+			slog.Warn("upstream returned error status", "status", res.StatusCode, "provider", m.Provider, "model", m.Model, "response_body", string(bufErr), "request_payload", string(translated))
+			res.Body = io.NopCloser(bytes.NewReader(bufErr))
+		}
 		// 3) Upstream format -> OpenAI
 		openaiBody := res.Body
 		if res.Stream && targetFmt != domain.FormatOpenAI {
