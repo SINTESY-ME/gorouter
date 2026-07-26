@@ -158,7 +158,7 @@ function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (
         const models: ModelEntry[] = [];
         results.forEach((r) => {
           if (r.status === "fulfilled") {
-            r.value.forEach((m) => { if (m.is_active) models.push(m); });
+            r.value.forEach((m) => { models.push(m); });
           }
         });
         setAllModels(models);
@@ -220,29 +220,48 @@ function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (
             {fixedKind ? `Nenhum model disponível do tipo ${fixedKind}.` : "Nenhum model disponível."}
           </div>
         ) : (
-          <Autocomplete
-            label="Modelos disponíveis"
-            placeholder="Buscar model..."
-            selectedKey={null}
-            inputValue={searchValue}
-            onInputChange={setSearchValue}
-            onSelectionChange={(key) => {
-              if (key) {
-                toggleModel(key as string);
-                setSearchValue("");
-              }
-            }}
-            maxListHeight={300}
-          >
-            {available.map((m) => (
-              <AutocompleteItem key={m.id} textValue={m.id}>
-                <div className="flex items-center gap-2">
-                  <span>{m.id}</span>
-                  <Chip size="sm" variant="flat" color={KIND_COLORS[m.kind] ?? "default"}>{m.kind}</Chip>
-                </div>
-              </AutocompleteItem>
-            ))}
-          </Autocomplete>
+          <div className="space-y-2">
+            <Autocomplete
+              label="Modelos disponíveis"
+              placeholder="Buscar model (ou digite um personalizado)..."
+              selectedKey={null}
+              inputValue={searchValue}
+              onInputChange={setSearchValue}
+              onSelectionChange={(key) => {
+                if (key) {
+                  toggleModel(key as string);
+                  setSearchValue("");
+                }
+              }}
+              maxListHeight={300}
+            >
+              {available.map((m) => (
+                <AutocompleteItem key={m.id} textValue={m.id}>
+                  <div className="flex items-center justify-between w-full gap-2">
+                    <span className="font-mono text-xs">{m.id}</span>
+                    <div className="flex items-center gap-1">
+                      {!m.is_active && <Chip size="sm" variant="dot" color="warning" className="text-[10px]">inativo</Chip>}
+                      <Chip size="sm" variant="flat" color={KIND_COLORS[m.kind] ?? "default"} className="text-[10px]">{m.kind}</Chip>
+                    </div>
+                  </div>
+                </AutocompleteItem>
+              ))}
+            </Autocomplete>
+            {searchValue.trim() && !available.some((m) => m.id === searchValue.trim()) && (
+              <Button
+                size="sm"
+                variant="flat"
+                color="primary"
+                className="w-full font-mono text-xs justify-start"
+                onPress={() => {
+                  toggleModel(searchValue.trim());
+                  setSearchValue("");
+                }}
+              >
+                + Adicionar modelo personalizado: "{searchValue.trim()}"
+              </Button>
+            )}
+          </div>
         )}
       </div>
 
