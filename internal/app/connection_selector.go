@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/jhon/gorouter/internal/domain"
+	"github.com/jhon/gorouter/internal/providers"
 )
 
 // ConnectionSelector owns the provider config cache and the round-robin
@@ -14,25 +15,38 @@ import (
 // iteration and a nil-safe config lookup for the hot path.
 type ConnectionSelector struct {
 	Providers domain.ProviderConfigRepo
+	Catalog   *providers.Catalog
 	mu        sync.RWMutex
 	cache     map[string]*domain.ProviderConfig
 	rotation  uint32
 }
 
-func NewConnectionSelector(providers domain.ProviderConfigRepo) *ConnectionSelector {
-	return &ConnectionSelector{Providers: providers}
+func NewConnectionSelector(providers domain.ProviderConfigRepo, catalog *providers.Catalog) *ConnectionSelector {
+	return &ConnectionSelector{Providers: providers, Catalog: catalog}
 }
 
 // Config returns the provider config for the given provider ID, or a
-// default openai-format config if the cache is empty. Nil-safe.
+// catalog/openai-format default if the cache is empty. Nil-safe.
 func (c *ConnectionSelector) Config(providerID string) *domain.ProviderConfig {
 	c.mu.RLock()
 	cfg := c.cache[providerID]
 	c.mu.RUnlock()
-	if cfg == nil {
-		return &domain.ProviderConfig{ID: providerID, Format: domain.FormatOpenAI}
+	if cfg != nil {
+		return cfg
 	}
-	return cfg
+	if c.Catalog != nil {
+		if def := c.Catalog.Lookup(providerID); def != nil {
+			return &domain.ProviderConfig{
+				ID:              providerID,
+				Name:            def.Display.Name,
+				BaseURL:         def.Transport.BaseURL,
+				ResolvedBaseURL: def.Transport.BaseURL,
+				Format:          domain.Format(def.Transport.Format),
+				Auth:            domain.AuthScheme(def.Transport.Auth),
+			}
+		}
+	}
+	return &domain.ProviderConfig{ID: providerID, Format: domain.FormatOpenAI}
 }
 
 // StartIndex returns the starting index for iterating connections. If the

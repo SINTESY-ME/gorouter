@@ -94,7 +94,7 @@ func run() error {
 	router.Tokens = tokenRefresher
 	router.Models = modelRepo
 	router.Pricing = app.NewPricingCache(modelRepo)
-	router.Selector = app.NewConnectionSelector(providerConfigRepo)
+	router.Selector = app.NewConnectionSelector(providerConfigRepo, nil)
 	router.Prober = app.NewHealthProber(router.Health, cachedConns, exec, tr, router.Selector)
 	savings := app.NewSavingsTracker()
 	router.Savings = savings
@@ -148,6 +148,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	router.Selector.Catalog = catalog
 	catalogSvc := providers.NewService(
 		catalog,
 		providers.NewStore(providersDir),

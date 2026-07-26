@@ -91,7 +91,7 @@ func NewRouterService(combos domain.ComboRepo, conns domain.ConnectionRepo, exec
 		Usage:       usage,
 		rotation:    map[string]int{},
 		Health:      NewHealthTracker(),
-		Selector:    NewConnectionSelector(nil),
+		Selector:    NewConnectionSelector(nil, nil),
 	}
 	s.Prober = NewHealthProber(s.Health, conns, exec, tr, s.Selector)
 	return s
