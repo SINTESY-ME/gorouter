@@ -3,6 +3,7 @@ package translator
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -241,5 +242,96 @@ func TestAnthropicStreamToOpenAI(t *testing.T) {
 	}
 	if !strings.Contains(s, "prompt_tokens") {
 		t.Errorf("output should contain usage: %s", s)
+	}
+}
+func TestOpenAIToGeminiToolCalling(t *testing.T) {
+	// 1. Simulate Gemini returning functionCall + thoughtSignature
+	geminiResp := `{
+		"candidates": [{
+			"content": {
+				"parts": [{
+					"thoughtSignature": "signature_12345",
+					"functionCall": {"name": "get_weather", "args": {"location": "Tokyo"}}
+				}]
+			},
+			"finishReason": "STOP"
+		}]
+	}`
+
+	openaiResp, err := translateGeminiToOpenAIResponseJSON([]byte(geminiResp))
+	if err != nil {
+		t.Fatalf("translateGeminiToOpenAIResponseJSON failed: %v", err)
+	}
+
+	var respObj map[string]any
+	if err := json.Unmarshal(openaiResp, &respObj); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+
+	choices := respObj["choices"].([]any)
+	msg := choices[0].(map[string]any)["message"].(map[string]any)
+	toolCalls := msg["tool_calls"].([]any)
+	tc0 := toolCalls[0].(map[string]any)
+
+	callID := tc0["id"].(string)
+	if callID != "call_get_weather" {
+		t.Errorf("expected call_get_weather, got %s", callID)
+	}
+
+	// 2. Simulate OpenAI client sending tool response message in subsequent turn
+	reqBody := fmt.Sprintf(`{
+		"model": "antigravity/gemini-3.6-flash-high",
+		"messages": [
+			{"role": "user", "content": "What is the weather in Tokyo?"},
+			{
+				"role": "assistant",
+				"content": "",
+				"tool_calls": [
+					{
+						"id": %q,
+						"type": "function",
+						"function": {"name": "get_weather", "arguments": "{\"location\":\"Tokyo\"}"}
+					}
+				]
+			},
+			{
+				"role": "tool",
+				"tool_call_id": %q,
+				"content": "{\"temperature\": \"22C\"}"
+			}
+		]
+	}`, callID, callID)
+
+	geminiReq, err := translateOpenAIToGeminiRequest("gemini-3.6-flash-high", []byte(reqBody))
+	if err != nil {
+		t.Fatalf("translateOpenAIToGeminiRequest failed: %v", err)
+	}
+
+	var reqObj map[string]any
+	if err := json.Unmarshal(geminiReq, &reqObj); err != nil {
+		t.Fatalf("unmarshal request failed: %v", err)
+	}
+
+	contents := reqObj["contents"].([]any)
+	if len(contents) != 3 {
+		t.Fatalf("expected 3 content blocks, got %d", len(contents))
+	}
+
+	// Check model turn (assistant tool call)
+	modelTurn := contents[1].(map[string]any)
+	modelParts := modelTurn["parts"].([]any)
+	part0 := modelParts[0].(map[string]any)
+
+	if part0["thoughtSignature"] != "signature_12345" {
+		t.Errorf("expected thoughtSignature 'signature_12345', got %v", part0["thoughtSignature"])
+	}
+
+	// Check user turn (tool response)
+	userTurn := contents[2].(map[string]any)
+	userParts := userTurn["parts"].([]any)
+	funcResp := userParts[0].(map[string]any)["functionResponse"].(map[string]any)
+
+	if funcResp["name"] != "get_weather" {
+		t.Errorf("expected functionResponse name 'get_weather', got %v", funcResp["name"])
 	}
 }

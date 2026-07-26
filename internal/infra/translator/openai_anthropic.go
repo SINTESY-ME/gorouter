@@ -46,9 +46,11 @@ type openaiMessage struct {
 }
 
 type openaiToolCall struct {
-	ID       string          `json:"id"`
-	Type     string          `json:"type"` // "function"
-	Function openaiFunction `json:"function"`
+	ID                    string         `json:"id"`
+	Type                  string         `json:"type"` // "function"
+	Function              openaiFunction `json:"function"`
+	ThoughtSignature      string         `json:"thought_signature,omitempty"`
+	ThoughtSignatureCamel string         `json:"thoughtSignature,omitempty"`
 }
 
 type openaiFunction struct {

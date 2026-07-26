@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jhon/gorouter/internal/domain"
 )
+
+var thoughtSignatureCache sync.Map // string -> string
 
 func init() {
 	register(domain.FormatOpenAI, domain.FormatGemini, pair{
@@ -30,6 +33,46 @@ func translateOpenAIToGeminiRequest(upstreamModel string, body []byte) ([]byte, 
 	if err := json.Unmarshal(body, &r); err != nil {
 		return nil, fmt.Errorf("openai->gemini: parse: %w", err)
 	}
+
+	// 1. Pass 1: map tool_call_id -> function_name and tool_call_id -> thoughtSignature
+	toolCallIDToName := make(map[string]string)
+	toolCallIDToThought := make(map[string]string)
+
+	for _, m := range r.Messages {
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			for _, tc := range m.ToolCalls {
+				name := tc.Function.Name
+				if name != "" {
+					toolCallIDToName[tc.ID] = name
+					if strings.HasPrefix(tc.ID, "call_") {
+						toolCallIDToName[strings.TrimPrefix(tc.ID, "call_")] = name
+					}
+				}
+				ts := tc.ThoughtSignature
+				if ts == "" {
+					ts = tc.ThoughtSignatureCamel
+				}
+				if ts == "" {
+					if v, ok := thoughtSignatureCache.Load(tc.ID); ok {
+						ts, _ = v.(string)
+					}
+				}
+				if ts == "" && name != "" {
+					if v, ok := thoughtSignatureCache.Load(name); ok {
+						ts, _ = v.(string)
+					}
+				}
+				if ts != "" {
+					toolCallIDToThought[tc.ID] = ts
+					if name != "" {
+						toolCallIDToThought[name] = ts
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Pass 2: build contents
 	out := map[string]any{}
 	for _, m := range r.Messages {
 		if m.Role == "system" {
@@ -42,46 +85,78 @@ func translateOpenAIToGeminiRequest(upstreamModel string, body []byte) ([]byte, 
 		if m.Role == "assistant" {
 			role = "model"
 		}
-		contents, _ := out["contents"].([]map[string]any)
-		msg := map[string]any{
-			"role":  role,
-			"parts": []map[string]any{{"text": asStringContent(m.Content)}},
-		}
+
+		var parts []map[string]any
+		text := asStringContent(m.Content)
 
 		if len(m.ToolCalls) > 0 {
-			var parts []map[string]any
 			for _, tc := range m.ToolCalls {
 				var args map[string]any
 				json.Unmarshal([]byte(tc.Function.Arguments), &args)
 				if args == nil {
 					args = map[string]any{}
 				}
-				parts = append(parts, map[string]any{
-					"functionCall": map[string]any{
-						"name": tc.Function.Name,
-						"args": args,
-					},
-				})
-			}
-			msg["parts"] = parts
-		}
+				fc := map[string]any{
+					"name": tc.Function.Name,
+					"args": args,
+				}
+				part := map[string]any{"functionCall": fc}
 
-		if m.Role == "tool" {
-			msg["role"] = "user"
+				ts := tc.ThoughtSignature
+				if ts == "" {
+					ts = tc.ThoughtSignatureCamel
+				}
+				if ts == "" {
+					ts = toolCallIDToThought[tc.ID]
+				}
+				if ts == "" {
+					ts = toolCallIDToThought[tc.Function.Name]
+				}
+				if ts == "" {
+					if v, ok := thoughtSignatureCache.Load(tc.ID); ok {
+						ts, _ = v.(string)
+					}
+				}
+				if ts == "" && tc.Function.Name != "" {
+					if v, ok := thoughtSignatureCache.Load(tc.Function.Name); ok {
+						ts, _ = v.(string)
+					}
+				}
+				if ts != "" {
+					part["thoughtSignature"] = ts
+				}
+				parts = append(parts, part)
+			}
+		} else if m.Role == "tool" {
+			role = "user"
+			funcName := toolCallIDToName[m.ToolCallID]
+			if funcName == "" {
+				funcName = strings.TrimPrefix(m.ToolCallID, "call_")
+			}
 			var contentMap map[string]any
-			contentStr := asStringContent(m.Content)
+			contentStr := text
 			if err := json.Unmarshal([]byte(contentStr), &contentMap); err != nil {
 				contentMap = map[string]any{"result": contentStr}
 			}
-			msg["parts"] = []map[string]any{{
+			parts = append(parts, map[string]any{
 				"functionResponse": map[string]any{
-					"name": m.ToolCallID,
-					"response": map[string]any{"name": m.ToolCallID, "content": contentMap},
+					"name": funcName,
+					"response": map[string]any{"name": funcName, "content": contentMap},
 				},
-			}}
+			})
+		} else if text != "" {
+			parts = append(parts, map[string]any{"text": text})
 		}
 
-		contents = append(contents, msg)
+		if len(parts) == 0 {
+			continue
+		}
+
+		contents, _ := out["contents"].([]map[string]any)
+		contents = append(contents, map[string]any{
+			"role":  role,
+			"parts": parts,
+		})
 		out["contents"] = contents
 	}
 
@@ -134,15 +209,16 @@ func translateGeminiToOpenAIResponseJSON(body []byte) ([]byte, error) {
 		Candidates []struct {
 			Content struct {
 				Parts []struct {
-					Text         string         `json:"text"`
-					FunctionCall map[string]any `json:"functionCall"`
+					Text             string         `json:"text"`
+					ThoughtSignature string         `json:"thoughtSignature"`
+					FunctionCall     map[string]any `json:"functionCall"`
 				} `json:"parts"`
 				Role string `json:"role"`
 			} `json:"content"`
 			FinishReason string `json:"finishReason"`
 		} `json:"candidates"`
 		UsageMetadata struct {
-			PromptTokenCount      int `json:"promptTokenCount"`
+			PromptTokenCount     int `json:"promptTokenCount"`
 			CandidatesTokenCount int `json:"candidatesTokenCount"`
 			TotalTokenCount      int `json:"totalTokenCount"`
 		} `json:"usageMetadata"`
@@ -150,7 +226,6 @@ func translateGeminiToOpenAIResponseJSON(body []byte) ([]byte, error) {
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("gemini->openai response: parse: %w", err)
 	}
-	fmt.Printf("RAW GEMINI RESPONSE: %s\n", string(body))
 	var text strings.Builder
 	finishReason := "stop"
 	var toolCalls []map[string]any
@@ -159,14 +234,27 @@ func translateGeminiToOpenAIResponseJSON(body []byte) ([]byte, error) {
 		for _, p := range c.Content.Parts {
 			if p.FunctionCall != nil {
 				argsStr, _ := json.Marshal(p.FunctionCall["args"])
-				toolCalls = append(toolCalls, map[string]any{
-					"id":   fmt.Sprintf("call_%s", p.FunctionCall["name"]),
+				funcName, _ := p.FunctionCall["name"].(string)
+				callID := fmt.Sprintf("call_%s", funcName)
+				if rawID, ok := p.FunctionCall["id"].(string); ok && rawID != "" {
+					callID = rawID
+				}
+				tc := map[string]any{
+					"id":   callID,
 					"type": "function",
 					"function": map[string]any{
-						"name":      p.FunctionCall["name"],
+						"name":      funcName,
 						"arguments": string(argsStr),
 					},
-				})
+				}
+				if p.ThoughtSignature != "" {
+					tc["thought_signature"] = p.ThoughtSignature
+					thoughtSignatureCache.Store(callID, p.ThoughtSignature)
+					if funcName != "" {
+						thoughtSignatureCache.Store(funcName, p.ThoughtSignature)
+					}
+				}
+				toolCalls = append(toolCalls, tc)
 			}
 			text.WriteString(p.Text)
 		}
@@ -236,8 +324,9 @@ func streamGeminiToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer) er
 			Candidates []struct {
 				Content struct {
 					Parts []struct {
-						Text         string         `json:"text"`
-						FunctionCall map[string]any `json:"functionCall"`
+						Text             string         `json:"text"`
+						ThoughtSignature string         `json:"thoughtSignature"`
+						FunctionCall     map[string]any `json:"functionCall"`
 					} `json:"parts"`
 					Role string `json:"role"`
 				} `json:"content"`
@@ -272,14 +361,27 @@ func streamGeminiToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer) er
 				text += p.Text
 				if p.FunctionCall != nil {
 					argsStr, _ := json.Marshal(p.FunctionCall["args"])
-					toolCalls = append(toolCalls, map[string]any{
-						"id":   fmt.Sprintf("call_%s", p.FunctionCall["name"]),
+					funcName, _ := p.FunctionCall["name"].(string)
+					callID := fmt.Sprintf("call_%s", funcName)
+					if rawID, ok := p.FunctionCall["id"].(string); ok && rawID != "" {
+						callID = rawID
+					}
+					tc := map[string]any{
+						"id":   callID,
 						"type": "function",
 						"function": map[string]any{
-							"name":      p.FunctionCall["name"],
+							"name":      funcName,
 							"arguments": string(argsStr),
 						},
-					})
+					}
+					if p.ThoughtSignature != "" {
+						tc["thought_signature"] = p.ThoughtSignature
+						thoughtSignatureCache.Store(callID, p.ThoughtSignature)
+						if funcName != "" {
+							thoughtSignatureCache.Store(funcName, p.ThoughtSignature)
+						}
+					}
+					toolCalls = append(toolCalls, tc)
 				}
 			}
 			
