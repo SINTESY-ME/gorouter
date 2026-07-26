@@ -38,11 +38,14 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, req domain.ExecuteReq
 			model = m
 		}
 	}
-	switch strings.ToLower(model) {
-	case "gemini-3.6-flash", "gemini-3.6-flash-agent", "gemini-3.5-flash", "gemini-3.5-flash-agent":
+	m := strings.ToLower(model)
+	switch {
+	case strings.Contains(m, "flash"):
 		model = "gemini-3-flash-agent"
-	case "gemini-3.6-pro", "gemini-3.6-pro-agent", "gemini-3.5-pro":
+	case strings.Contains(m, "pro") || strings.Contains(m, "sonnet") || strings.Contains(m, "opus"):
 		model = "gemini-pro-agent"
+	case strings.Contains(m, "120b") || strings.Contains(m, "gpt"):
+		model = "gpt-oss-120b-medium"
 	}
 	geminiReq := openAI
 	if _, has := openAI["contents"]; !has {
