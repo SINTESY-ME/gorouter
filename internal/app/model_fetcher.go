@@ -50,7 +50,7 @@ func (f *HTTPModelFetcher) Fetch(ctx context.Context, c *domain.Connection, cfg 
 
 func (f *HTTPModelFetcher) modelsURL(cfg *domain.ProviderConfig) string {
 	// Some custom OAuth providers don't have a /models endpoint.
-	if cfg.ID == "gemini-cli" || cfg.ID == "codex" {
+	if cfg.ID == "gemini-cli" || cfg.ID == "codex" || cfg.ID == "antigravity" {
 		return ""
 	}
 	base := strings.TrimRight(cfg.ResolvedBaseURL, "/")

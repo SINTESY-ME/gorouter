@@ -122,7 +122,7 @@ func (s *Server) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 		baseURL = "https://chatgpt.com/backend-api/codex"
 		format = domain.FormatResponses
 	}
-	if providerID == "gemini-cli" {
+	if providerID == "gemini-cli" || providerID == "antigravity" {
 		baseURL = "https://cloudcode-pa.googleapis.com"
 		format = domain.FormatGemini
 	}

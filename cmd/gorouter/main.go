@@ -84,6 +84,7 @@ func run() error {
 	oauthMgr := oauth.NewManager()
 	oauthMgr.Register(&oauth.Codex{})
 	oauthMgr.Register(&oauth.GeminiCLI{})
+	oauthMgr.Register(&oauth.Antigravity{})
 	tokenRefresher := &oauth.Refresher{Manager: oauthMgr, Repo: cachedConns}
 
 	// Application services

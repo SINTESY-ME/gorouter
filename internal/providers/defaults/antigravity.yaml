@@ -1,0 +1,39 @@
+id: antigravity
+display:
+  name: Antigravity
+  color: "#F59E0B"
+  website: "https://antigravity.google"
+category: oauth
+priority: 25
+aliases: [ag]
+transport:
+  base_url: "https://cloudcode-pa.googleapis.com"
+  format: gemini
+  auth: bearer
+executor: antigravity
+capabilities: [chat]
+models:
+  - id: gemini-3-flash-agent
+    name: Gemini 3.5 Flash (High)
+  - id: gemini-3.5-flash-low
+    name: Gemini 3.5 Flash (Medium)
+  - id: gemini-3.5-flash-extra-low
+    name: Gemini 3.5 Flash (Low)
+  - id: gemini-pro-agent
+    name: Gemini 3.1 Pro (High)
+  - id: gemini-3.1-pro-low
+    name: Gemini 3.1 Pro (Low)
+  - id: claude-sonnet-4-6
+    name: Claude Sonnet 4.6 (Thinking)
+  - id: claude-opus-4-6-thinking
+    name: Claude Opus 4.6 (Thinking)
+  - id: gpt-oss-120b-medium
+    name: GPT-OSS 120B (Medium)
+  - id: gemini-3-flash
+    name: Gemini 3 Flash
+  - id: gemini-3.1-flash-image
+    name: Gemini 3.1 Flash (Image)
+  - id: gemini-3.1-pro-preview
+    name: Gemini 3.1 Pro Preview
+  - id: gemini-3-flash-preview
+    name: Gemini 3 Flash Preview
