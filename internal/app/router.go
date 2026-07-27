@@ -138,13 +138,22 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 		cacheKey := s.Cache.ComputeKey(body, modelStr, opts.InputFormat)
 		if cached, ok := s.Cache.Lookup(ctx, cacheKey); ok {
 			if s.Savings != nil {
-				var prompt, completion int
+				var prompt, completion, cacheRead, cacheCreation int
 				if cached.Stream {
-					prompt, completion, _, _ = parseUsageFromSSEFull(cached.StreamChunks)
+					prompt, completion, cacheRead, cacheCreation = parseUsageFromSSEFull(cached.StreamChunks)
 				} else {
-					prompt, completion, _, _ = parseUsageFromJSONFull(cached.Body)
+					prompt, completion, cacheRead, cacheCreation = parseUsageFromJSONFull(cached.Body)
 				}
-				s.Savings.RecordCacheHit(prompt + completion)
+				// Calculate the real cost that was avoided by serving from cache.
+				var costSaved float64
+				if s.Pricing != nil {
+					if mid, ok := domain.SplitModelID(modelStr); ok {
+						if pricing, ok := s.Pricing.Get(mid); ok {
+							costSaved = CalculateCost(pricing, "", prompt, completion, cacheRead, cacheCreation)
+						}
+					}
+				}
+				s.Savings.RecordCacheHit(prompt+completion, costSaved)
 			}
 			if cached.Stream {
 				return &RouterResponse{
@@ -693,7 +702,17 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 			before := len(translated)
 			translated = s.Compressor.Compress(translated)
 			if s.Savings != nil && len(translated) < before {
-				s.Savings.RecordRTKCompression(before - len(translated))
+				bytesSaved := before - len(translated)
+				// Estimate tokens saved (~4 bytes/token) and calculate the
+				// real input cost that was avoided, using the model's pricing.
+				var costSaved float64
+				if s.Pricing != nil {
+					if pricing, ok := s.Pricing.Get(m); ok {
+						tokensSaved := bytesSaved / 4
+						costSaved = float64(tokensSaved) * pricing.InputCostPerToken
+					}
+				}
+				s.Savings.RecordRTKCompression(bytesSaved, costSaved)
 			}
 		}
 		execReq := domain.ExecuteRequest{

@@ -87,22 +87,22 @@ export default function Dashboard() {
         <StatCard label="Custo" value={formatCost(stats.cost)} sub="acumulado" full={`$${stats.cost.toFixed(6)}`} />
       </div>
 
-      {savings && (savings.cache_hits > 0 || savings.rtk_compressions > 0) && (
+      {savings && (
         <div className="bg-content1 rounded-2xl border border-default-100 p-6">
-          <h3 className="font-semibold mb-1">Economia de tokens</h3>
-          <p className="text-xs text-default-500 mb-4">Tokens economizados por Response Cache e RTK</p>
+          <h3 className="font-semibold mb-1">Economia</h3>
+          <p className="text-xs text-default-500 mb-4">Tokens e custos economizados por Response Cache e RTK — Token Compression</p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <SavingsCard
               label="Cache hits"
               value={formatCompact(savings.cache_hits)}
-              sub="respostas do cache"
+              sub="respostas servidas do cache"
               full={savings.cache_hits.toLocaleString("en-US")}
               color="#00C2A8"
             />
             <SavingsCard
               label="Tokens poupados (cache)"
               value={formatCompact(savings.cache_tokens_saved)}
-              sub="sem chamada upstream"
+              sub={`custo poupado: ${formatCost(savings.cache_cost_saved)}`}
               full={savings.cache_tokens_saved.toLocaleString("en-US")}
               color="#00C2A8"
             />
@@ -116,17 +116,25 @@ export default function Dashboard() {
             <SavingsCard
               label="Tokens poupados (RTK)"
               value={formatCompact(savings.rtk_tokens_saved)}
-              sub="estimativa (~4 bytes/token)"
+              sub={`custo poupado: ${formatCost(savings.rtk_cost_saved)}`}
               full={savings.rtk_tokens_saved.toLocaleString("en-US")}
               color="#4DA3FF"
             />
           </div>
-          {(savings.cache_tokens_saved + savings.rtk_tokens_saved) > 0 && (
-            <div className="mt-4 flex items-center gap-2 text-sm">
-              <span className="text-default-500">Total economizado:</span>
-              <span className="text-lg font-bold text-success">
-                {formatCompact(savings.cache_tokens_saved + savings.rtk_tokens_saved)} tokens
-              </span>
+          {(savings.cache_cost_saved + savings.rtk_cost_saved) > 0 && (
+            <div className="mt-4 flex items-center gap-6 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-default-500">Tokens economizados:</span>
+                <span className="text-lg font-bold text-success">
+                  {formatCompact(savings.cache_tokens_saved + savings.rtk_tokens_saved)} tokens
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-default-500">Custo poupado:</span>
+                <span className="text-lg font-bold text-success">
+                  {formatCost(savings.cache_cost_saved + savings.rtk_cost_saved)}
+                </span>
+              </div>
             </div>
           )}
         </div>

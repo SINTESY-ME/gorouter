@@ -151,9 +151,11 @@ export interface StoreEntry {
 export interface SavingsStats {
   cache_hits: number;
   cache_tokens_saved: number;
+  cache_cost_saved: number;
   rtk_compressions: number;
   rtk_bytes_saved: number;
   rtk_tokens_saved: number;
+  rtk_cost_saved: number;
 }
 
 
