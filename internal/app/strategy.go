@@ -181,9 +181,11 @@ func (s intelligenceStrategy) classify(ctx context.Context, combo *domain.Combo,
 	}
 	text, err := s.r.singleCompletion(ctx, combo.ClassifierModel, messages, apiKey)
 	if err != nil {
+		slog.Warn("intelligence classifier model call failed", "combo", combo.Name, "classifier", combo.ClassifierModel, "err", err)
 		return 0, err
 	}
 	c := parseComplexity(text)
+	slog.Info("intelligence classifier result", "combo", combo.Name, "classifier", combo.ClassifierModel, "prompt_sample", truncate(prompt, 100), "raw_output", strings.TrimSpace(text), "parsed_complexity", c)
 	if c < 1 {
 		c = 1
 	}
@@ -250,41 +252,63 @@ func weightRange(meta map[string]domain.ComboModelMeta) (int, int) {
 	return lo, hi
 }
 
-// extractPromptText pulls the textual content out of a chat request body. It
-// is intentionally format-agnostic: it walks the "messages" array and joins
-// string contents and text content-blocks (covering both OpenAI and
-// Anthropic shapes). The result is truncated so the classifier call stays
-// cheap regardless of the original prompt size.
+// extractPromptText pulls the user's prompt out of a chat request body. It
+// prioritizes the last user message in the conversation so that system prompts
+// or previous conversation turns do not obscure the current user task.
 func extractPromptText(body []byte) string {
 	var raw map[string]any
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return truncate(string(body), maxClassifierPromptChars)
 	}
 	msgs, _ := raw["messages"].([]any)
-	parts := make([]string, 0, len(msgs))
-	for _, mi := range msgs {
-		m, _ := mi.(map[string]any)
+	if len(msgs) == 0 {
+		return ""
+	}
+
+	// 1. Prioritize the last user message in the conversation
+	for i := len(msgs) - 1; i >= 0; i-- {
+		m, _ := msgs[i].(map[string]any)
 		if m == nil {
 			continue
 		}
-		switch v := m["content"].(type) {
-		case string:
-			if v != "" {
-				parts = append(parts, v)
+		if role, ok := m["role"].(string); ok && role == "user" {
+			content := extractMessageContent(m)
+			if content != "" {
+				return truncate(content, maxClassifierPromptChars)
 			}
-		case []any:
-			for _, block := range v {
-				b, _ := block.(map[string]any)
-				if b == nil {
-					continue
-				}
+		}
+	}
+
+	// 2. Fallback: join all message contents if no user message found
+	parts := make([]string, 0, len(msgs))
+	for _, mi := range msgs {
+		m, _ := mi.(map[string]any)
+		if m != nil {
+			if c := extractMessageContent(m); c != "" {
+				parts = append(parts, c)
+			}
+		}
+	}
+	return truncate(strings.Join(parts, "\n"), maxClassifierPromptChars)
+}
+
+func extractMessageContent(m map[string]any) string {
+	switch v := m["content"].(type) {
+	case string:
+		return v
+	case []any:
+		var parts []string
+		for _, block := range v {
+			b, _ := block.(map[string]any)
+			if b != nil {
 				if t, ok := b["text"].(string); ok && t != "" {
 					parts = append(parts, t)
 				}
 			}
 		}
+		return strings.Join(parts, " ")
 	}
-	return truncate(strings.Join(parts, "\n"), maxClassifierPromptChars)
+	return ""
 }
 
 const maxClassifierPromptChars = 2000
@@ -292,10 +316,15 @@ const maxClassifierPromptChars = 2000
 var complexityRE = regexp.MustCompile(`\d+`)
 
 // parseComplexity extracts the first integer from the classifier output and
-// clamps it to 1..10. Returns 0 (→ treated as trivial) when no number is
-// found, so a garbled response still routes rather than failing.
+// clamps it to 1..10. Strips <think>...</think> reasoning blocks first.
 func parseComplexity(text string) int {
-	if m := complexityRE.FindString(strings.TrimSpace(text)); m != "" {
+	cleaned := text
+	if idx := strings.LastIndex(cleaned, "</think>"); idx != -1 {
+		cleaned = cleaned[idx+8:]
+	}
+	cleaned = strings.TrimSpace(cleaned)
+
+	if m := complexityRE.FindString(cleaned); m != "" {
 		n, err := strconv.Atoi(m)
 		if err == nil {
 			return n
