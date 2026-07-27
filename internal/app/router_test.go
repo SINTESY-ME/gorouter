@@ -182,7 +182,7 @@ func (r *mockUsageRepo) ModelStats(ctx context.Context) (map[string]*domain.Mode
 func (r *mockUsageRepo) ModelStatsByID(ctx context.Context) (map[string]*domain.ModelStat, error) {
 	return map[string]*domain.ModelStat{}, nil
 }
-func (r *mockUsageRepo) SavingsStats(ctx context.Context, period string) (*domain.SavingsAgg, error) {
+func (r *mockUsageRepo) SavingsStats(ctx context.Context, period string, apiKey string) (*domain.SavingsAgg, error) {
 	return &domain.SavingsAgg{}, nil
 }
 

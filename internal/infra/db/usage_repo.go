@@ -34,6 +34,10 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 		ByApiKey:    map[string]int{},
 		Bucket:      bucket,
 	}
+	tx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
+	if q.ApiKey != "" {
+		tx = tx.Where("api_key = ?", q.ApiKey)
+	}
 	// Totals
 	var totals struct {
 		Requests        int
@@ -41,7 +45,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 		CompletionTokens int
 		Cost            float64
 	}
-	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("timestamp >= ? AND timestamp < ?", from, to).
+	if err := tx.Where("timestamp >= ? AND timestamp < ?", from, to).
 		Select("COUNT(*) as requests, COALESCE(SUM(prompt_tokens), 0) as prompt_tokens, COALESCE(SUM(completion_tokens), 0) as completion_tokens, COALESCE(SUM(cost), 0) as cost").
 		Scan(&totals).Error; err != nil {
 		return nil, err
@@ -54,7 +58,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 	// By provider
 	type groupRow struct{ Key string; Count int }
 	var provRows []groupRow
-	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("timestamp >= ? AND timestamp < ?", from, to).
+	if err := tx.Session(&gorm.Session{}).Where("timestamp >= ? AND timestamp < ?", from, to).
 		Select("provider as key, COUNT(*) as count").Group("provider").Scan(&provRows).Error; err != nil {
 		return nil, err
 	}
@@ -64,7 +68,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 
 	// By model
 	var modelRows []groupRow
-	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("timestamp >= ? AND timestamp < ?", from, to).
+	if err := tx.Session(&gorm.Session{}).Where("timestamp >= ? AND timestamp < ?", from, to).
 		Select("model as key, COUNT(*) as count").Group("model").Scan(&modelRows).Error; err != nil {
 		return nil, err
 	}
@@ -78,7 +82,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 		Cost  float64
 	}
 	var costRows []costRow
-	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("timestamp >= ? AND timestamp < ?", from, to).
+	if err := tx.Session(&gorm.Session{}).Where("timestamp >= ? AND timestamp < ?", from, to).
 		Select("model as key, COALESCE(SUM(cost), 0) as cost").Group("model").Scan(&costRows).Error; err != nil {
 		return nil, err
 	}
@@ -88,7 +92,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 
 	// By api_key (non-empty only)
 	var keyRows []groupRow
-	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("timestamp >= ? AND timestamp < ? AND api_key != ''", from, to).
+	if err := tx.Session(&gorm.Session{}).Where("timestamp >= ? AND timestamp < ? AND api_key != ''", from, to).
 		Select("api_key as key, COUNT(*) as count").Group("api_key").Scan(&keyRows).Error; err != nil {
 		return nil, err
 	}
@@ -97,7 +101,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 	}
 
 	// Time series with dynamic bucket
-	series, err := r.timeseries(ctx, from, to, bucket)
+	series, err := r.timeseries(ctx, from, to, bucket, q.ApiKey)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +199,7 @@ func bucketExpr(bucket string, isPostgres bool) string {
 	}
 }
 
-func (r *UsageRepo) timeseries(ctx context.Context, from, to time.Time, bucket string) ([]domain.UsageDailyPoint, error) {
+func (r *UsageRepo) timeseries(ctx context.Context, from, to time.Time, bucket string, apiKey string) ([]domain.UsageDailyPoint, error) {
 	isPg := r.db.Dialector.Name() == "postgres"
 	dateExpr := bucketExpr(bucket, isPg)
 	var rows []struct {
@@ -204,8 +208,11 @@ func (r *UsageRepo) timeseries(ctx context.Context, from, to time.Time, bucket s
 		Tokens   int
 		Cost     float64
 	}
-	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).
-		Where("timestamp >= ? AND timestamp < ?", from, to).
+	tx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
+	if apiKey != "" {
+		tx = tx.Where("api_key = ?", apiKey)
+	}
+	if err := tx.Where("timestamp >= ? AND timestamp < ?", from, to).
 		Select(dateExpr + " as date, COUNT(*) as requests, COALESCE(SUM(prompt_tokens + completion_tokens), 0) as tokens, COALESCE(SUM(cost), 0) as cost").
 		Group(dateExpr).Order("date").
 		Scan(&rows).Error; err != nil {
@@ -306,7 +313,7 @@ func (r *UsageRepo) ModelStatsByID(ctx context.Context) (map[string]*domain.Mode
 // SavingsStats aggregates cache and RTK savings from usage_entries for a
 // given time range. Each type is summed independently so the dashboard can
 // show them separately.
-func (r *UsageRepo) SavingsStats(ctx context.Context, period string) (*domain.SavingsAgg, error) {
+func (r *UsageRepo) SavingsStats(ctx context.Context, period string, apiKey string) (*domain.SavingsAgg, error) {
 	since, err := periodStart(period)
 	if err != nil {
 		return nil, err
@@ -320,8 +327,11 @@ func (r *UsageRepo) SavingsStats(ctx context.Context, period string) (*domain.Sa
 		RTKTokensSaved   int64
 		RTKCostSaved     float64
 	}
-	err = r.db.WithContext(ctx).Model(&domain.UsageEntry{}).
-		Where("timestamp >= ?", since).
+	tx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
+	if apiKey != "" {
+		tx = tx.Where("api_key = ?", apiKey)
+	}
+	err = tx.Where("timestamp >= ?", since).
 		Select(`
 			COALESCE(SUM(CASE WHEN cache_hit THEN 1 ELSE 0 END), 0) as cache_hits,
 			COALESCE(SUM(cache_tokens_saved), 0) as cache_tokens_saved,

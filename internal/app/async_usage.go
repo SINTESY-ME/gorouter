@@ -68,8 +68,8 @@ func (r *AsyncUsageRecorder) ModelStatsByID(ctx context.Context) (map[string]*do
 	return r.repo.ModelStatsByID(ctx)
 }
 
-func (r *AsyncUsageRecorder) SavingsStats(ctx context.Context, period string) (*domain.SavingsAgg, error) {
-	return r.repo.SavingsStats(ctx, period)
+func (r *AsyncUsageRecorder) SavingsStats(ctx context.Context, period string, apiKey string) (*domain.SavingsAgg, error) {
+	return r.repo.SavingsStats(ctx, period, apiKey)
 }
 
 // Close drains pending entries. Call during graceful shutdown.

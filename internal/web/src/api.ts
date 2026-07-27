@@ -228,13 +228,14 @@ export const api = {
     remove: (id: string) => request<void>(`/api/keys/${id}`, { method: "DELETE" }),
   },
   usage: {
-    stats: (params: { period?: string; from?: string; to?: string; bucket?: string } | string = "24h") => {
+    stats: (params: { period?: string; from?: string; to?: string; bucket?: string; api_key_id?: string } | string = "24h") => {
       const q = typeof params === "string" ? { period: params } : params;
       const sp = new URLSearchParams();
       if (q.period) sp.set("period", q.period);
       if (q.from) sp.set("from", q.from);
       if (q.to) sp.set("to", q.to);
       if (q.bucket) sp.set("bucket", q.bucket);
+      if (q.api_key_id) sp.set("api_key_id", q.api_key_id);
       return request<UsageStats>(`/api/usage/stats?${sp.toString()}`);
     },
     history: (limit = 100) => request<UsageEntry[]>(`/api/usage/history?limit=${limit}`),
@@ -249,7 +250,7 @@ export const api = {
     flush: () => request<{ status: string }>("/api/cache/flush", { method: "POST" }),
   },
   savings: {
-    stats: (period = "60d") => request<SavingsStats>(`/api/savings?period=${period}`),
+    stats: (period = "60d", apiKeyId = "") => request<SavingsStats>(`/api/savings?period=${period}${apiKeyId ? `&api_key_id=${apiKeyId}` : ""}`),
   },
 };
 

@@ -56,6 +56,7 @@ type UsageStatsQuery struct {
 	To     time.Time // exclusive upper bound; zero = now
 	Period string    // preset: "24h", "7d", "30d", "60d", "1h" — used when From is zero
 	Bucket string    // "hour", "minute", "5m", "30m", "day"; empty = auto
+	ApiKey string    // filter by raw api key; empty = all keys
 }
 
 // UsageRepo records and aggregates request usage.
@@ -72,7 +73,7 @@ type UsageRepo interface {
 	// identifier so callers can match combo members unambiguously.
 	ModelStatsByID(ctx context.Context) (map[string]*ModelStat, error)
 	// SavingsStats returns aggregated savings (cache + RTK) for a time range.
-	SavingsStats(ctx context.Context, period string) (*SavingsAgg, error)
+	SavingsStats(ctx context.Context, period string, apiKey string) (*SavingsAgg, error)
 }
 
 // ModelRepo persists the model catalog (synced + manual entries).

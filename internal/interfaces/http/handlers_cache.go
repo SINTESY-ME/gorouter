@@ -38,8 +38,15 @@ func (s *Server) handleSavings(w http.ResponseWriter, r *http.Request) {
 	if period == "" {
 		period = "60d"
 	}
+	var apiKey string
+	if keyID := r.URL.Query().Get("api_key_id"); keyID != "" && s.Keys != nil {
+		k, err := lookupKey(s.Keys, r.Context(), keyID)
+		if err == nil {
+			apiKey = k.Key
+		}
+	}
 	if s.Usage != nil {
-		agg, err := s.Usage.Repo.SavingsStats(r.Context(), period)
+		agg, err := s.Usage.Repo.SavingsStats(r.Context(), period, apiKey)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

@@ -429,6 +429,7 @@ func (s *Server) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.IsActive != nil {
 		existing.IsActive = *req.IsActive
+		existing.Source = "manual"
 	}
 	if req.Kind != "" {
 		existing.Kind = domain.ModelKind(req.Kind)
@@ -658,6 +659,14 @@ func (s *Server) handleUsageStats(w http.ResponseWriter, r *http.Request) {
 	if toStr := r.URL.Query().Get("to"); toStr != "" {
 		if t, err := time.Parse(time.RFC3339, toStr); err == nil {
 			q.To = t
+		}
+	}
+	// Filter by api key: the frontend passes the key ID, we resolve it
+	// to the raw key string that's stored in usage_entries.
+	if keyID := r.URL.Query().Get("api_key_id"); keyID != "" && s.Keys != nil {
+		k, err := lookupKey(s.Keys, r.Context(), keyID)
+		if err == nil {
+			q.ApiKey = k.Key
 		}
 	}
 	stats, err := s.Usage.Stats(r.Context(), q)

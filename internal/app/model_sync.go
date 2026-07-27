@@ -104,6 +104,10 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 		// Resolve pricing: preserve manual overrides; otherwise ask the
 		// registry; if neither has data, keep the existing DB pricing.
 		if prev, ok := existing[entry.ID]; ok {
+			if prev.Source == "manual" {
+				entry.Source = "manual"
+				entry.IsActive = prev.IsActive
+			}
 			if prev.Pricing.Source == "manual" {
 				entry.Pricing = prev.Pricing
 			} else if s.Registry != nil {

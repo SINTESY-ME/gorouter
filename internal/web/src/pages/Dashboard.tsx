@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Spinner, Select, SelectItem, Popover, PopoverTrigger, PopoverContent, Input, Button } from "@heroui/react";
+import { Spinner, Select, SelectItem, Popover, PopoverTrigger, PopoverContent, Input, Button, Autocomplete, AutocompleteItem } from "@heroui/react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
   BarChart, Bar, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { api, type UsageStats, type SavingsStats } from "../api";
+import { api, type UsageStats, type SavingsStats, type ApiKey } from "../api";
 import { formatCompact, formatCost } from "../format";
 
 const PIE_COLORS = ["#00C2A8", "#FF6B6B", "#4DA3FF", "#FFB347", "#B266FF", "#FFD93D", "#6BCB77"];
@@ -62,10 +62,16 @@ export default function Dashboard() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [loading, setLoading] = useState(true);
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+  const [selectedKeyId, setSelectedKeyId] = useState<string>("");
+
+  useEffect(() => {
+    api.keys.list().then(setApiKeys).catch(() => {});
+  }, []);
 
   useEffect(() => {
     setLoading(true);
-    const params: { period?: string; from?: string; to?: string; bucket?: string } = {};
+    const params: { period?: string; from?: string; to?: string; bucket?: string; api_key_id?: string } = {};
     if (customMode && fromDate) {
       params.from = new Date(fromDate).toISOString();
       if (toDate) params.to = new Date(toDate).toISOString();
@@ -74,14 +80,15 @@ export default function Dashboard() {
       params.period = period;
       if (bucket) params.bucket = bucket;
     }
+    if (selectedKeyId) params.api_key_id = selectedKeyId;
     Promise.all([
       api.usage.stats(params),
-      api.savings.stats(customMode && fromDate ? "60d" : period).catch(() => null),
+      api.savings.stats(customMode && fromDate ? "60d" : period, selectedKeyId).catch(() => null),
     ])
       .then(([s, sv]) => { setStats(s); setSavings(sv); })
       .catch(() => setStats(null))
       .finally(() => setLoading(false));
-  }, [period, bucket, customMode, fromDate, toDate]);
+  }, [period, bucket, customMode, fromDate, toDate, selectedKeyId]);
 
   if (loading) return (
     <div className="flex justify-center py-20"><Spinner label="Carregando..." /></div>
@@ -178,6 +185,21 @@ export default function Dashboard() {
               <SelectItem key={b.key}>{b.label}</SelectItem>
             ))}
           </Select>
+          {/* Token filter */}
+          {apiKeys.length > 0 && (
+            <Select
+              aria-label="Token"
+              selectedKeys={selectedKeyId ? [selectedKeyId] : []}
+              onChange={(e) => setSelectedKeyId(e.target.value)}
+              size="sm"
+              className="w-44"
+              placeholder="Todos os tokens"
+            >
+              {apiKeys.map((k) => (
+                <SelectItem key={k.id}>{k.name}</SelectItem>
+              ))}
+            </Select>
+          )}
         </div>
       </div>
 
