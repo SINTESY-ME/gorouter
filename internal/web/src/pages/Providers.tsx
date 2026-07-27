@@ -3,6 +3,7 @@ import {
   Table, TableHeader, TableColumn, TableBody, TableRow, TableCell,
   Button, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter,
   Input, Select, SelectItem, Chip, useDisclosure, Spinner,
+  Popover, PopoverTrigger, PopoverContent,
 } from "@heroui/react";
 import { api, type Provider, type Connection, type ModelEntry, type ProviderDef } from "../api";
 
@@ -346,49 +347,57 @@ export default function Providers() {
                 {/* Expanded Content */}
                 {isExpanded && (
                   <div className="p-4 bg-content1">
-                    <div className="flex flex-col lg:flex-row gap-6 mb-6">
-                      
-                      {/* Left side: Load Balance */}
-                      <div className="flex-1 bg-content2 p-4 rounded-xl border border-default-100">
-                        <div className="text-sm font-semibold mb-3">Balanceamento de Carga</div>
-                        <Select
-                          selectedKeys={[provider.load_balance || "failover"]}
-                          onChange={(e) => updateLoadBalance(provider.id, e.target.value)}
-                          size="sm"
-                          isDisabled={savingConfig === provider.id}
-                        >
-                          <SelectItem key="failover">Failover (prioriza a primeira chave ativa)</SelectItem>
-                          <SelectItem key="round-robin">Round-robin (distribui entre as chaves)</SelectItem>
-                        </Select>
-                        <p className="text-[11px] text-default-500 mt-2 leading-relaxed">
-                          {provider.load_balance === "round-robin" 
-                            ? "Requisições são distribuídas rotativamente entre todas as chaves ativas." 
-                            : "Usa sempre a primeira chave ativa da lista; cai para a próxima apenas em falha."}
-                        </p>
+                    {/* Load Balance — inline in header area, compact */}
+                    <div className="flex items-center gap-3 mb-4 pb-3 border-b border-default-100">
+                      <span className="text-sm font-medium shrink-0">Balanceamento:</span>
+                      <Select
+                        selectedKeys={[provider.load_balance || "failover"]}
+                        onChange={(e) => updateLoadBalance(provider.id, e.target.value)}
+                        size="sm"
+                        className="max-w-[260px]"
+                        isDisabled={savingConfig === provider.id}
+                      >
+                        <SelectItem key="failover">Failover (prioriza 1ª chave ativa)</SelectItem>
+                        <SelectItem key="round-robin">Round-robin (distribui entre chaves)</SelectItem>
+                      </Select>
+                      {savingConfig === provider.id && <Spinner size="sm" />}
+                    </div>
+
+                    {/* Models */}
+                    <div className="mb-4">
+                      <div className="flex justify-between items-center mb-2">
+                        <div className="text-sm font-semibold">Modelos do Provider</div>
+                        <Button size="sm" variant="flat" color="primary" onPress={() => syncProviderModels(provider.id)} isLoading={loadingModels === provider.id}>
+                          Sincronizar
+                        </Button>
                       </div>
-                      
-                      {/* Right side: Models */}
-                      <div className="flex-[2] bg-content2 p-4 rounded-xl border border-default-100">
-                        <div className="flex justify-between items-center mb-3">
-                          <div className="text-sm font-semibold">Modelos do Provider</div>
-                          <Button size="sm" variant="flat" color="primary" onPress={() => syncProviderModels(provider.id)} isLoading={loadingModels === provider.id}>
-                            Sincronizar
-                          </Button>
-                        </div>
-                        <div className="max-h-[120px] overflow-y-auto pr-2 custom-scrollbar">
-                          <ModelsPanel
-                            providerId={provider.id}
-                            loading={loadingModels === provider.id}
-                            models={modelsCache[provider.id]}
-                            error={modelErrors[provider.id]}
-                            onAdd={(model) => {
-                              setModelsCache((c) => ({
-                                ...c,
-                                [provider.id]: [...(c[provider.id] || []), model]
-                              }));
-                            }}
-                          />
-                        </div>
+                      <div className="max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
+                        <ModelsPanel
+                          providerId={provider.id}
+                          loading={loadingModels === provider.id}
+                          models={modelsCache[provider.id]}
+                          error={modelErrors[provider.id]}
+                          onAdd={(model) => {
+                            setModelsCache((c) => ({
+                              ...c,
+                              [provider.id]: [...(c[provider.id] || []), model]
+                            }));
+                          }}
+                          onRemove={(modelId) => {
+                            setModelsCache((c) => ({
+                              ...c,
+                              [provider.id]: (c[provider.id] || []).filter(m => m.id !== modelId)
+                            }));
+                          }}
+                          onToggle={(modelId, active) => {
+                            setModelsCache((c) => ({
+                              ...c,
+                              [provider.id]: (c[provider.id] || []).map(m =>
+                                m.id === modelId ? { ...m, is_active: active } : m
+                              )
+                            }));
+                          }}
+                        />
                       </div>
                     </div>
 
@@ -573,7 +582,15 @@ export default function Providers() {
   );
 }
 
-function ModelsPanel({ providerId, loading, models, error, onAdd }: { providerId: string; loading: boolean; models?: ModelEntry[]; error?: string; onAdd?: (model: ModelEntry) => void }) {
+function ModelsPanel({ providerId, loading, models, error, onAdd, onRemove, onToggle }: {
+  providerId: string;
+  loading: boolean;
+  models?: ModelEntry[];
+  error?: string;
+  onAdd?: (model: ModelEntry) => void;
+  onRemove?: (modelId: string) => void;
+  onToggle?: (modelId: string, active: boolean) => void;
+}) {
   const [adding, setAdding] = useState(false);
   const [newModel, setNewModel] = useState("");
   const [saving, setSaving] = useState(false);
@@ -597,20 +614,32 @@ function ModelsPanel({ providerId, loading, models, error, onAdd }: { providerId
     }
   };
 
+  const handleToggle = async (m: ModelEntry) => {
+    try {
+      await api.models.update(m.id, { is_active: !m.is_active });
+      if (onToggle) onToggle(m.id, !m.is_active);
+    } catch (err: any) {
+      alert(`Erro: ${err.message || err}`);
+    }
+  };
+
+  const handleRemove = async (m: ModelEntry) => {
+    if (confirm(`Remover o modelo "${m.id}"?`)) {
+      try {
+        await api.models.remove(m.id);
+        if (onRemove) onRemove(m.id);
+      } catch (err: any) {
+        alert(`Erro: ${err.message || err}`);
+      }
+    }
+  };
+
   if (loading) return <div className="py-2 flex items-center gap-2 text-sm text-default-500"><Spinner size="sm" /> Sincronizando...</div>;
   if (error) return <div className="py-2 text-sm text-danger">Erro: {error}</div>;
-  
+
   return (
     <div className="flex flex-wrap gap-2 items-center">
-      {models?.map((m) => (
-        <Chip key={m.id} size="sm" variant="flat" color="primary" className="text-[11px] font-mono">
-          {m.id}
-        </Chip>
-      ))}
-      {models && models.length === 0 && !adding && (
-        <span className="text-sm text-default-500 mr-2">Nenhum model sincronizado.</span>
-      )}
-      
+      {/* Add button — first position */}
       {adding ? (
         <form onSubmit={(e) => { e.preventDefault(); handleAdd(); }} className="flex items-center gap-1">
           <Input
@@ -629,11 +658,55 @@ function ModelsPanel({ providerId, loading, models, error, onAdd }: { providerId
         <Chip
           size="sm"
           variant="bordered"
-          className="text-[11px] font-mono cursor-pointer border-dashed border-default-400 hover:bg-default-100 transition-colors"
+          className="text-[11px] font-mono cursor-pointer border-dashed border-primary hover:bg-primary/10 transition-colors text-primary"
           onClick={() => setAdding(true)}
+          startContent={<span className="text-primary font-bold">+</span>}
         >
-          + adicionar
+          adicionar
         </Chip>
+      )}
+
+      {models?.map((m) => (
+        <Popover key={m.id} placement="bottom">
+          <PopoverTrigger>
+            <Chip
+              size="sm"
+              variant="flat"
+              color={m.is_active ? "primary" : "default"}
+              className="text-[11px] font-mono cursor-pointer hover:opacity-80 transition-opacity"
+            >
+              {m.is_active ? "" : <span className="text-default-400 mr-0.5">○</span>}
+              {m.model_id || m.id}
+            </Chip>
+          </PopoverTrigger>
+          <PopoverContent className="p-1">
+            <div className="flex flex-col gap-1 min-w-[140px]">
+              <div className="text-[11px] font-mono text-default-400 px-2 pt-1 pb-1 break-all">{m.id}</div>
+              <Button
+                size="sm"
+                variant="light"
+                onPress={() => handleToggle(m)}
+                className="justify-start"
+                startContent={m.is_active ? <IconEyeOff /> : <IconEye />}
+              >
+                {m.is_active ? "Inativar" : "Ativar"}
+              </Button>
+              <Button
+                size="sm"
+                variant="light"
+                color="danger"
+                onPress={() => handleRemove(m)}
+                className="justify-start"
+                startContent={<IconTrash />}
+              >
+                Remover
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
+      ))}
+      {models && models.length === 0 && !adding && (
+        <span className="text-sm text-default-500">Nenhum modelo sincronizado.</span>
       )}
     </div>
   );
@@ -653,3 +726,5 @@ function IconChevron({ expanded }: { expanded: boolean }) {
     </svg>
   );
 }
+function IconEye() { return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>; }
+function IconEyeOff() { return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/></svg>; }

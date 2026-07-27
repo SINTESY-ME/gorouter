@@ -13,6 +13,7 @@ export default function Keys() {
   const [name, setName] = useState("");
   const [rpm, setRpm] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
+  const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [endpoint, setEndpoint] = useState("/v1");
   const [endpointCopied, setEndpointCopied] = useState(false);
@@ -49,6 +50,14 @@ export default function Keys() {
     const n = value ? parseInt(value) : 0;
     await api.keys.update(k.id, { rate_limit_rpm: n });
     load();
+  };
+
+  const copyKey = async (k: ApiKey) => {
+    try {
+      await navigator.clipboard.writeText(k.key);
+      setCopiedKeyId(k.id);
+      setTimeout(() => setCopiedKeyId(null), 1500);
+    } catch {}
   };
 
   const copyEndpoint = async () => {
@@ -114,7 +123,16 @@ export default function Keys() {
               {(k) => (
                 <TableRow key={k.id}>
                   <TableCell><span className="font-medium">{k.name}</span></TableCell>
-                  <TableCell><code className="text-xs text-default-500">{k.key.slice(0, 10)}…{k.key.slice(-6)}</code></TableCell>
+                  <TableCell>
+                    <div
+                      className="inline-flex items-center gap-1.5 cursor-pointer hover:bg-default-100 rounded-lg px-2 py-1 transition-colors group"
+                      onClick={() => copyKey(k)}
+                      title="Clique para copiar"
+                    >
+                      <code className="text-xs text-default-500 group-hover:text-primary transition-colors">{k.key.slice(0, 10)}…{k.key.slice(-6)}</code>
+                      {copiedKeyId === k.id ? <IconCheck className="text-success shrink-0" /> : <IconCopy className="w-3 h-3 text-default-300 shrink-0 group-hover:text-primary transition-colors" />}
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <Input
                       size="sm"
