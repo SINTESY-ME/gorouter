@@ -179,8 +179,27 @@ func (s *Server) Routes() http.Handler {
 func (s *Server) requireApiKey(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := extractApiKey(r)
+		// Fallback: a valid dashboard token is accepted as an alternative
+		// auth method. This lets the Playground (and dashboard-triggered
+		// tests on localhost) hit /v1 without requiring the user to first
+		// create an API key. Requests are still attributed to the
+		// dashboard session via fromDashboardKey below.
+		if key == "" && s.Auth != nil {
+			tok := bearerToken(r)
+			if ok, _ := s.Auth.ValidateToken(r.Context(), tok); ok && tok != "" {
+				key = dashboardInternalKey
+				r = r.WithContext(context.WithValue(r.Context(), apiKeyCtxKey{}, key))
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
 		if key == "" {
 			writeError(w, http.StatusUnauthorized, "missing api key")
+			return
+		}
+		if key == dashboardInternalKey {
+			// already injected above, short-circuit
+			next.ServeHTTP(w, r)
 			return
 		}
 		apiKey, err := s.Keys.Repo.GetByKey(r.Context(), key)
@@ -201,6 +220,11 @@ func (s *Server) requireApiKey(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
+
+// dashboardInternalKey is a sentinel value stored in apiKeyCtxKey when the
+// request was authenticated via the dashboard token instead of an API key.
+// Used to distinguish "no key" from "dashboard-authenticated".
+const dashboardInternalKey = "__dashboard__"
 
 type apiKeyCtxKey struct{}
 
