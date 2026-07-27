@@ -73,10 +73,47 @@ func (s *Server) handleChatWithFormat(inputFormat domain.Format) http.HandlerFun
 			sseStreamResponse(w, r, res)
 			return
 		}
+		// On error, ensure the body is a valid OpenAI JSON error envelope.
+		// Some upstreams (e.g. Ollama) return HTML or plain text on 4xx,
+		// which breaks clients that expect JSON.
+		if res.StatusCode >= 400 {
+			writeUpstreamError(w, r, res)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(res.StatusCode)
 		_, _ = io.Copy(w, res.Body)
 	}
+}
+
+// writeUpstreamError rewrites an upstream error response as a valid OpenAI
+// JSON error envelope. The original upstream body is included as the
+// `message` so operators can debug what the upstream actually returned.
+func writeUpstreamError(w http.ResponseWriter, r *http.Request, res *app.RouterResponse) {
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	msg := string(body)
+	if len(msg) > 2000 {
+		msg = msg[:2000] + "..."
+	}
+	// Best-effort: if upstream already returned JSON, keep its `error.message`.
+	var parsed struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &parsed) == nil && parsed.Error.Message != "" {
+		msg = parsed.Error.Message
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(res.StatusCode)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"error": map[string]any{
+			"message": msg,
+			"type":    "upstream_error",
+			"code":    res.StatusCode,
+		},
+	})
 }
 
 // parseChatRequest extracts the "model" and "stream" fields from an OpenAI

@@ -25,7 +25,8 @@ var (
 // Rules (intentionally simple, mirrors 9router's errorConfig at a high level):
 //   - 5xx and 429 -> fallback (transient upstream/rate limit)
 //   - 408, network errors -> fallback (timeout / unreachable)
-//   - 401, 403 -> fallback (try another account; refresh handled elsewhere)
+//   - 401, 403, 402 -> fallback (try another account; 402 means this
+//     account/key is out of credit, the next connection may still work)
 //   - 400, 404, 422 -> do not fallback (client error, will fail everywhere)
 func ShouldFallback(status int, err error) bool {
 	if err != nil {
@@ -40,6 +41,8 @@ func ShouldFallback(status int, err error) bool {
 		return true
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
 		return true // try next account
+	case status == http.StatusPaymentRequired:
+		return true // try next account (402 = out of credit on this key)
 	default:
 		return false
 	}
