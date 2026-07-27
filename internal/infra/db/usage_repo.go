@@ -32,21 +32,40 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 		ByModel:     map[string]int{},
 		ByModelCost: map[string]float64{},
 		ByApiKey:    map[string]int{},
+		ByCombo:     map[string]int{},
+		ByEndpoint:  map[string]int{},
 		Bucket:      bucket,
 	}
 	tx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
 	if q.ApiKey != "" {
 		tx = tx.Where("api_key = ?", q.ApiKey)
 	}
-	// Totals
+	// Totals + success/error split
 	var totals struct {
-		Requests        int
-		PromptTokens    int
+		Requests         int
+		PromptTokens     int
 		CompletionTokens int
-		Cost            float64
+		Cost             float64
+		Successful       int
+		Errors           int
+		CacheHits        int
+		ComboReqs        int
+		CostSaved        float64
+		TokensSaved      int64
 	}
 	if err := tx.Where("timestamp >= ? AND timestamp < ?", from, to).
-		Select("COUNT(*) as requests, COALESCE(SUM(prompt_tokens), 0) as prompt_tokens, COALESCE(SUM(completion_tokens), 0) as completion_tokens, COALESCE(SUM(cost), 0) as cost").
+		Select(`
+			COUNT(*) as requests,
+			COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+			COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+			COALESCE(SUM(cost), 0) as cost,
+			COALESCE(SUM(CASE WHEN status < 400 THEN 1 ELSE 0 END), 0) as successful,
+			COALESCE(SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END), 0) as errors,
+			COALESCE(SUM(CASE WHEN cache_hit THEN 1 ELSE 0 END), 0) as cache_hits,
+			COALESCE(SUM(CASE WHEN combo_name != '' THEN 1 ELSE 0 END), 0) as combo_reqs,
+			COALESCE(SUM(cache_cost_saved + rtk_cost_saved), 0) as cost_saved,
+			COALESCE(SUM(cache_tokens_saved + rtk_tokens_saved), 0) as tokens_saved
+		`).
 		Scan(&totals).Error; err != nil {
 		return nil, err
 	}
@@ -54,6 +73,80 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 	s.PromptTokens = totals.PromptTokens
 	s.CompletionTokens = totals.CompletionTokens
 	s.Cost = totals.Cost
+	s.SuccessfulRequests = totals.Successful
+	s.ErrorRequests = totals.Errors
+	s.ComboRequests = totals.ComboReqs
+	s.CacheHits = int64(totals.CacheHits)
+	s.CostSaved = totals.CostSaved
+	s.TokensSaved = totals.TokensSaved
+	if s.Requests > 0 {
+		s.ErrorRate = float64(s.ErrorRequests) / float64(s.Requests)
+		s.CacheHitRate = float64(s.CacheHits) / float64(s.Requests)
+		s.CostPerRequest = s.Cost / float64(s.Requests)
+		totalTokens := s.PromptTokens + s.CompletionTokens
+		if totalTokens > 0 && s.Cost > 0 {
+			s.TokensPerDollar = float64(totalTokens) / (s.Cost * 1000)
+		}
+	}
+
+	// Performance averages — only over successful requests with valid timings
+	var perf struct {
+		AvgTTFTMs    int64
+		AvgLatencyMs int64
+		AvgTPS       float64
+		P50LatencyMs int64
+		P95LatencyMs int64
+		P99LatencyMs int64
+	}
+	if err := tx.Session(&gorm.Session{}).Where("timestamp >= ? AND timestamp < ? AND status < 400", from, to).
+		Select(`
+			COALESCE(AVG(ttft_ms), 0) as avg_ttft_ms,
+			COALESCE(AVG(latency_ms), 0) as avg_latency_ms,
+			COALESCE(AVG(CASE WHEN ttft_ms > 0 AND latency_ms > ttft_ms
+				THEN completion_tokens * 1000.0 / (latency_ms - ttft_ms)
+				WHEN latency_ms > 0 AND completion_tokens > 0
+				THEN completion_tokens * 1000.0 / latency_ms
+				ELSE 0 END), 0) as avg_tps
+		`).
+		Scan(&perf).Error; err != nil {
+		return nil, err
+	}
+	s.AvgTTFTMs = perf.AvgTTFTMs
+	s.AvgLatencyMs = perf.AvgLatencyMs
+	s.AvgTPS = perf.AvgTPS
+	// Percentiles — Postgres uses percentile_cont, SQLite uses a manual
+	// approximation (avg of 95th/99th value ordered + offset). Both run in
+	// separate queries because the percentile aggregate syntaxes differ.
+	if r.db.Dialector.Name() == "postgres" {
+		var pct struct {
+			P50, P95, P99 float64
+		}
+		if err := tx.Session(&gorm.Session{}).Where("timestamp >= ? AND timestamp < ? AND status < 400 AND latency_ms > 0", from, to).
+			Raw(`SELECT
+				percentile_cont(0.50) WITHIN GROUP (ORDER BY latency_ms) AS p50,
+				percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95,
+				percentile_cont(0.99) WITHIN GROUP (ORDER BY latency_ms) AS p99
+				FROM usage_entries WHERE timestamp >= ? AND timestamp < ? AND status < 400 AND latency_ms > 0`, from, to).
+			Scan(&pct).Error; err != nil {
+			return nil, err
+		}
+		s.P50LatencyMs = int64(pct.P50)
+		s.P95LatencyMs = int64(pct.P95)
+		s.P99LatencyMs = int64(pct.P99)
+	} else {
+		// SQLite: compute percentiles in Go from a sample of latencies.
+		// Pull a bounded sample (5000 rows) to keep this fast.
+		var samples []int64
+		if err := tx.Session(&gorm.Session{}).Where("timestamp >= ? AND timestamp < ? AND status < 400 AND latency_ms > 0", from, to).
+			Order("latency_ms").
+			Limit(5000).
+			Pluck("latency_ms", &samples).Error; err != nil {
+			return nil, err
+		}
+		s.P50LatencyMs = percentile(samples, 0.50)
+		s.P95LatencyMs = percentile(samples, 0.95)
+		s.P99LatencyMs = percentile(samples, 0.99)
+	}
 
 	// By provider
 	type groupRow struct{ Key string; Count int }
@@ -78,8 +171,8 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 
 	// By model cost
 	type costRow struct {
-		Key   string
-		Cost  float64
+		Key  string
+		Cost float64
 	}
 	var costRows []costRow
 	if err := tx.Session(&gorm.Session{}).Where("timestamp >= ? AND timestamp < ?", from, to).
@@ -100,13 +193,49 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 		s.ByApiKey[row.Key] = row.Count
 	}
 
-	// Time series with dynamic bucket
+	// By combo_name (non-empty only)
+	var comboRows []groupRow
+	if err := tx.Session(&gorm.Session{}).Where("timestamp >= ? AND timestamp < ? AND combo_name != ''", from, to).
+		Select("combo_name as key, COUNT(*) as count").Group("combo_name").Scan(&comboRows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range comboRows {
+		s.ByCombo[row.Key] = row.Count
+	}
+
+	// By endpoint
+	var endpointRows []groupRow
+	if err := tx.Session(&gorm.Session{}).Where("timestamp >= ? AND timestamp < ?", from, to).
+		Select("endpoint as key, COUNT(*) as count").Group("endpoint").Scan(&endpointRows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range endpointRows {
+		s.ByEndpoint[row.Key] = row.Count
+	}
+
+	// Time series with dynamic bucket (includes errors + TPS for the chart)
 	series, err := r.timeseries(ctx, from, to, bucket, q.ApiKey)
 	if err != nil {
 		return nil, err
 	}
 	s.Daily = series
 	return s, nil
+}
+
+// percentile returns the nearest-rank percentile of an ordered sample.
+// The sample MUST be sorted ascending. Returns 0 for empty samples.
+func percentile(sample []int64, p float64) int64 {
+	if len(sample) == 0 {
+		return 0
+	}
+	idx := int(float64(len(sample)-1) * p)
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(sample) {
+		idx = len(sample) - 1
+	}
+	return sample[idx]
 }
 
 // resolveRange computes (from, to) from a UsageStatsQuery. When q.From is
@@ -207,13 +336,24 @@ func (r *UsageRepo) timeseries(ctx context.Context, from, to time.Time, bucket s
 		Requests int
 		Tokens   int
 		Cost     float64
+		Errors   int
+		AvgTPS   float64
 	}
 	tx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
 	if apiKey != "" {
 		tx = tx.Where("api_key = ?", apiKey)
 	}
 	if err := tx.Where("timestamp >= ? AND timestamp < ?", from, to).
-		Select(dateExpr + " as date, COUNT(*) as requests, COALESCE(SUM(prompt_tokens + completion_tokens), 0) as tokens, COALESCE(SUM(cost), 0) as cost").
+		Select(dateExpr + ` as date,
+			COUNT(*) as requests,
+			COALESCE(SUM(prompt_tokens + completion_tokens), 0) as tokens,
+			COALESCE(SUM(cost), 0) as cost,
+			COALESCE(SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END), 0) as errors,
+			COALESCE(AVG(CASE WHEN ttft_ms > 0 AND latency_ms > ttft_ms
+				THEN completion_tokens * 1000.0 / (latency_ms - ttft_ms)
+				WHEN latency_ms > 0 AND completion_tokens > 0
+				THEN completion_tokens * 1000.0 / latency_ms
+				ELSE NULL END), 0) as avg_tps`).
 		Group(dateExpr).Order("date").
 		Scan(&rows).Error; err != nil {
 		return nil, err
@@ -225,6 +365,8 @@ func (r *UsageRepo) timeseries(ctx context.Context, from, to time.Time, bucket s
 			Requests: row.Requests,
 			Tokens:   row.Tokens,
 			Cost:     row.Cost,
+			Errors:   row.Errors,
+			AvgTPS:   row.AvgTPS,
 		})
 	}
 	return out, nil

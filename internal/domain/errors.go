@@ -27,7 +27,9 @@ var (
 //   - 408, network errors -> fallback (timeout / unreachable)
 //   - 401, 403, 402 -> fallback (try another account; 402 means this
 //     account/key is out of credit, the next connection may still work)
-//   - 400, 404, 422 -> do not fallback (client error, will fail everywhere)
+//   - 404 -> fallback (model may be deprecated/removed on this provider,
+//     but the next model/combo may still work)
+//   - 400, 422 -> do not fallback (client error, will fail everywhere)
 func ShouldFallback(status int, err error) bool {
 	if err != nil {
 		return true // network / timeout
@@ -43,6 +45,8 @@ func ShouldFallback(status int, err error) bool {
 		return true // try next account
 	case status == http.StatusPaymentRequired:
 		return true // try next account (402 = out of credit on this key)
+	case status == http.StatusNotFound:
+		return true // model deprecated/removed on this provider; next may work
 	default:
 		return false
 	}

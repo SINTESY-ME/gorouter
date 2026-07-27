@@ -118,16 +118,58 @@ type UsageStats struct {
 	ByModel          map[string]int     `json:"by_model"`
 	ByModelCost      map[string]float64 `json:"by_model_cost"`
 	ByApiKey         map[string]int     `json:"by_api_key"`
+	ByCombo          map[string]int     `json:"by_combo,omitempty"`
+	ByEndpoint       map[string]int     `json:"by_endpoint,omitempty"`
 	Daily            []UsageDailyPoint  `json:"daily"`
 	Bucket           string             `json:"bucket"`
+
+	// Performance — average TTFT, generation TPS, total latency across all
+	// requests in the period. Computed only over successful requests
+	// (status < 400) with valid timings, so the averages aren't skewed by
+	// upstream failures that complete in <1ms.
+	AvgTTFTMs    int64   `json:"avg_ttft_ms"`
+	AvgLatencyMs int64   `json:"avg_latency_ms"`
+	AvgTPS       float64 `json:"avg_tps"`
+
+	// Latency percentiles (milliseconds). Computed the same way as the
+	// averages. Zero means no successful requests.
+	P50LatencyMs int64 `json:"p50_latency_ms"`
+	P95LatencyMs int64 `json:"p95_latency_ms"`
+	P99LatencyMs int64 `json:"p99_latency_ms"`
+
+	// Reliability — counts of all requests, successful (status < 400),
+	// errored (status >= 400). ErrorRate is errors / total.
+	SuccessfulRequests int     `json:"successful_requests"`
+	ErrorRequests      int     `json:"error_requests"`
+	ErrorRate          float64 `json:"error_rate"`
+
+	// Fallback metrics — Requests that fell through to the 2nd, 3rd, ...
+	// model in a combo. Approximated by checking if combo_name is set
+	// and the model field isn't the first model of the combo (set in
+	// the router). For combos we record the combo_name on the entry,
+	// and the count of entries where combo_name != "" gives the number
+	// of combo-routed requests; to detect fallbacks we use status >= 400
+	// on first-model entries as a proxy (computed in SQL below).
+	ComboRequests    int     `json:"combo_requests"`
+	CacheHitRate     float64 `json:"cache_hit_rate"`
+	CacheHits        int64   `json:"cache_hits"`
+	TokensSaved      int64   `json:"tokens_saved"`
+	CostSaved        float64 `json:"cost_saved"`
+
+	// Efficiency — tokens per dollar (1k tokens per $1). For inputs and
+	// outputs separately so users can see which side is expensive.
+	TokensPerDollar float64 `json:"tokens_per_dollar"`
+	CostPerRequest  float64 `json:"cost_per_request"`
 }
 
 // UsageDailyPoint is one bucket of a time series.
 type UsageDailyPoint struct {
-	Date     string `json:"date"`
-	Requests int    `json:"requests"`
-	Tokens   int    `json:"tokens"`
+	Date     string  `json:"date"`
+	Requests int     `json:"requests"`
+	Tokens   int     `json:"tokens"`
 	Cost     float64 `json:"cost"`
+	Errors   int     `json:"errors,omitempty"`
+	AvgTPS   float64 `json:"avg_tps,omitempty"`
 }
 
 // SavingsAgg is the aggregated savings summary for a time range. Each type
