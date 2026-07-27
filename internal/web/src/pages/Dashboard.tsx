@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Spinner, Select, SelectItem, Popover, PopoverTrigger, PopoverContent, Input, Button, Autocomplete, AutocompleteItem } from "@heroui/react";
+import { Spinner, Select, SelectItem, Popover, PopoverTrigger, PopoverContent, Input, Button, Chip, Tabs, Tab, Divider } from "@heroui/react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
   BarChart, Bar, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { api, type UsageStats, type SavingsStats, type ApiKey } from "../api";
+import { api, type UsageStats, type SavingsStats, type ApiKey, type StatusSnapshot } from "../api";
 import { formatCompact, formatCost } from "../format";
 
 const PIE_COLORS = ["#00C2A8", "#FF6B6B", "#4DA3FF", "#FFB347", "#B266FF", "#FFD93D", "#6BCB77"];
@@ -53,9 +53,25 @@ function formatBucketLabel(dateStr: string, bucket: string): string {
   return dateStr.slice(5);
 }
 
+// maskKey keeps only the first 6 and last 4 chars. Used to display the
+// api key in the dashboard without leaking the full secret.
+function maskKey(k: string): string {
+  if (!k) return "(vazio)";
+  if (k.length <= 12) return k.slice(0, 3) + "..." + k.slice(-2);
+  return k.slice(0, 6) + "..." + k.slice(-4);
+}
+
+// nameKey looks up the masked key's friendly name from the api_keys list
+// so we can show "my-token" instead of "gr-xxx...1234" in tables.
+function nameKey(k: string, keys: ApiKey[]): string {
+  const found = keys.find((x) => x.key === k);
+  return found?.name || maskKey(k);
+}
+
 export default function Dashboard() {
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [savings, setSavings] = useState<SavingsStats | null>(null);
+  const [status, setStatus] = useState<StatusSnapshot | null>(null);
   const [period, setPeriod] = useState("24h");
   const [bucket, setBucket] = useState(""); // "" = auto
   const [customMode, setCustomMode] = useState(false);
@@ -84,8 +100,9 @@ export default function Dashboard() {
     Promise.all([
       api.usage.stats(params),
       api.savings.stats(customMode && fromDate ? "60d" : period, selectedKeyId).catch(() => null),
+      api.status().catch(() => null),
     ])
-      .then(([s, sv]) => { setStats(s); setSavings(sv); })
+      .then(([s, sv, st]) => { setStats(s); setSavings(sv); setStatus(st); })
       .catch(() => setStats(null))
       .finally(() => setLoading(false));
   }, [period, bucket, customMode, fromDate, toDate, selectedKeyId]);
@@ -104,6 +121,9 @@ export default function Dashboard() {
   const byProvider = Object.entries(stats.by_provider).map(([name, value]) => ({ name, value }));
   const byModel = Object.entries(stats.by_model).map(([name, value]) => ({ name, value }));
   const byModelCost = Object.entries(stats.by_model_cost || {}).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  const byCombo = Object.entries(stats.by_combo || {}).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  const byEndpoint = Object.entries(stats.by_endpoint || {}).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  const byApiKey = Object.entries(stats.by_api_key || {}).map(([name, value]) => ({ name: nameKey(name, apiKeys), value })).sort((a, b) => b.value - a.value);
 
   return (
     <div className="space-y-6">
@@ -111,11 +131,10 @@ export default function Dashboard() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Visão geral</h1>
           <p className="text-sm text-default-500 mt-0.5">
-            Total de {stats.requests} requisições no período
+            Total de {stats.requests.toLocaleString("en-US")} requisições no período
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Period presets */}
           <div className="flex bg-content1 rounded-lg p-0.5 border border-default-100">
             {periods.map((p) => (
               <button
@@ -129,7 +148,6 @@ export default function Dashboard() {
               </button>
             ))}
           </div>
-          {/* Custom date range popover */}
           <Popover placement="bottom">
             <PopoverTrigger>
               <Button
@@ -172,7 +190,6 @@ export default function Dashboard() {
               </div>
             </PopoverContent>
           </Popover>
-          {/* Bucket selector */}
           <Select
             aria-label="Granularidade"
             selectedKeys={[bucket]}
@@ -185,7 +202,6 @@ export default function Dashboard() {
               <SelectItem key={b.key}>{b.label}</SelectItem>
             ))}
           </Select>
-          {/* Token filter */}
           {apiKeys.length > 0 && (
             <Select
               aria-label="Token"
@@ -203,13 +219,53 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* System status — runtime health snapshot, polled every dashboard refresh */}
+      {status && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <SystemCard label="Combos" value={status.combos.total.toString()} sub="estratégias de roteamento" />
+          <SystemCard label="Conexões ativas" value={`${status.connections.active}/${status.connections.total}`} sub={`${status.connections.rate_limited} rate-limited`} warn={status.connections.rate_limited > 0} />
+          <SystemCard label="Saúde" value={status.health.unhealthy > 0 ? `${status.health.unhealthy} unhealthy` : "OK"} sub={`${status.health.probing} probing · ${status.health.healthy} healthy`} warn={status.health.unhealthy > 0} />
+          <SystemCard label="Tokens ativos" value={apiKeys.filter(k => k.is_active).length.toString()} sub={`de ${apiKeys.length} cadastrados`} />
+        </div>
+      )}
+
+      {/* Top-line counters */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Requests" value={formatCompact(stats.requests)} sub="total no período" full={stats.requests.toLocaleString("en-US")} />
-        <StatCard label="Prompt tokens" value={formatCompact(stats.prompt_tokens)} sub="tokens enviados" full={stats.prompt_tokens.toLocaleString("en-US")} />
-        <StatCard label="Completion tokens" value={formatCompact(stats.completion_tokens)} sub="tokens gerados" full={stats.completion_tokens.toLocaleString("en-US")} />
-        <StatCard label="Custo" value={formatCost(stats.cost)} sub="acumulado" full={`$${stats.cost.toFixed(6)}`} />
+        <StatCard label="Tokens" value={formatCompact(stats.prompt_tokens + stats.completion_tokens)} sub={`${formatCompact(stats.prompt_tokens)} prompt · ${formatCompact(stats.completion_tokens)} completion`} />
+        <StatCard label="Custo" value={formatCost(stats.cost)} sub={stats.cost_per_request > 0 ? `${formatCost(stats.cost_per_request)}/req` : "—"} full={`$${stats.cost.toFixed(6)}`} />
+        <StatCard label="Custo poupado" value={formatCost(stats.cost_saved)} sub={`${formatCompact(stats.tokens_saved)} tokens (cache+RTK)`} full={`$${stats.cost_saved.toFixed(6)}`} color="text-success" />
       </div>
 
+      {/* Performance — TTFT, TPS, latency, error rate */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <MetricCard label="TTFT médio" value={stats.avg_ttft_ms > 0 ? `${stats.avg_ttft_ms}ms` : "—"} sub="time to first token" />
+        <MetricCard label="TPS médio" value={stats.avg_tps > 0 ? stats.avg_tps.toFixed(1) : "—"} sub="tokens/s (geração)" />
+        <MetricCard label="Latência média" value={stats.avg_latency_ms > 0 ? `${stats.avg_latency_ms}ms` : "—"} sub="por request" />
+        <MetricCard label="P50 / P95 / P99" value={stats.p95_latency_ms > 0 ? `${stats.p50_latency_ms}/${stats.p95_latency_ms}/${stats.p99_latency_ms}` : "—"} sub="ms · percentis" small />
+        <MetricCard
+          label="Taxa de erro"
+          value={`${(stats.error_rate * 100).toFixed(1)}%`}
+          sub={`${stats.error_requests.toLocaleString("en-US")} erros`}
+          color={stats.error_rate > 0.05 ? "text-danger" : "text-success"}
+        />
+        <MetricCard
+          label="Cache hit rate"
+          value={`${(stats.cache_hit_rate * 100).toFixed(1)}%`}
+          sub={`${stats.cache_hits.toLocaleString("en-US")} hits`}
+          color="text-success"
+        />
+      </div>
+
+      {/* Efficiency — tokens per $, cost per request */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <MetricCard label="$/1k tokens" value={stats.tokens_per_dollar > 0 ? `${(1000 / stats.tokens_per_dollar).toFixed(4)}` : "—"} sub={stats.tokens_per_dollar > 0 ? `${stats.tokens_per_dollar.toFixed(0)} tokens/$` : "sem dados"} />
+        <MetricCard label="$/request" value={stats.cost_per_request > 0 ? `$${stats.cost_per_request.toFixed(6)}` : "—"} sub="média por chamada" />
+        <MetricCard label="Combos usados" value={stats.combo_requests.toLocaleString("en-US")} sub="de rotas" sub2={`${stats.requests > 0 ? ((stats.combo_requests / stats.requests) * 100).toFixed(1) : 0}% do total`} />
+        <MetricCard label="Endpoints" value={Object.keys(stats.by_endpoint || {}).length.toString()} sub="rotas OpenAI" />
+      </div>
+
+      {/* Savings cards (cache + RTK, persisted in DB) */}
       {savings && (
         <div className="bg-content1 rounded-2xl border border-default-100 p-6">
           <h3 className="font-semibold mb-1">Economia</h3>
@@ -244,112 +300,148 @@ export default function Dashboard() {
               color="#4DA3FF"
             />
           </div>
-          {(savings.cache_cost_saved + savings.rtk_cost_saved) > 0 && (
-            <div className="mt-4 flex items-center gap-6 text-sm">
-              <div className="flex items-center gap-2">
-                <span className="text-default-500">Tokens economizados:</span>
-                <span className="text-lg font-bold text-success">
-                  {formatCompact(savings.cache_tokens_saved + savings.rtk_tokens_saved)} tokens
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-default-500">Custo poupado:</span>
-                <span className="text-lg font-bold text-success">
-                  {formatCost(savings.cache_cost_saved + savings.rtk_cost_saved)}
-                </span>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
+      {/* Time series chart with tabbed metrics: requests / tokens / cost / errors / TPS */}
       <div className="bg-content1 rounded-2xl border border-default-100 p-6">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
           <div>
-            <h3 className="font-semibold">Requisições por {bucketLabel[activeBucket] || "período"}</h3>
-            <p className="text-xs text-default-500 mt-0.5">Volume de chamadas ({bucketLabel[activeBucket] || "dia"})</p>
+            <h3 className="font-semibold">Série temporal</h3>
+            <p className="text-xs text-default-500 mt-0.5">Volume por {bucketLabel[activeBucket] || "período"}</p>
           </div>
+          <Tabs
+            size="sm"
+            variant="solid"
+            color="primary"
+            selectedKey="requests"
+            classNames={{ tabList: "bg-content2" }}
+          >
+            <Tab key="requests" title="Requests"><TimeSeries data={daily} metric="requests" color="#00C2A8" formatY={formatCompact} formatTooltip={(v) => v.toLocaleString("en-US")} name="Requests" /></Tab>
+            <Tab key="tokens" title="Tokens"><TimeSeries data={daily} metric="tokens" color="#4DA3FF" formatY={formatCompact} formatTooltip={(v) => v.toLocaleString("en-US")} name="Tokens" /></Tab>
+            <Tab key="cost" title="Custo"><TimeSeries data={daily} metric="cost" color="#FFB347" formatY={formatCost} formatTooltip={(v) => `$${v.toFixed(6)}`} name="Custo" /></Tab>
+            <Tab key="errors" title="Erros"><TimeSeries data={daily} metric="errors" color="#FF6B6B" formatY={formatCompact} formatTooltip={(v) => v.toLocaleString("en-US")} name="Erros" /></Tab>
+            <Tab key="tps" title="TPS"><TimeSeries data={daily} metric="avg_tps" color="#B266FF" formatY={(v) => v.toFixed(1)} formatTooltip={(v) => `${v.toFixed(2)} tok/s`} name="TPS" /></Tab>
+          </Tabs>
         </div>
-        <ResponsiveContainer width="100%" height={280}>
-          <AreaChart data={daily} margin={{ left: -16, right: 8, top: 8 }}>
-            <defs>
-              <linearGradient id="gradReq" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#00C2A8" stopOpacity={0.6} />
-                <stop offset="95%" stopColor="#00C2A8" stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
-            <XAxis dataKey="label" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={20} />
-            <YAxis stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={(v: number) => formatCompact(v)} />
-            <Tooltip contentStyle={chartTooltipStyle} itemStyle={chartItemStyle} labelStyle={{ color: "#888" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
-            <Area type="monotone" dataKey="requests" stroke="#00C2A8" strokeWidth={2} fill="url(#gradReq)" />
-          </AreaChart>
-        </ResponsiveContainer>
       </div>
 
+      {/* Distribution charts — provider, model, model cost, combo, endpoint, key */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-content1 rounded-2xl border border-default-100 p-6">
-          <h3 className="font-semibold mb-1">Por provider</h3>
-          <p className="text-xs text-default-500 mb-4">Distribuição de requisições</p>
-          {byProvider.length === 0 ? (
-            <EmptyChart />
-          ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie data={byProvider} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={95} paddingAngle={2} label={(entry: any) => <text x={entry.x} y={entry.y} fill="#aaa" fontSize={11} textAnchor={entry.x > entry.cx ? "start" : "end"} dominantBaseline="central">{entry.name}</text>} labelLine={{ stroke: "#666" }}>
-                  {byProvider.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="none" />)}
-                </Pie>
-                <Legend formatter={(v) => <span className="text-xs text-default-600">{v}</span>} />
-                <Tooltip contentStyle={chartTooltipStyle} itemStyle={chartItemStyle} labelStyle={{ color: "#aaa" }} />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-        <div className="bg-content1 rounded-2xl border border-default-100 p-6">
-          <h3 className="font-semibold mb-1">Por modelo</h3>
-          <p className="text-xs text-default-500 mb-4">Requisições por modelo</p>
-          {byModel.length === 0 ? (
-            <EmptyChart />
-          ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={byModel} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
-                <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={(v: number) => formatCompact(v)} />
-                <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={90} />
-                <Tooltip contentStyle={chartTooltipStyle} itemStyle={chartItemStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
-                <Bar dataKey="value" fill="#4DA3FF" radius={[0, 4, 4, 0]} barSize={20} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-        <div className="bg-content1 rounded-2xl border border-default-100 p-6">
-          <h3 className="font-semibold mb-1">Custo por modelo</h3>
-          <p className="text-xs text-default-500 mb-4">Gasto em USD por modelo</p>
-          {byModelCost.length === 0 ? (
-            <EmptyChart />
-          ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={byModelCost} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
-                <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={(v: number) => formatCost(v)} />
-                <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={90} />
-                <Tooltip contentStyle={chartTooltipStyle} itemStyle={chartItemStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [`$${v.toFixed(6)}`, "Custo"]} />
-                <Bar dataKey="value" fill="#FFB347" radius={[0, 4, 4, 0]} barSize={20} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
+        <DistributionChart title="Por provider" subtitle="Distribuição de requisições" data={byProvider} color="#00C2A8" />
+        <DistributionChart title="Por modelo" subtitle="Requisições por modelo" data={byModel} color="#4DA3FF" />
+        <DistributionChart title="Custo por modelo" subtitle="Gasto em USD por modelo" data={byModelCost} color="#FFB347" formatValue={formatCost} formatTooltip={(v) => `$${v.toFixed(6)}`} />
+        {byCombo.length > 0 && (
+          <DistributionChart title="Por combo" subtitle="Distribuição entre combos" data={byCombo} color="#B266FF" />
+        )}
+        {byEndpoint.length > 0 && (
+          <DistributionChart title="Por endpoint" subtitle="Rotas OpenAI utilizadas" data={byEndpoint.map((e) => ({ name: e.name || "(none)", value: e.value }))} color="#FFD93D" />
+        )}
+        {byApiKey.length > 0 && (
+          <DistributionChart title="Por token" subtitle="Requisições por token de API" data={byApiKey} color="#6BCB77" />
+        )}
       </div>
     </div>
   );
 }
 
-function StatCard({ label, value, sub, full }: { label: string; value: string | number; sub: string; full?: string }) {
+// TimeSeries renders a single-metric area chart for the time series tab.
+// `metric` is the dataKey name on the row objects.
+function TimeSeries({ data, metric, color, formatY, formatTooltip, name }: {
+  data: any[]; metric: string; color: string; formatY: (v: number) => string; formatTooltip: (v: number) => string; name: string;
+}) {
+  const gradId = `grad-${metric}`;
+  return (
+    <ResponsiveContainer width="100%" height={280}>
+      <AreaChart data={data} margin={{ left: -16, right: 8, top: 8 }}>
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor={color} stopOpacity={0.6} />
+            <stop offset="95%" stopColor={color} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
+        <XAxis dataKey="label" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={20} />
+        <YAxis stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={formatY} />
+        <Tooltip contentStyle={chartTooltipStyle} itemStyle={chartItemStyle} labelStyle={{ color: "#888" }} formatter={(v: number) => [formatTooltip(v), name]} />
+        <Area type="monotone" dataKey={metric} stroke={color} strokeWidth={2} fill={`url(#${gradId})`} />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+// DistributionChart renders a horizontal bar chart for grouped data
+// (by_provider, by_model, by_combo, etc). Uses pie when ≤ 6 items,
+// otherwise bar — pie becomes unreadable past ~7 slices.
+function DistributionChart({ title, subtitle, data, color, formatValue, formatTooltip }: {
+  title: string; subtitle: string; data: { name: string; value: number }[]; color: string;
+  formatValue?: (v: number) => string; formatTooltip?: (v: number) => string;
+}) {
+  const fmtV = formatValue ?? formatCompact;
+  const fmtT = formatTooltip ?? ((v: number) => v.toLocaleString("en-US"));
+  const usePie = data.length <= 5;
+  return (
+    <div className="bg-content1 rounded-2xl border border-default-100 p-6">
+      <h3 className="font-semibold mb-1">{title}</h3>
+      <p className="text-xs text-default-500 mb-4">{subtitle}</p>
+      {data.length === 0 ? (
+        <EmptyChart />
+      ) : usePie ? (
+        <ResponsiveContainer width="100%" height={260}>
+          <PieChart>
+            <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={95} paddingAngle={2} label={(entry: any) => <text x={entry.x} y={entry.y} fill="#aaa" fontSize={11} textAnchor={entry.x > entry.cx ? "start" : "end"} dominantBaseline="central">{entry.name}</text>} labelLine={{ stroke: "#666" }}>
+              {data.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="none" />)}
+            </Pie>
+            <Legend formatter={(v) => <span className="text-xs text-default-600">{v}</span>} />
+            <Tooltip contentStyle={chartTooltipStyle} itemStyle={chartItemStyle} labelStyle={{ color: "#aaa" }} />
+          </PieChart>
+        </ResponsiveContainer>
+      ) : (
+        <ResponsiveContainer width="100%" height={Math.max(260, data.length * 24)}>
+          <BarChart data={data} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
+            <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={fmtV} />
+            <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={120} />
+            <Tooltip contentStyle={chartTooltipStyle} itemStyle={chartItemStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [fmtT(v), title.replace(/^Por |^Custo por /, "")]} />
+            <Bar dataKey="value" fill={color} radius={[0, 4, 4, 0]} barSize={18} />
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
+function StatCard({ label, value, sub, full, color }: { label: string; value: string | number; sub: string; full?: string; color?: string }) {
   return (
     <div className="bg-content1 rounded-2xl border border-default-100 p-5 hover:border-default-200 transition-colors">
       <p className="text-xs text-default-500 uppercase tracking-wide font-medium">{label}</p>
-      <p className="text-3xl font-bold mt-2 tabular-nums" title={full}>{value}</p>
+      <p className={`text-3xl font-bold mt-2 tabular-nums ${color || ""}`} title={full}>{value}</p>
       <p className="text-xs text-default-500 mt-1">{sub}</p>
+    </div>
+  );
+}
+
+// SystemCard is a small chip-style card for runtime stats (combos,
+// connections, health). `warn` switches the color to red.
+function SystemCard({ label, value, sub, warn }: { label: string; value: string; sub: string; warn?: boolean }) {
+  return (
+    <div className={`bg-content1 rounded-xl border p-3 transition-colors ${warn ? "border-warning/40 bg-warning/5" : "border-default-100"}`}>
+      <p className="text-[10px] text-default-500 uppercase tracking-wide font-medium">{label}</p>
+      <p className={`text-xl font-bold mt-1 tabular-nums ${warn ? "text-warning" : ""}`}>{value}</p>
+      <p className="text-[11px] text-default-500 mt-0.5">{sub}</p>
+    </div>
+  );
+}
+
+// MetricCard is a smaller stat card for the performance row. `small` drops
+// the value size down so a long "P50/P95/P99" label fits.
+function MetricCard({ label, value, sub, sub2, color, small }: { label: string; value: string; sub: string; sub2?: string; color?: string; small?: boolean }) {
+  return (
+    <div className="bg-content1 rounded-xl border border-default-100 p-4">
+      <p className="text-[11px] text-default-500 uppercase tracking-wide font-medium">{label}</p>
+      <p className={`${small ? "text-lg" : "text-2xl"} font-bold mt-1.5 tabular-nums ${color || ""}`}>{value}</p>
+      <p className="text-[11px] text-default-500 mt-0.5">{sub}</p>
+      {sub2 && <p className="text-[11px] text-default-500">{sub2}</p>}
     </div>
   );
 }

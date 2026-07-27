@@ -41,6 +41,7 @@ type Server struct {
 	Combos    *app.ComboService
 	Keys      *app.ApiKeyService
 	Usage     *app.UsageService
+	Health    *app.HealthTracker
 	Prober    Prober
 	ModelSync ModelSyncer
 	ModelRepo domain.ModelRepo
@@ -150,6 +151,7 @@ func (s *Server) Routes() http.Handler {
 
 		r.Get("/usage/stats", s.handleUsageStats)
 		r.Get("/usage/history", s.handleUsageHistory)
+		r.Get("/status", s.handleStatus)
 
 		r.Get("/cache/stats", s.handleCacheStats)
 		r.Post("/cache/flush", s.handleCacheFlush)

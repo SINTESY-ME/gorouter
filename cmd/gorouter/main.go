@@ -173,6 +173,7 @@ func run() error {
 		Combos:          combos,
 		Keys:            apiKeys,
 		Usage:           usage,
+		Health:          router.Health,
 		Prober:          prober,
 		ModelSync:       modelSync,
 		ModelRepo:       modelRepo,

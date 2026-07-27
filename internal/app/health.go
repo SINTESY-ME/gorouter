@@ -104,3 +104,33 @@ func (h *HealthTracker) ProbeFailed(comboName, modelStr, connID string) {
 	s := h.stateOrCreate(comboName, modelStr, connID)
 	s.probeInFlight = false
 }
+
+// HealthSummary is a count snapshot of health states for the dashboard.
+type HealthSummary struct {
+	Unhealthy   int `json:"unhealthy"`
+	Probing     int `json:"probing"`
+	Healthy     int `json:"healthy"`
+	TotalKeys   int `json:"total_keys"`
+}
+
+// Summary returns the count of (combo, model, connection) triples in each
+// state. Unhealthy takes precedence over probing when both flags are set.
+func (h *HealthTracker) Summary() HealthSummary {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	var sum HealthSummary
+	for _, s := range h.states {
+		sum.TotalKeys++
+		switch {
+		case s.unhealthy && s.probeInFlight:
+			sum.Unhealthy++
+		case s.unhealthy:
+			sum.Unhealthy++
+		case s.probeInFlight:
+			sum.Probing++
+		default:
+			sum.Healthy++
+		}
+	}
+	return sum
+}

@@ -114,8 +114,30 @@ export interface UsageStats {
   by_provider: Record<string, number>; by_model: Record<string, number>;
   by_model_cost: Record<string, number>;
   by_api_key: Record<string, number>;
-  daily: { date: string; requests: number; tokens: number; cost: number }[];
+  by_combo: Record<string, number>;
+  by_endpoint: Record<string, number>;
+  daily: { date: string; requests: number; tokens: number; cost: number; errors?: number; avg_tps?: number }[];
   bucket?: string;
+  // Performance
+  avg_ttft_ms: number; avg_latency_ms: number; avg_tps: number;
+  p50_latency_ms: number; p95_latency_ms: number; p99_latency_ms: number;
+  // Reliability
+  successful_requests: number; error_requests: number; error_rate: number;
+  combo_requests: number;
+  // Efficiency
+  cache_hits: number; cache_hit_rate: number;
+  tokens_saved: number; cost_saved: number;
+  tokens_per_dollar: number; cost_per_request: number;
+}
+export interface UsageDailyPoint {
+  date: string; requests: number; tokens: number; cost: number;
+  errors?: number; avg_tps?: number;
+}
+export interface HealthSummary { unhealthy: number; probing: number; healthy: number; total_keys: number; }
+export interface StatusSnapshot {
+  combos: { total: number };
+  connections: { total: number; active: number; rate_limited: number };
+  health: HealthSummary;
 }
 export interface UsageEntry {
   id: number; timestamp: string; provider: string; model: string; combo_name?: string;
@@ -252,6 +274,7 @@ export const api = {
   savings: {
     stats: (period = "60d", apiKeyId = "") => request<SavingsStats>(`/api/savings?period=${period}${apiKeyId ? `&api_key_id=${apiKeyId}` : ""}`),
   },
+  status: () => request<StatusSnapshot>("/api/status"),
 };
 
 // ---- Chat playground (streaming) ----

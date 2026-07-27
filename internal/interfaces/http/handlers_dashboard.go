@@ -687,6 +687,48 @@ func (s *Server) handleUsageHistory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, h)
 }
 
+// handleStatus returns a small snapshot of the runtime state for the
+// dashboard "system" panel: combo count, active connections, rate-limited
+// connections, and the in-memory health summary. Cheap to compute — used
+// by the top-of-dashboard cards.
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	type comboCount struct {
+		Total  int `json:"total"`
+	}
+	var combos comboCount
+	if s.Combos != nil {
+		cs, err := s.Combos.List(r.Context())
+		if err == nil {
+			combos.Total = len(cs)
+		}
+	}
+	conns, _ := s.Providers.List(r.Context())
+	var (
+		totalConns   int
+		activeConns  int
+		rateLimited  int
+	)
+	now := time.Now()
+	for i := range conns {
+		totalConns++
+		if conns[i].IsActive {
+			activeConns++
+		}
+		if !conns[i].RateLimitedUntil.IsZero() && conns[i].RateLimitedUntil.After(now) {
+			rateLimited++
+		}
+	}
+	var health app.HealthSummary
+	if s.Health != nil {
+		health = s.Health.Summary()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"combos":         combos,
+		"connections":    map[string]int{"total": totalConns, "active": activeConns, "rate_limited": rateLimited},
+		"health":         health,
+	})
+}
+
 // ---- Models (dashboard aggregate) ----
 
 // handleListModelsDashboard returns the aggregate model list (combos +
