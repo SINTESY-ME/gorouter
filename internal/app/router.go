@@ -69,6 +69,9 @@ type RouterService struct {
 	// TPS is the in-memory tokens-per-second cache used by the velocity
 	// strategy. Nil-safe: the strategy falls back to the configured order.
 	TPS *TPSCache
+	// TPSProber measures TPS for models with no usage data so the velocity
+	// strategy can rank them. Nil-safe: probing is skipped.
+	TPSProber *TPSProber
 	// Strategies resolves a combo's strategy name to a ComboStrategy. Set
 	// in NewRouterService; nil-safe (routeCombo falls back to ordered).
 	Strategies *StrategyRegistry
@@ -100,6 +103,7 @@ func NewRouterService(combos domain.ComboRepo, conns domain.ConnectionRepo, exec
 		Selector:    NewConnectionSelector(nil, nil),
 	}
 	s.Prober = NewHealthProber(s.Health, conns, exec, tr, s.Selector)
+	s.TPSProber = NewTPSProber(nil, s)
 	s.Strategies = NewStrategyRegistry(s)
 	return s
 }
@@ -299,6 +303,57 @@ func (s *RouterService) singleCompletion(ctx context.Context, modelStr string, m
 		return "", fmt.Errorf("classifier response unparseable: %s", string(buf))
 	}
 	return resp.Choices[0].Message.Content, nil
+}
+
+// measureModelTPS sends a standardized test prompt to the given model and
+// returns the assistant text, the completion token count, and any error.
+// It is used by TPSProber to measure a model's throughput for the velocity
+// strategy. The call goes through the normal routing path (connection
+// selection, translation, execution) so usage is recorded in the DB — this
+// means future cache refreshes will also pick up the measured TPS organically.
+func (s *RouterService) measureModelTPS(ctx context.Context, modelStr string, apiKey string) (text string, completionTokens int, err error) {
+	reqBody, err := json.Marshal(map[string]any{
+		"model":       modelStr,
+		"messages":    tpsProbeMessages,
+		"max_tokens":  tpsProbeMaxTokens,
+		"temperature": 0.0,
+	})
+	if err != nil {
+		return "", 0, err
+	}
+	res, err := s.RouteChat(ctx, reqBody, modelStr, false, apiKey, RouteOptions{InputFormat: domain.FormatOpenAI})
+	if err != nil {
+		return "", 0, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode >= 400 {
+		return "", 0, fmt.Errorf("tps probe upstream status %d", res.StatusCode)
+	}
+	buf, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", 0, err
+	}
+	var resp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+		Usage *struct {
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(buf, &resp); err != nil {
+		return "", 0, fmt.Errorf("tps probe response unparseable: %s", string(buf))
+	}
+	if len(resp.Choices) == 0 {
+		return "", 0, fmt.Errorf("tps probe returned no choices")
+	}
+	tokens := 0
+	if resp.Usage != nil {
+		tokens = resp.Usage.CompletionTokens
+	}
+	return resp.Choices[0].Message.Content, tokens, nil
 }
 
 func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, body []byte, stream bool, apiKey string, opts RouteOptions, endpoint string, contentType ...string) (*RouterResponse, error) {

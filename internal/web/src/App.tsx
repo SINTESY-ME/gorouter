@@ -71,8 +71,8 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
   const loc = useLocation();
   const title = titleMap[loc.pathname] ?? "gorouter";
   return (
-    <div className="min-h-screen bg-default-50 text-foreground flex">
-      <aside className="w-60 bg-content1 border-r border-default-100 flex flex-col">
+    <div className="h-screen bg-default-50 text-foreground flex overflow-hidden">
+      <aside className="w-60 bg-content1 border-r border-default-100 flex flex-col h-screen overflow-y-auto shrink-0">
         <div className="px-5 py-5 flex items-center gap-3 border-b border-default-100">
           <IconRoute className="w-5 h-5 text-white" />
           <div>
@@ -110,8 +110,8 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
           <p className="text-xs text-default-400 px-3">v0.1 · port :20128</p>
         </div>
       </aside>
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 px-6 flex items-center border-b border-default-100 bg-content1/60 backdrop-blur">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <header className="h-14 px-6 flex items-center border-b border-default-100 bg-content1/60 backdrop-blur shrink-0">
           <h2 className="text-lg font-semibold">{title}</h2>
         </header>
         <main className="flex-1 p-6 overflow-auto">

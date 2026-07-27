@@ -890,3 +890,123 @@ func TestRouteCombo_IntelligenceStrategy(t *testing.T) {
 		t.Fatalf("expected complex prompt to route to robust model 'gpt-4', got: %s", targetCall2)
 	}
 }
+
+// TestTPSCache_ProbePriority verifies that a fresh probe result is preferred
+// over usage data, and that stale probe data falls back to usage data.
+func TestTPSCache_ProbePriority(t *testing.T) {
+	usage := &mockTPSUsageRepo{
+		stats: map[string]*domain.ModelStat{
+			"openai/gpt-4": {AvgTPS: 15.0},
+		},
+	}
+	cache := NewTPSCache(usage, time.Minute)
+
+	// No probe yet: should return usage data.
+	if got := cache.Get("openai/gpt-4"); got != 15.0 {
+		t.Fatalf("expected usage TPS 15.0, got %f", got)
+	}
+
+	// Set a fresh probe: should be preferred.
+	cache.SetProbe("openai/gpt-4", 40.0)
+	if got := cache.Get("openai/gpt-4"); got != 40.0 {
+		t.Fatalf("expected probe TPS 40.0, got %f", got)
+	}
+
+	// NeedsProbe should be false for a model with usage data.
+	if cache.NeedsProbe("openai/gpt-4") {
+		t.Fatal("model with usage data should not need probing")
+	}
+
+	// A model with no data should need probing.
+	if !cache.NeedsProbe("anthropic/claude-3") {
+		t.Fatal("model without data should need probing")
+	}
+}
+
+// TestTPSCache_NeedsProbe_Stale verifies that stale probe data triggers a
+// re-probe when there is no usage data.
+func TestTPSCache_NeedsProbe_Stale(t *testing.T) {
+	usage := &mockTPSUsageRepo{stats: map[string]*domain.ModelStat{}}
+	cache := NewTPSCache(usage, time.Minute)
+
+	// Set a probe, then artificially age it.
+	cache.SetProbe("openai/gpt-4", 30.0)
+	if cache.NeedsProbe("openai/gpt-4") {
+		t.Fatal("fresh probe should not need re-probing")
+	}
+
+	// Force the probe to be stale by manipulating the internal map.
+	cache.mu.Lock()
+	p := cache.probes["openai/gpt-4"]
+	p.measuredAt = time.Now().Add(-2 * time.Hour)
+	cache.probes["openai/gpt-4"] = p
+	cache.mu.Unlock()
+
+	if !cache.NeedsProbe("openai/gpt-4") {
+		t.Fatal("stale probe with no usage data should need re-probing")
+	}
+}
+
+// TestRouteCombo_VelocityStrategy_TriggersProbe verifies that the velocity
+// strategy triggers a background TPS probe for models with no data.
+func TestRouteCombo_VelocityStrategy_TriggersProbe(t *testing.T) {
+	exec := &mockExecutor{
+		status: 200,
+		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":10,"completion_tokens":50}}`,
+	}
+	// No usage data for either model.
+	usage := &mockTPSUsageRepo{stats: map[string]*domain.ModelStat{}}
+	comboRepo := &mockComboRepo{
+		combos: map[string]*domain.Combo{
+			"cb1": {
+				ID:       "cb1",
+				Name:     "velprobe",
+				Models:   []string{"openai/gpt-4", "anthropic/claude-3"},
+				Strategy: "velocity",
+			},
+		},
+	}
+	srv := NewRouterService(comboRepo, twoProviderConnRepo(), exec, &mockTranslator{}, usage)
+	srv.TPS = NewTPSCache(usage, time.Minute)
+	srv.TPSProber = NewTPSProber(srv.TPS, srv)
+
+	body := []byte(`{"model":"velprobe","messages":[{"role":"user","content":"test"}]}`)
+	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	res.Body.Close()
+
+	// Wait for background probes to complete.
+	waitForCondition(2*time.Second, func() bool {
+		return srv.TPS.Get("openai/gpt-4") > 0 && srv.TPS.Get("anthropic/claude-3") > 0
+	})
+
+	if got := srv.TPS.Get("openai/gpt-4"); got <= 0 {
+		t.Fatalf("expected probe to measure TPS for openai/gpt-4, got %f", got)
+	}
+	if got := srv.TPS.Get("anthropic/claude-3"); got <= 0 {
+		t.Fatalf("expected probe to measure TPS for anthropic/claude-3, got %f", got)
+	}
+}
+
+// TestRouteCombo_IntelligenceStrategy_Fallback verifies the fallback ordering:
+// capable models (weight >= complexity) first ascending, then rest descending.
+func TestRouteCombo_IntelligenceStrategy_Fallback(t *testing.T) {
+	// complexity = 5; models: weight 3, 5, 7, 9
+	// Expected order: 5 (capable, least overkill), 7, 9, then 3 (rest, closest)
+	ordered := orderIntelligence(
+		[]string{"a/w3", "b/w5", "c/w7", "d/w9"},
+		map[string]domain.ComboModelMeta{
+			"a/w3": {Weight: 3},
+			"b/w5": {Weight: 5},
+			"c/w7": {Weight: 7},
+			"d/w9": {Weight: 9},
+		},
+		5,
+	)
+	expected := []string{"b/w5", "c/w7", "d/w9", "a/w3"}
+	if !equalSeq(t, ordered, expected) {
+		t.Fatalf("intelligence fallback order: got %v, want %v", ordered, expected)
+	}
+}

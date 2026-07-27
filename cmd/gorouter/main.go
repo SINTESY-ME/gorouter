@@ -97,6 +97,7 @@ func run() error {
 	router.Selector = app.NewConnectionSelector(providerConfigRepo, nil)
 	router.Prober = app.NewHealthProber(router.Health, cachedConns, exec, tr, router.Selector)
 	router.TPS = app.NewTPSCache(asyncUsage, 1*time.Minute)
+	router.TPSProber = app.NewTPSProber(router.TPS, router)
 	savings := app.NewSavingsTracker()
 	router.Savings = savings
 

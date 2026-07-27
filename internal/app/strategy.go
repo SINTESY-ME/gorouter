@@ -100,11 +100,21 @@ func (s roundRobinStrategy) Order(_ context.Context, req StrategyRequest) ([]str
 
 // velocityStrategy sorts members by observed tokens-per-second, fastest
 // first. Models with no observed TPS sort last (stable), preserving the
-// configured order until enough usage data accumulates. The fallback chain
-// stays intact: if the fastest model fails, the next-fastest is tried.
+// configured order until enough usage data accumulates. Before ordering,
+// it triggers background TPS probes for models that have no data at all or
+// whose probe data is stale — so future requests benefit from the measured
+// TPS. The fallback chain stays intact: if the fastest model fails, the
+// next-fastest is tried.
 type velocityStrategy struct{ r *RouterService }
 
 func (s velocityStrategy) Order(_ context.Context, req StrategyRequest) ([]string, error) {
+	// Trigger background probes for models without TPS data or with stale
+	// probes. Non-blocking; results populate the cache for future requests.
+	for _, m := range req.Combo.Models {
+		if s.r.TPSProber != nil {
+			s.r.TPSProber.MaybeProbe(m)
+		}
+	}
 	return orderVelocity(req.Combo.Models, s.r.TPS), nil
 }
 
