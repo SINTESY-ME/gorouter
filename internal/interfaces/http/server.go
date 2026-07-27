@@ -178,28 +178,20 @@ func (s *Server) Routes() http.Handler {
 // enforced; requests over the limit get 429.
 func (s *Server) requireApiKey(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key := extractApiKey(r)
-		// Fallback: a valid dashboard token is accepted as an alternative
-		// auth method. This lets the Playground (and dashboard-triggered
-		// tests on localhost) hit /v1 without requiring the user to first
-		// create an API key. Requests are still attributed to the
-		// dashboard session via fromDashboardKey below.
-		if key == "" && s.Auth != nil {
-			tok := bearerToken(r)
-			if ok, _ := s.Auth.ValidateToken(r.Context(), tok); ok && tok != "" {
-				key = dashboardInternalKey
-				r = r.WithContext(context.WithValue(r.Context(), apiKeyCtxKey{}, key))
-				next.ServeHTTP(w, r)
+		bearer := bearerToken(r)
+		// Priority: a valid dashboard token always wins over an arbitrary
+		// "Bearer X" header. This lets the Playground (and dashboard-
+		// triggered tests on localhost) hit /v1 without first creating an
+		// API key. A real API key (sk-...) is never a dashboard token.
+		if bearer != "" && s.Auth != nil {
+			if ok, _ := s.Auth.ValidateToken(r.Context(), bearer); ok {
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), apiKeyCtxKey{}, dashboardInternalKey)))
 				return
 			}
 		}
+		key := extractApiKey(r)
 		if key == "" {
 			writeError(w, http.StatusUnauthorized, "missing api key")
-			return
-		}
-		if key == dashboardInternalKey {
-			// already injected above, short-circuit
-			next.ServeHTTP(w, r)
 			return
 		}
 		apiKey, err := s.Keys.Repo.GetByKey(r.Context(), key)
