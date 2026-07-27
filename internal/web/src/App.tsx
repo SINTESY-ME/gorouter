@@ -117,19 +117,17 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
         <header className="h-14 px-6 flex items-center border-b border-default-100 bg-content1/60 backdrop-blur shrink-0">
           <h2 className="text-lg font-semibold">{title}</h2>
         </header>
-        <main className="flex-1 p-6 overflow-auto">
-          <div className="max-w-6xl mx-auto">
+        <main className="flex-1 overflow-auto">
             <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/providers" element={<Providers />} />
-              <Route path="/combos" element={<Combos />} />
-              <Route path="/models" element={<Models />} />
+              <Route path="/" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Dashboard /></div></div>} />
+              <Route path="/providers" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Providers /></div></div>} />
+              <Route path="/combos" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Combos /></div></div>} />
+              <Route path="/models" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Models /></div></div>} />
               <Route path="/playground" element={<Playground />} />
-              <Route path="/keys" element={<Keys />} />
-              <Route path="/logs" element={<Logs />} />
-              <Route path="/performance" element={<Performance />} />
+              <Route path="/keys" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Keys /></div></div>} />
+              <Route path="/logs" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Logs /></div></div>} />
+              <Route path="/performance" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Performance /></div></div>} />
             </Routes>
-          </div>
         </main>
       </div>
     </div>
