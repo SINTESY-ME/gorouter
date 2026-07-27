@@ -8,6 +8,7 @@ import Keys from "./pages/Keys";
 import Logs from "./pages/Logs";
 import Models from "./pages/Models";
 import Performance from "./pages/Performance";
+import Playground from "./pages/Playground";
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
 
@@ -16,6 +17,7 @@ const nav = [
   { to: "/providers", label: "Providers", icon: IconServer },
   { to: "/combos", label: "Combos", icon: IconLayers },
   { to: "/models", label: "Models", icon: IconBox },
+  { to: "/playground", label: "Playground", icon: IconChat },
   { to: "/keys", label: "API Keys", icon: IconKey },
   { to: "/logs", label: "Logs", icon: IconActivity },
   { to: "/performance", label: "Performance", icon: IconGauge },
@@ -26,6 +28,7 @@ const titleMap: Record<string, string> = {
   "/providers": "Providers",
   "/combos": "Combos",
   "/models": "Models",
+  "/playground": "Playground",
   "/keys": "API Keys",
   "/logs": "Logs",
   "/performance": "Performance",
@@ -121,6 +124,7 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
               <Route path="/providers" element={<Providers />} />
               <Route path="/combos" element={<Combos />} />
               <Route path="/models" element={<Models />} />
+              <Route path="/playground" element={<Playground />} />
               <Route path="/keys" element={<Keys />} />
               <Route path="/logs" element={<Logs />} />
               <Route path="/performance" element={<Performance />} />
@@ -159,6 +163,9 @@ function IconActivity({ className }: { className?: string }) {
 }
 function IconGauge({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>;
+}
+function IconChat({ className }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>;
 }
 function IconLogout({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>;

@@ -238,3 +238,104 @@ export const api = {
     stats: () => request<SavingsStats>("/api/savings"),
   },
 };
+
+// ---- Chat playground (streaming) ----
+
+export interface ChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface ChatStreamChunk {
+  delta: string;
+  done: boolean;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+  model?: string;
+}
+
+// streamChat sends a chat completion request to /v1/chat/completions with
+// stream:true and yields parsed SSE chunks as they arrive. The caller
+// provides an onChunk callback that receives each incremental delta. Returns
+// the final chunk (which carries usage stats) or throws on HTTP error.
+export async function streamChat(
+  messages: ChatMessage[],
+  model: string,
+  onChunk: (chunk: ChatStreamChunk) => void,
+  signal?: AbortSignal,
+): Promise<ChatStreamChunk> {
+  const token = dashboardToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const res = await fetch("/v1/chat/completions", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model,
+      messages,
+      stream: true,
+      stream_options: { include_usage: true },
+    }),
+    signal,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    let msg = `HTTP ${res.status}`;
+    try { const j = JSON.parse(text); msg = j?.error?.message ?? msg; } catch {}
+    throw new Error(msg);
+  }
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let lastChunk: ChatStreamChunk = { delta: "", done: false };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE events are separated by "\n\n"; each event has "data: ..." lines.
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
+
+    for (const evt of events) {
+      const line = evt.trim();
+      if (!line.startsWith("data: ")) continue;
+      const data = line.slice(6);
+      if (data === "[DONE]") {
+        lastChunk.done = true;
+        onChunk(lastChunk);
+        return lastChunk;
+      }
+      try {
+        const json = JSON.parse(data);
+        const delta = json?.choices?.[0]?.delta?.content ?? "";
+        const usage = json?.usage;
+        const model_ = json?.model;
+        const chunk: ChatStreamChunk = {
+          delta,
+          done: false,
+          usage: usage ? {
+            prompt_tokens: usage.prompt_tokens ?? 0,
+            completion_tokens: usage.completion_tokens ?? 0,
+            total_tokens: usage.total_tokens ?? 0,
+          } : undefined,
+          model: model_,
+        };
+        if (usage) lastChunk.usage = chunk.usage;
+        if (model_) lastChunk.model = model_;
+        onChunk(chunk);
+      } catch { /* skip malformed */ }
+    }
+  }
+
+  lastChunk.done = true;
+  onChunk(lastChunk);
+  return lastChunk;
+}
