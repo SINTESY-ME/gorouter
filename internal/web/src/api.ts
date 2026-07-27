@@ -120,7 +120,7 @@ export interface UsageEntry {
   id: number; timestamp: string; provider: string; model: string; combo_name?: string;
   connection_id: string; api_key: string; endpoint: string;
   prompt_tokens: number; completion_tokens: number; cached_tokens: number;
-  cost: number; status: number; latency_ms?: number;
+  cost: number; status: number; latency_ms?: number; ttft_ms?: number;
 }
 export interface ProviderDef {
   id: string;
@@ -136,6 +136,7 @@ export interface ProviderDef {
 }
 export interface ModelStat {
   avg_tps: number;
+  avg_ttft_ms?: number;
   avg_latency_ms: number;
   requests: number;
 }

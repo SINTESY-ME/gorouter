@@ -3,9 +3,12 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -53,9 +56,43 @@ func (m *mockExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) (
 	return &domain.ExecuteResult{
 		StatusCode: status,
 		Headers:    hdr,
-		Body:       io.NopCloser(bytes.NewReader([]byte(m.body))),
-		Stream:     m.stream,
+		Body:       m.bodyFor(req),
+		Stream:     req.Stream || m.stream,
 	}, nil
+}
+
+// bodyFor returns an SSE-formatted body when the request is streaming so
+// callers that parse SSE (like measureModelTPSStreaming) work in tests.
+// For non-streaming, the raw body is returned as-is.
+func (m *mockExecutor) bodyFor(req domain.ExecuteRequest) io.ReadCloser {
+	raw := []byte(m.body)
+	if !req.Stream {
+		return io.NopCloser(bytes.NewReader(raw))
+	}
+	// Parse the JSON body to extract content + usage, then re-wrap as
+	// SSE streaming events with delta.content (the format callers expect).
+	var parsed struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+		Usage *struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil || len(parsed.Choices) == 0 {
+		// Can't parse — fall back to wrapping raw as a single event.
+		return io.NopCloser(bytes.NewReader([]byte("data: " + m.body + "\n\ndata: [DONE]\n\n")))
+	}
+	var sse strings.Builder
+	sse.WriteString("data: " + fmt.Sprintf(`{"choices":[{"delta":{"content":%q}}]}`, parsed.Choices[0].Message.Content) + "\n\n")
+	if parsed.Usage != nil {
+		sse.WriteString("data: " + fmt.Sprintf(`{"choices":[],"usage":{"prompt_tokens":%d,"completion_tokens":%d}}`, parsed.Usage.PromptTokens, parsed.Usage.CompletionTokens) + "\n\n")
+	}
+	sse.WriteString("data: [DONE]\n\n")
+	return io.NopCloser(strings.NewReader(sse.String()))
 }
 
 // mockComboRepo implements domain.ComboRepo for testing.

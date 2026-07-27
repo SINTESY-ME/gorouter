@@ -228,6 +228,7 @@ type UsageEntry struct {
 	ApiKey            string    `json:"api_key,omitempty" gorm:"column:api_key"`
 	Endpoint          string    `json:"endpoint"`
 	LatencyMs         int64     `json:"latency_ms,omitempty"`
+	TTFTMs            int64     `json:"ttft_ms,omitempty" gorm:"column:ttft_ms;default:0"`
 	PromptTokens      int       `json:"prompt_tokens"`
 	CompletionTokens  int       `json:"completion_tokens"`
 	CachedTokens      int       `json:"cached_tokens,omitempty"`

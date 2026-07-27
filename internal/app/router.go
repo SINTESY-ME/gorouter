@@ -4,6 +4,7 @@
 package app
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -359,6 +360,80 @@ func (s *RouterService) measureModelTPS(ctx context.Context, modelStr string, ap
 		tokens = resp.Usage.CompletionTokens
 	}
 	return resp.Choices[0].Message.Content, tokens, nil
+}
+
+// measureModelTPSStreaming sends a standardized streaming test prompt and
+// measures TTFT (time to first token) separately from the total time. This
+// lets TPSProber calculate the real generation TPS (excluding TTFT) so the
+// velocity strategy ranks models by their actual throughput, not penalized
+// by high prefill latency. Returns (text, completionTokens, ttftMs, err).
+func (s *RouterService) measureModelTPSStreaming(ctx context.Context, modelStr string, apiKey string) (text string, completionTokens int, ttftMs int64, err error) {
+	reqBody, err := json.Marshal(map[string]any{
+		"model":           modelStr,
+		"messages":        tpsProbeMessages,
+		"max_tokens":      tpsProbeMaxTokens,
+		"temperature":     0.0,
+		"stream":          true,
+		"stream_options":  map[string]any{"include_usage": true},
+	})
+	if err != nil {
+		return "", 0, 0, err
+	}
+	res, err := s.RouteChat(ctx, reqBody, modelStr, true, apiKey, RouteOptions{InputFormat: domain.FormatOpenAI})
+	if err != nil {
+		return "", 0, 0, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode >= 400 {
+		return "", 0, 0, fmt.Errorf("tps probe upstream status %d", res.StatusCode)
+	}
+
+	start := time.Now()
+	reader := bufio.NewReader(res.Body)
+	var accumulated strings.Builder
+	var firstByteAt time.Time
+
+	for {
+		line, rErr := reader.ReadSlice('\n')
+		if len(line) > 0 && firstByteAt.IsZero() {
+			firstByteAt = time.Now()
+		}
+		if rErr != nil {
+			break
+		}
+		trimmed := bytes.TrimSpace(line)
+		if !bytes.HasPrefix(trimmed, []byte("data: ")) {
+			continue
+		}
+		data := bytes.TrimPrefix(trimmed, []byte("data: "))
+		if bytes.Equal(data, []byte("[DONE]")) {
+			break
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+			} `json:"choices"`
+			Usage *struct {
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
+		}
+		if jErr := json.Unmarshal(data, &chunk); jErr != nil {
+			continue
+		}
+		if len(chunk.Choices) > 0 {
+			accumulated.WriteString(chunk.Choices[0].Delta.Content)
+		}
+		if chunk.Usage != nil {
+			completionTokens = chunk.Usage.CompletionTokens
+		}
+	}
+
+	if !firstByteAt.IsZero() {
+		ttftMs = firstByteAt.Sub(start).Milliseconds()
+	}
+	return accumulated.String(), completionTokens, ttftMs, nil
 }
 
 func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, body []byte, stream bool, apiKey string, opts RouteOptions, endpoint string, depth int, contentType ...string) (*RouterResponse, error) {
@@ -742,8 +817,9 @@ func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterRespon
 	tee := &teeReadCloser{
 		r:    res.Body,
 		limit: bufLimit,
-		onClose: func(buf []byte) {
-			s.recordUsage(m, conn, apiKey, endpoint, res.StatusCode, res.Stream, buf, comboName, start)
+		start: start,
+		onClose: func(buf []byte, ttftMs int64) {
+			s.recordUsage(m, conn, apiKey, endpoint, res.StatusCode, res.Stream, buf, comboName, start, ttftMs)
 			if cacheEnabled && hasCacheKey && res.StatusCode < 400 {
 				if key, ok := cacheKeyFromCtx(ctx); ok {
 					if res.Stream {
@@ -762,7 +838,7 @@ func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterRespon
 // a single UsageEntry. Uses a detached context (the request may be done by
 // the time the body is closed). When the model has pricing data in the
 // in-memory pricing cache, the dollar cost is calculated and recorded.
-func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, status int, stream bool, buf []byte, comboName string, start time.Time) {
+func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, status int, stream bool, buf []byte, comboName string, start time.Time, ttftMs int64) {
 	prompt, completion, cacheRead, cacheCreation := 0, 0, 0, 0
 	if endpoint == "" {
 		endpoint = "chat/completions"
@@ -793,6 +869,7 @@ func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, a
 		ApiKey:            apiKey,
 		Endpoint:          endpoint,
 		LatencyMs:         time.Since(start).Milliseconds(),
+		TTFTMs:            ttftMs,
 		PromptTokens:      prompt,
 		CompletionTokens:  completion,
 		Cost:              cost,
@@ -807,16 +884,21 @@ func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, a
 // (up to limit). On Close it invokes onClose with the buffered data.
 // Close is idempotent — sse.Write and the handler's defer both call Close.
 type teeReadCloser struct {
-	r       io.ReadCloser
-	buf     bytes.Buffer
-	limit   int
-	closed  bool
-	onClose func(buf []byte)
+	r           io.ReadCloser
+	buf         bytes.Buffer
+	limit       int
+	closed      bool
+	start       time.Time    // request start, for TTFT and total latency
+	firstByteAt time.Time   // zero until the first non-empty Read
+	onClose     func(buf []byte, ttftMs int64)
 }
 
 func (t *teeReadCloser) Read(p []byte) (int, error) {
 	n, err := t.r.Read(p)
 	if n > 0 {
+		if t.firstByteAt.IsZero() {
+			t.firstByteAt = time.Now()
+		}
 		limit := t.limit
 		if limit == 0 {
 			limit = maxUsageBuf
@@ -840,7 +922,11 @@ func (t *teeReadCloser) Close() error {
 	t.closed = true
 	err := t.r.Close()
 	if t.onClose != nil {
-		t.onClose(t.buf.Bytes())
+		ttftMs := int64(0)
+		if !t.firstByteAt.IsZero() && !t.start.IsZero() {
+			ttftMs = t.firstByteAt.Sub(t.start).Milliseconds()
+		}
+		t.onClose(t.buf.Bytes(), ttftMs)
 	}
 	return err
 }

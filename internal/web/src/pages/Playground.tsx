@@ -13,6 +13,7 @@ interface PlaygroundMsg {
   model?: string;
   combo?: string;
   latencyMs?: number;
+  ttftMs?: number;
   tokens?: { prompt: number; completion: number; total: number };
   tps?: number;
   streaming?: boolean;
@@ -98,6 +99,7 @@ export default function Playground() {
     const controller = new AbortController();
     abortRef.current = controller;
     const start = performance.now();
+    let firstChunkAt = 0;
     let finalUsage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | undefined;
     let finalModel: string | undefined;
     let accumulated = "";
@@ -110,6 +112,7 @@ export default function Playground() {
         selectedModel,
         (chunk) => {
           if (chunk.delta) {
+            if (firstChunkAt === 0) firstChunkAt = performance.now();
             accumulated += chunk.delta;
             setMessages((prev) =>
               prev.map((m) => (m.id === assistantId ? { ...m, content: accumulated } : m))
@@ -122,9 +125,11 @@ export default function Playground() {
       );
 
       const elapsedMs = performance.now() - start;
+      const ttftMs = firstChunkAt > 0 ? Math.round(firstChunkAt - start) : 0;
+      const genMs = ttftMs > 0 && elapsedMs > ttftMs ? elapsedMs - ttftMs : elapsedMs;
       const completionTokens = finalUsage?.completion_tokens ?? 0;
-      const tps = completionTokens > 0 && elapsedMs > 0
-        ? (completionTokens / (elapsedMs / 1000))
+      const tps = completionTokens > 0 && genMs > 0
+        ? (completionTokens / (genMs / 1000))
         : undefined;
 
       setMessages((prev) =>
@@ -136,6 +141,7 @@ export default function Playground() {
                 model: finalModel,
                 combo: comboName,
                 latencyMs: Math.round(elapsedMs),
+                ttftMs,
                 tokens: finalUsage,
                 tps,
               }
@@ -347,44 +353,27 @@ function WelcomeScreen({ disabled, onPick }: { disabled: boolean; onPick: (text:
   );
 }
 
-// ---- Single conversation row (Open WebUI / ChatGPT-style flat rows) ----
+// ---- Single conversation row ----
 function MessageRow({ msg }: { msg: PlaygroundMsg }) {
   const isUser = msg.role === "user";
   return (
-    <div className={`group flex gap-3 ${isUser ? "" : ""}`}>
-      {/* Avatar (small, fixed) */}
-      <div className="shrink-0 mt-1">
-        <div
-          className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-medium ${
-            isUser
-              ? "bg-default-200 text-default-700"
-              : "bg-primary/15 text-primary"
-          }`}
-        >
-          {isUser ? "Você" : <IconBot className="w-4 h-4" />}
-        </div>
-      </div>
-
-      <div className="flex-1 min-w-0">
-        {/* Role label */}
-        <div className="text-xs font-medium text-default-500 mb-1">
-          {isUser ? "Você" : "Assistant"}
-          {msg.model && !isUser && (
-            <span className="ml-2 font-normal text-default-400 font-mono text-[10px]">
-              {msg.model}
-            </span>
-          )}
-        </div>
-
-        {/* Body — Open WebUI uses full-width rich text */}
-        <div className="text-[15px] leading-relaxed whitespace-pre-wrap break-words text-default-800 dark:text-default-100">
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+      <div
+        className={`min-w-0 ${
+          isUser
+            ? "max-w-[85%] bg-content2 border border-default-200/60 text-foreground rounded-2xl px-4 py-3 shadow-sm"
+            : "w-full text-foreground py-1"
+        }`}
+      >
+        {/* Body */}
+        <div className="text-[15px] leading-relaxed whitespace-pre-wrap break-words text-foreground font-normal">
           {msg.error ? (
-            <span className="text-danger">⚠ {msg.error}</span>
+            <span className="text-danger font-medium">⚠ {msg.error}</span>
           ) : (
             <>
               {msg.content || (msg.streaming ? "" : "")}
               {msg.streaming && !msg.error && (
-                <span className="inline-block w-1.5 h-4 bg-primary/70 ml-0.5 animate-pulse rounded-sm align-middle" />
+                <span className="inline-block w-1.5 h-4 bg-primary ml-0.5 animate-pulse rounded-sm align-middle" />
               )}
               {msg.streaming === false && msg.content === "" && !msg.error && (
                 <span className="text-default-400 italic">vazio</span>
@@ -393,14 +382,15 @@ function MessageRow({ msg }: { msg: PlaygroundMsg }) {
           )}
         </div>
 
-        {/* Metrics row (assistant, after stream) — subtle, like ChatGPT footer */}
+        {/* Metrics row (assistant, after stream) */}
         {!isUser && !msg.streaming && !msg.error && (
-          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-default-400 font-mono">
-            {msg.combo && <span>combo <span className="text-secondary-foreground">{msg.combo}</span></span>}
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-default-400 font-mono">
+            {msg.combo && <span className="text-secondary font-medium">combo: {msg.combo}</span>}
             {msg.model && <span>{msg.model}</span>}
+            {msg.ttftMs != null && msg.ttftMs > 0 && <span>ttft {formatLatency(msg.ttftMs)}</span>}
             {msg.latencyMs != null && <span>{formatLatency(msg.latencyMs)}</span>}
             {msg.tps != null && msg.tps > 0 && (
-              <span className="text-success/90">{msg.tps.toFixed(1)} tok/s</span>
+              <span className="text-success font-medium">{msg.tps.toFixed(1)} tok/s</span>
             )}
             {msg.tokens && (
               <span>

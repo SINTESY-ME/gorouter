@@ -145,13 +145,18 @@ func (r *UsageRepo) ModelStats(ctx context.Context) (map[string]*domain.ModelSta
 	var rows []struct {
 		Model        string
 		AvgTPS       float64
+		AvgTTFTMs    int64
 		AvgLatencyMs int64
 		Requests     int
 	}
 	err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).
 		Where("status < 400 AND completion_tokens > 0 AND latency_ms > 0").
 		Select(`model,
-			AVG(completion_tokens * 1000.0 / latency_ms) as avg_tps,
+			AVG(CASE WHEN ttft_ms > 0 AND latency_ms > ttft_ms
+				THEN completion_tokens * 1000.0 / (latency_ms - ttft_ms)
+				ELSE completion_tokens * 1000.0 / latency_ms
+			END) as avg_tps,
+			AVG(ttft_ms) as avg_ttft_ms,
 			AVG(latency_ms) as avg_latency_ms,
 			COUNT(*) as requests`).
 		Group("model").
@@ -163,6 +168,7 @@ func (r *UsageRepo) ModelStats(ctx context.Context) (map[string]*domain.ModelSta
 	for _, row := range rows {
 		out[row.Model] = &domain.ModelStat{
 			AvgTPS:       row.AvgTPS,
+			AvgTTFTMs:    row.AvgTTFTMs,
 			AvgLatencyMs: row.AvgLatencyMs,
 			Requests:     row.Requests,
 		}
@@ -175,13 +181,18 @@ func (r *UsageRepo) ModelStatsByID(ctx context.Context) (map[string]*domain.Mode
 	var rows []struct {
 		ID           string
 		AvgTPS       float64
+		AvgTTFTMs    int64
 		AvgLatencyMs int64
 		Requests     int
 	}
 	err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).
 		Where("status < 400 AND completion_tokens > 0 AND latency_ms > 0").
 		Select(`provider || '/' || model as id,
-			AVG(completion_tokens * 1000.0 / latency_ms) as avg_tps,
+			AVG(CASE WHEN ttft_ms > 0 AND latency_ms > ttft_ms
+				THEN completion_tokens * 1000.0 / (latency_ms - ttft_ms)
+				ELSE completion_tokens * 1000.0 / latency_ms
+			END) as avg_tps,
+			AVG(ttft_ms) as avg_ttft_ms,
 			AVG(latency_ms) as avg_latency_ms,
 			COUNT(*) as requests`).
 		Group("provider, model").
@@ -193,6 +204,7 @@ func (r *UsageRepo) ModelStatsByID(ctx context.Context) (map[string]*domain.Mode
 	for _, row := range rows {
 		out[row.ID] = &domain.ModelStat{
 			AvgTPS:       row.AvgTPS,
+			AvgTTFTMs:    row.AvgTTFTMs,
 			AvgLatencyMs: row.AvgLatencyMs,
 			Requests:     row.Requests,
 		}

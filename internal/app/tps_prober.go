@@ -62,11 +62,12 @@ func (p *TPSProber) MaybeProbe(modelStr string) {
 	go p.RunProbe(modelStr)
 }
 
-// RunProbe sends a standardized test prompt to the model, measures the
-// response time and completion tokens, calculates TPS, and stores the
-// result in the cache. Errors are logged but never propagated — a failed
-// probe simply leaves the model with no TPS data (it will be retried on the
-// next velocity request after the in-flight flag is cleared).
+// RunProbe sends a standardized streaming test prompt to the model, measures
+// TTFT (time to first token) and total time separately, calculates the real
+// generation TPS (excluding TTFT), and stores the result in the cache.
+// Errors are logged but never propagated — a failed probe simply leaves the
+// model with no TPS data (it will be retried on the next velocity request
+// after the in-flight flag is cleared).
 func (p *TPSProber) RunProbe(modelStr string) {
 	defer func() {
 		p.mu.Lock()
@@ -86,19 +87,28 @@ func (p *TPSProber) RunProbe(modelStr string) {
 	defer cancel()
 
 	start := time.Now()
-	text, completionTokens, err := p.Router.measureModelTPS(ctx, modelStr, "")
+	text, completionTokens, ttftMs, err := p.Router.measureModelTPSStreaming(ctx, modelStr, "")
 	elapsed := time.Since(start)
 	if err != nil {
-		slog.Debug("tps probe failed", "model", modelStr, "err", err)
+		slog.Warn("tps probe failed", "model", modelStr, "err", err)
 		return
 	}
 	if completionTokens <= 0 || elapsed <= 0 {
-		slog.Debug("tps probe: no tokens or zero elapsed", "model", modelStr, "tokens", completionTokens, "elapsed", elapsed, "text_len", len(text))
+		slog.Warn("tps probe: no tokens or zero elapsed", "model", modelStr, "tokens", completionTokens, "elapsed", elapsed, "text_len", len(text))
 		return
 	}
-	tps := float64(completionTokens) / elapsed.Seconds()
+	// Generation TPS: exclude TTFT so models with high prefill latency are
+	// not penalized. Falls back to total TPS when TTFT is unavailable.
+	genElapsed := elapsed
+	if ttftMs > 0 {
+		genElapsed = elapsed - time.Duration(ttftMs)*time.Millisecond
+	}
+	if genElapsed <= 0 {
+		genElapsed = elapsed
+	}
+	tps := float64(completionTokens) / genElapsed.Seconds()
 	cache.SetProbe(modelStr, tps)
-	slog.Info("tps probe measured", "model", modelStr, "tps", fmt.Sprintf("%.1f", tps), "tokens", completionTokens, "elapsed", elapsed)
+	slog.Info("tps probe measured", "model", modelStr, "tps", fmt.Sprintf("%.1f", tps), "tokens", completionTokens, "ttft_ms", ttftMs, "gen_ms", genElapsed.Milliseconds())
 }
 
 // tpsProbeMessages is the standardized prompt used to measure TPS. It

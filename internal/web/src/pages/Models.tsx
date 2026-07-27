@@ -261,7 +261,7 @@ export default function Models() {
                     {st && st.requests > 0 && (
                       <div className="flex items-center gap-3 mt-2 text-[10px] text-default-500">
                         <span className="tabular-nums">{st.avg_tps > 0 ? `${st.avg_tps.toFixed(1)} tok/s` : "—"}</span>
-                        <span className="tabular-nums">{st.avg_latency_ms > 0 ? `${Math.round(st.avg_latency_ms)}ms` : "—"}</span>
+                        <span className="tabular-nums">{st.avg_ttft_ms && st.avg_ttft_ms > 0 ? `ttft ${Math.round(st.avg_ttft_ms)}ms` : ""}{st.avg_ttft_ms && st.avg_ttft_ms > 0 ? " · " : ""}{st.avg_latency_ms > 0 ? `${Math.round(st.avg_latency_ms)}ms` : "—"}</span>
                         <span className="tabular-nums">{st.requests > 999 ? formatCompact(st.requests) : `${st.requests}x`}</span>
                       </div>
                     )}

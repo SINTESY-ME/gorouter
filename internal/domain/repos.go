@@ -112,7 +112,8 @@ type UsageDailyPoint struct {
 
 // ModelStat is per-model aggregate performance data.
 type ModelStat struct {
-	AvgTPS      float64 `json:"avg_tps"`
+	AvgTPS       float64 `json:"avg_tps"`
+	AvgTTFTMs    int64  `json:"avg_ttft_ms"`
 	AvgLatencyMs int64  `json:"avg_latency_ms"`
-	Requests    int     `json:"requests"`
+	Requests     int    `json:"requests"`
 }

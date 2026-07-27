@@ -57,6 +57,7 @@ export default function Logs() {
               <TableColumn>TOKENS</TableColumn>
               <TableColumn>CUSTO</TableColumn>
               <TableColumn>TPS</TableColumn>
+              <TableColumn>TTFT</TableColumn>
               <TableColumn>LATÊNCIA</TableColumn>
               <TableColumn>STATUS</TableColumn>
             </TableHeader>
@@ -64,8 +65,10 @@ export default function Logs() {
               {(e) => {
                 const totalTokens = e.prompt_tokens + e.completion_tokens;
                 const lat = e.latency_ms || 0;
-                const tps = lat > 0 && e.completion_tokens > 0
-                  ? (e.completion_tokens * 1000 / lat).toFixed(1)
+                const ttft = e.ttft_ms || 0;
+                const genMs = ttft > 0 && lat > ttft ? lat - ttft : lat;
+                const tps = genMs > 0 && e.completion_tokens > 0
+                  ? (e.completion_tokens * 1000 / genMs).toFixed(1)
                   : null;
                 return (
                 <TableRow key={e.id}>
@@ -77,6 +80,7 @@ export default function Logs() {
                   <TableCell className="tabular-nums" title={totalTokens.toLocaleString("en-US")}>{formatCompact(totalTokens)}</TableCell>
                   <TableCell><span className={`tabular-nums text-xs ${costColor(e.cost)}`} title={`$${e.cost.toFixed(6)}`}>{e.cost > 0 ? formatCost(e.cost) : "—"}</span></TableCell>
                   <TableCell><span className="tabular-nums text-xs">{tps ? `${tps}` : "—"}</span></TableCell>
+                  <TableCell><span className="tabular-nums text-xs">{ttft > 0 ? `${ttft}ms` : "—"}</span></TableCell>
                   <TableCell><span className="tabular-nums text-xs">{lat > 0 ? `${lat}ms` : "—"}</span></TableCell>
                   <TableCell><Chip size="sm" color={statusColor(e.status)} variant="flat">{e.status}</Chip></TableCell>
                 </TableRow>
