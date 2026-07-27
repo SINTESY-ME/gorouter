@@ -137,22 +137,28 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 	if s.Cache != nil && s.Cache.Enabled() && opts.Endpoint == "" && !isCacheDisabled(ctx) {
 		cacheKey := s.Cache.ComputeKey(body, modelStr, opts.InputFormat)
 		if cached, ok := s.Cache.Lookup(ctx, cacheKey); ok {
-			if s.Savings != nil {
-				var prompt, completion, cacheRead, cacheCreation int
-				if cached.Stream {
-					prompt, completion, cacheRead, cacheCreation = parseUsageFromSSEFull(cached.StreamChunks)
-				} else {
-					prompt, completion, cacheRead, cacheCreation = parseUsageFromJSONFull(cached.Body)
-				}
-				// Calculate the real cost that was avoided by serving from cache.
-				var costSaved float64
-				if s.Pricing != nil {
-					if mid, ok := domain.SplitModelID(modelStr); ok {
-						if pricing, ok := s.Pricing.Get(mid); ok {
-							costSaved = CalculateCost(pricing, "", prompt, completion, cacheRead, cacheCreation)
-						}
+			var prompt, completion, cacheRead, cacheCreation int
+			if cached.Stream {
+				prompt, completion, cacheRead, cacheCreation = parseUsageFromSSEFull(cached.StreamChunks)
+			} else {
+				prompt, completion, cacheRead, cacheCreation = parseUsageFromJSONFull(cached.Body)
+			}
+			// Calculate the real cost that was avoided by serving from cache.
+			var costSaved float64
+			var mid domain.ModelID
+			if s.Pricing != nil {
+				if m, ok := domain.SplitModelID(modelStr); ok {
+					mid = m
+					if pricing, ok := s.Pricing.Get(mid); ok {
+						costSaved = CalculateCost(pricing, "", prompt, completion, cacheRead, cacheCreation)
 					}
 				}
+			}
+			// Record a usage entry so savings survive restarts and can be
+			// aggregated per model/combo. Cache hits have zero cost (no
+			// upstream call) and zero latency.
+			go s.recordCacheHitUsage(mid, modelStr, apiKey, prompt, completion, costSaved)
+			if s.Savings != nil {
 				s.Savings.RecordCacheHit(prompt+completion, costSaved)
 			}
 			if cached.Stream {
@@ -222,6 +228,11 @@ type RouterResponse struct {
 	ConnectionID string
 	// Cached is true when the response came from the response cache.
 	Cached bool
+	// RTK savings — populated by executeOne when RTK compression reduced
+	// the request body. Propagated to recordUsage for persistence.
+	RTKBytesSaved  int
+	RTKTokensSaved int
+	RTKCostSaved   float64
 }
 
 func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, opts RouteOptions, endpoint string, contentType ...string) (*RouterResponse, error) {
@@ -698,21 +709,22 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 		}
 		// RTK: compress tool_result content in the translated body. Fail-open;
 		// nil compressor or passthrough endpoint skips compression.
+		var rtkBytesSaved, rtkTokensSaved int
+		var rtkCostSaved float64
 		if s.Compressor != nil {
 			before := len(translated)
 			translated = s.Compressor.Compress(translated)
-			if s.Savings != nil && len(translated) < before {
-				bytesSaved := before - len(translated)
-				// Estimate tokens saved (~4 bytes/token) and calculate the
-				// real input cost that was avoided, using the model's pricing.
-				var costSaved float64
+			if len(translated) < before {
+				rtkBytesSaved = before - len(translated)
+				rtkTokensSaved = rtkBytesSaved / 4
 				if s.Pricing != nil {
 					if pricing, ok := s.Pricing.Get(m); ok {
-						tokensSaved := bytesSaved / 4
-						costSaved = float64(tokensSaved) * pricing.InputCostPerToken
+						rtkCostSaved = float64(rtkTokensSaved) * pricing.InputCostPerToken
 					}
 				}
-				s.Savings.RecordRTKCompression(bytesSaved, costSaved)
+				if s.Savings != nil {
+					s.Savings.RecordRTKCompression(rtkBytesSaved, rtkCostSaved)
+				}
 			}
 		}
 		execReq := domain.ExecuteRequest{
@@ -774,12 +786,15 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 				respBody = io.NopCloser(bytes.NewReader(t))
 			}
 		}
-		return &RouterResponse{
-			StatusCode: res.StatusCode,
-			Headers:    res.Headers,
-			Body:       respBody,
-			Stream:     res.Stream,
-		}, nil
+	return &RouterResponse{
+		StatusCode:     res.StatusCode,
+		Headers:        res.Headers,
+		Body:           respBody,
+		Stream:         res.Stream,
+		RTKBytesSaved:  rtkBytesSaved,
+		RTKTokensSaved: rtkTokensSaved,
+		RTKCostSaved:   rtkCostSaved,
+	}, nil
 	}
 	// Passthrough (endpoint != ""). For JSON bodies (embeddings, images,
 	// audio/speech) we rewrite the model field via the OpenAI->OpenAI
@@ -838,7 +853,7 @@ func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterRespon
 		limit: bufLimit,
 		start: start,
 		onClose: func(buf []byte, ttftMs int64) {
-			s.recordUsage(m, conn, apiKey, endpoint, res.StatusCode, res.Stream, buf, comboName, start, ttftMs)
+			s.recordUsage(m, conn, apiKey, endpoint, res.StatusCode, res.Stream, buf, comboName, start, ttftMs, res.RTKBytesSaved, res.RTKTokensSaved, res.RTKCostSaved)
 			if cacheEnabled && hasCacheKey && res.StatusCode < 400 {
 				if key, ok := cacheKeyFromCtx(ctx); ok {
 					if res.Stream {
@@ -857,7 +872,7 @@ func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterRespon
 // a single UsageEntry. Uses a detached context (the request may be done by
 // the time the body is closed). When the model has pricing data in the
 // in-memory pricing cache, the dollar cost is calculated and recorded.
-func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, status int, stream bool, buf []byte, comboName string, start time.Time, ttftMs int64) {
+func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, status int, stream bool, buf []byte, comboName string, start time.Time, ttftMs int64, rtkBytes int, rtkTokens int, rtkCost float64) {
 	prompt, completion, cacheRead, cacheCreation := 0, 0, 0, 0
 	if endpoint == "" {
 		endpoint = "chat/completions"
@@ -893,6 +908,32 @@ func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, a
 		CompletionTokens:  completion,
 		Cost:              cost,
 		Status:            status,
+		RTKCompressed:     rtkBytes > 0,
+		RTKBytesSaved:     rtkBytes,
+		RTKTokensSaved:    rtkTokens,
+		RTKCostSaved:      rtkCost,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = s.Usage.Record(ctx, entry)
+}
+
+// recordCacheHitUsage writes a UsageEntry for a cache hit so savings data
+// survives restarts and can be aggregated per model/combo/period. Runs in a
+// goroutine — never blocks the request path.
+func (s *RouterService) recordCacheHitUsage(m domain.ModelID, modelStr string, apiKey string, prompt, completion int, costSaved float64) {
+	entry := domain.UsageEntry{
+		Timestamp:        time.Now(),
+		Provider:         m.Provider,
+		Model:            m.Model,
+		ApiKey:           apiKey,
+		Endpoint:         "chat/completions",
+		PromptTokens:     prompt,
+		CompletionTokens: completion,
+		CacheHit:         true,
+		CacheTokensSaved: prompt + completion,
+		CacheCostSaved:   costSaved,
+		Status:           200,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

@@ -115,12 +115,15 @@ export interface UsageStats {
   by_model_cost: Record<string, number>;
   by_api_key: Record<string, number>;
   daily: { date: string; requests: number; tokens: number; cost: number }[];
+  bucket?: string;
 }
 export interface UsageEntry {
   id: number; timestamp: string; provider: string; model: string; combo_name?: string;
   connection_id: string; api_key: string; endpoint: string;
   prompt_tokens: number; completion_tokens: number; cached_tokens: number;
   cost: number; status: number; latency_ms?: number; ttft_ms?: number;
+  cache_hit?: boolean; cache_tokens_saved?: number; cache_cost_saved?: number;
+  rtk_compressed?: boolean; rtk_bytes_saved?: number; rtk_tokens_saved?: number; rtk_cost_saved?: number;
 }
 export interface ProviderDef {
   id: string;
@@ -225,7 +228,15 @@ export const api = {
     remove: (id: string) => request<void>(`/api/keys/${id}`, { method: "DELETE" }),
   },
   usage: {
-    stats: (period = "24h") => request<UsageStats>(`/api/usage/stats?period=${period}`),
+    stats: (params: { period?: string; from?: string; to?: string; bucket?: string } | string = "24h") => {
+      const q = typeof params === "string" ? { period: params } : params;
+      const sp = new URLSearchParams();
+      if (q.period) sp.set("period", q.period);
+      if (q.from) sp.set("from", q.from);
+      if (q.to) sp.set("to", q.to);
+      if (q.bucket) sp.set("bucket", q.bucket);
+      return request<UsageStats>(`/api/usage/stats?${sp.toString()}`);
+    },
     history: (limit = 100) => request<UsageEntry[]>(`/api/usage/history?limit=${limit}`),
   },
   settings: {
@@ -238,7 +249,7 @@ export const api = {
     flush: () => request<{ status: string }>("/api/cache/flush", { method: "POST" }),
   },
   savings: {
-    stats: () => request<SavingsStats>("/api/savings"),
+    stats: (period = "60d") => request<SavingsStats>(`/api/savings?period=${period}`),
   },
 };
 

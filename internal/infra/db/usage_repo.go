@@ -18,16 +18,21 @@ func (r *UsageRepo) Record(ctx context.Context, e domain.UsageEntry) error {
 	return r.db.WithContext(ctx).Create(&e).Error
 }
 
-func (r *UsageRepo) Stats(ctx context.Context, period string) (*domain.UsageStats, error) {
-	since, err := periodStart(period)
+func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domain.UsageStats, error) {
+	from, to, err := resolveRange(q)
 	if err != nil {
 		return nil, err
+	}
+	bucket := q.Bucket
+	if bucket == "" {
+		bucket = autoBucket(from, to)
 	}
 	s := &domain.UsageStats{
 		ByProvider:  map[string]int{},
 		ByModel:     map[string]int{},
 		ByModelCost: map[string]float64{},
 		ByApiKey:    map[string]int{},
+		Bucket:      bucket,
 	}
 	// Totals
 	var totals struct {
@@ -36,7 +41,7 @@ func (r *UsageRepo) Stats(ctx context.Context, period string) (*domain.UsageStat
 		CompletionTokens int
 		Cost            float64
 	}
-	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("timestamp >= ?", since).
+	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("timestamp >= ? AND timestamp < ?", from, to).
 		Select("COUNT(*) as requests, COALESCE(SUM(prompt_tokens), 0) as prompt_tokens, COALESCE(SUM(completion_tokens), 0) as completion_tokens, COALESCE(SUM(cost), 0) as cost").
 		Scan(&totals).Error; err != nil {
 		return nil, err
@@ -49,7 +54,7 @@ func (r *UsageRepo) Stats(ctx context.Context, period string) (*domain.UsageStat
 	// By provider
 	type groupRow struct{ Key string; Count int }
 	var provRows []groupRow
-	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("timestamp >= ?", since).
+	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("timestamp >= ? AND timestamp < ?", from, to).
 		Select("provider as key, COUNT(*) as count").Group("provider").Scan(&provRows).Error; err != nil {
 		return nil, err
 	}
@@ -59,7 +64,7 @@ func (r *UsageRepo) Stats(ctx context.Context, period string) (*domain.UsageStat
 
 	// By model
 	var modelRows []groupRow
-	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("timestamp >= ?", since).
+	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("timestamp >= ? AND timestamp < ?", from, to).
 		Select("model as key, COUNT(*) as count").Group("model").Scan(&modelRows).Error; err != nil {
 		return nil, err
 	}
@@ -73,7 +78,7 @@ func (r *UsageRepo) Stats(ctx context.Context, period string) (*domain.UsageStat
 		Cost  float64
 	}
 	var costRows []costRow
-	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("timestamp >= ?", since).
+	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("timestamp >= ? AND timestamp < ?", from, to).
 		Select("model as key, COALESCE(SUM(cost), 0) as cost").Group("model").Scan(&costRows).Error; err != nil {
 		return nil, err
 	}
@@ -83,7 +88,7 @@ func (r *UsageRepo) Stats(ctx context.Context, period string) (*domain.UsageStat
 
 	// By api_key (non-empty only)
 	var keyRows []groupRow
-	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("timestamp >= ? AND api_key != ''", since).
+	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("timestamp >= ? AND timestamp < ? AND api_key != ''", from, to).
 		Select("api_key as key, COUNT(*) as count").Group("api_key").Scan(&keyRows).Error; err != nil {
 		return nil, err
 	}
@@ -91,30 +96,91 @@ func (r *UsageRepo) Stats(ctx context.Context, period string) (*domain.UsageStat
 		s.ByApiKey[row.Key] = row.Count
 	}
 
-	// Daily bucketing (driver-specific date expression)
-	daily, err := r.daily(ctx, since)
+	// Time series with dynamic bucket
+	series, err := r.timeseries(ctx, from, to, bucket)
 	if err != nil {
 		return nil, err
 	}
-	s.Daily = daily
+	s.Daily = series
 	return s, nil
 }
 
-func (r *UsageRepo) daily(ctx context.Context, since time.Time) ([]domain.UsageDailyPoint, error) {
-	// Bucket by day. SQLite: date(timestamp), Postgres: date_trunc('day', timestamp)
-	var dateExpr string
-	if r.db.Dialector.Name() == "postgres" {
-		dateExpr = "to_char(date_trunc('day', timestamp), 'YYYY-MM-DD')"
-	} else {
-		dateExpr = "date(timestamp)"
+// resolveRange computes (from, to) from a UsageStatsQuery. When q.From is
+// non-zero, the custom range is used directly. Otherwise q.Period is
+// resolved via periodStart. To defaults to now when zero.
+func resolveRange(q domain.UsageStatsQuery) (time.Time, time.Time, error) {
+	from := q.From
+	to := q.To
+	if from.IsZero() {
+		var err error
+		from, err = periodStart(q.Period)
+		if err != nil {
+			return time.Time{}, time.Time{}, err
+		}
 	}
+	if to.IsZero() {
+		to = time.Now().UTC()
+	}
+	return from, to, nil
+}
+
+// autoBucket selects a reasonable bucket size based on the time range width.
+func autoBucket(from, to time.Time) string {
+	dur := to.Sub(from)
+	switch {
+	case dur <= time.Hour:
+		return "minute"
+	case dur <= 24 * time.Hour:
+		return "hour"
+	default:
+		return "day"
+	}
+}
+
+// bucketExpr returns the SQL expression for bucketing by the given granularity.
+// Supported: "minute", "5m", "30m", "hour", "day".
+func bucketExpr(bucket string, isPostgres bool) string {
+	if !isPostgres {
+		// SQLite strftime
+		switch bucket {
+		case "minute":
+			return "strftime('%Y-%m-%dT%H:%M', timestamp)"
+		case "5m":
+			return "strftime('%Y-%m-%dT%H:%M', datetime(timestamp, 'unixepoch', 'epoch', (strftime('%M', timestamp) / 5) * 5 * 60, 'unixepoch'))"
+		case "30m":
+			return "strftime('%Y-%m-%dT%H:%M', datetime(timestamp, 'unixepoch', 'epoch', (strftime('%M', timestamp) / 30) * 30 * 60, 'unixepoch'))"
+		case "hour":
+			return "strftime('%Y-%m-%dT%H:00', timestamp)"
+		default:
+			return "date(timestamp)"
+		}
+	}
+	// Postgres date_trunc + to_char
+	trunc := "day"
+	switch bucket {
+	case "minute":
+		trunc = "minute"
+	case "5m":
+		return "to_char(date_trunc('hour', timestamp) + INTERVAL '5 min' * FLOOR(EXTRACT(minute FROM timestamp) / 5), 'YYYY-MM-DD\"T\"HH24:MI')"
+	case "30m":
+		return "to_char(date_trunc('hour', timestamp) + INTERVAL '30 min' * FLOOR(EXTRACT(minute FROM timestamp) / 30), 'YYYY-MM-DD\"T\"HH24:MI')"
+	case "hour":
+		trunc = "hour"
+	}
+	return "to_char(date_trunc('" + trunc + "', timestamp), 'YYYY-MM-DD\"T\"HH24:00')"
+}
+
+func (r *UsageRepo) timeseries(ctx context.Context, from, to time.Time, bucket string) ([]domain.UsageDailyPoint, error) {
+	isPg := r.db.Dialector.Name() == "postgres"
+	dateExpr := bucketExpr(bucket, isPg)
 	var rows []struct {
 		Date     string
 		Requests int
 		Tokens   int
 		Cost     float64
 	}
-	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("timestamp >= ?", since).
+	if err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).
+		Where("timestamp >= ? AND timestamp < ?", from, to).
 		Select(dateExpr + " as date, COUNT(*) as requests, COALESCE(SUM(prompt_tokens + completion_tokens), 0) as tokens, COALESCE(SUM(cost), 0) as cost").
 		Group(dateExpr).Order("date").
 		Scan(&rows).Error; err != nil {
@@ -212,11 +278,56 @@ func (r *UsageRepo) ModelStatsByID(ctx context.Context) (map[string]*domain.Mode
 	return out, nil
 }
 
+// SavingsStats aggregates cache and RTK savings from usage_entries for a
+// given time range. Each type is summed independently so the dashboard can
+// show them separately.
+func (r *UsageRepo) SavingsStats(ctx context.Context, period string) (*domain.SavingsAgg, error) {
+	since, err := periodStart(period)
+	if err != nil {
+		return nil, err
+	}
+	var row struct {
+		CacheHits        int64
+		CacheTokensSaved int64
+		CacheCostSaved   float64
+		RTKCompressions  int64
+		RTKBytesSaved    int64
+		RTKTokensSaved   int64
+		RTKCostSaved     float64
+	}
+	err = r.db.WithContext(ctx).Model(&domain.UsageEntry{}).
+		Where("timestamp >= ?", since).
+		Select(`
+			COALESCE(SUM(CASE WHEN cache_hit THEN 1 ELSE 0 END), 0) as cache_hits,
+			COALESCE(SUM(cache_tokens_saved), 0) as cache_tokens_saved,
+			COALESCE(SUM(cache_cost_saved), 0) as cache_cost_saved,
+			COALESCE(SUM(CASE WHEN rtk_compressed THEN 1 ELSE 0 END), 0) as rtk_compressions,
+			COALESCE(SUM(rtk_bytes_saved), 0) as rtk_bytes_saved,
+			COALESCE(SUM(rtk_tokens_saved), 0) as rtk_tokens_saved,
+			COALESCE(SUM(rtk_cost_saved), 0) as rtk_cost_saved
+		`).
+		Scan(&row).Error
+	if err != nil {
+		return nil, err
+	}
+	return &domain.SavingsAgg{
+		CacheHits:        row.CacheHits,
+		CacheTokensSaved: row.CacheTokensSaved,
+		CacheCostSaved:   row.CacheCostSaved,
+		RTKCompressions:  row.RTKCompressions,
+		RTKBytesSaved:    row.RTKBytesSaved,
+		RTKTokensSaved:   row.RTKTokensSaved,
+		RTKCostSaved:     row.RTKCostSaved,
+	}, nil
+}
+
 func periodStart(period string) (time.Time, error) {
 	now := time.Now().UTC()
 	switch period {
 	case "", "24h":
 		return now.Add(-24 * time.Hour), nil
+	case "1h":
+		return now.Add(-1 * time.Hour), nil
 	case "7d":
 		return now.Add(-7 * 24 * time.Hour), nil
 	case "30d":

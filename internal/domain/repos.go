@@ -47,12 +47,23 @@ type ApiKeyRepo interface {
 	GetByKey(ctx context.Context, key string) (*ApiKey, error) // nil if not found
 }
 
+// UsageStatsQuery specifies the time range and bucket granularity for a
+// usage stats query. When From is zero, the preset period string is used
+// instead. When To is zero, now (exclusive) is used. When Bucket is empty,
+// the repository auto-selects based on the range width.
+type UsageStatsQuery struct {
+	From   time.Time // inclusive lower bound; zero = use period preset
+	To     time.Time // exclusive upper bound; zero = now
+	Period string    // preset: "24h", "7d", "30d", "60d", "1h" — used when From is zero
+	Bucket string    // "hour", "minute", "5m", "30m", "day"; empty = auto
+}
+
 // UsageRepo records and aggregates request usage.
 type UsageRepo interface {
 	Record(ctx context.Context, e UsageEntry) error
-	// Stats returns aggregated totals for a time range. Period is one of
-	// "24h", "7d", "30d".
-	Stats(ctx context.Context, period string) (*UsageStats, error)
+	// Stats returns aggregated totals + a time-series for the given query.
+	// When q.From is zero, q.Period is used to compute the start time.
+	Stats(ctx context.Context, q UsageStatsQuery) (*UsageStats, error)
 	// History returns raw entries, newest first, limited.
 	History(ctx context.Context, limit int) ([]UsageEntry, error)
 	// ModelStats returns per-model aggregate stats (avg TPS, avg latency, requests).
@@ -60,6 +71,8 @@ type UsageRepo interface {
 	// ModelStatsByID is like ModelStats but keyed by the full "provider/model"
 	// identifier so callers can match combo members unambiguously.
 	ModelStatsByID(ctx context.Context) (map[string]*ModelStat, error)
+	// SavingsStats returns aggregated savings (cache + RTK) for a time range.
+	SavingsStats(ctx context.Context, period string) (*SavingsAgg, error)
 }
 
 // ModelRepo persists the model catalog (synced + manual entries).
@@ -89,17 +102,19 @@ type SettingRepo interface {
 	Has(ctx context.Context, key string) (bool, error)
 }
 
-// UsageStats is the aggregated dashboard summary.
+// UsageStats is the aggregated dashboard summary. Bucket indicates the
+// granularity of the Daily series ("hour", "minute", "5m", "30m", "day").
 type UsageStats struct {
 	Requests         int                `json:"requests"`
 	PromptTokens     int                `json:"prompt_tokens"`
 	CompletionTokens int                `json:"completion_tokens"`
 	Cost             float64            `json:"cost"`
-	ByProvider       map[string]int     `json:"by_provider"`     // -> requests
+	ByProvider       map[string]int     `json:"by_provider"`
 	ByModel          map[string]int     `json:"by_model"`
 	ByModelCost      map[string]float64 `json:"by_model_cost"`
 	ByApiKey         map[string]int     `json:"by_api_key"`
 	Daily            []UsageDailyPoint  `json:"daily"`
+	Bucket           string             `json:"bucket"`
 }
 
 // UsageDailyPoint is one bucket of a time series.
@@ -110,10 +125,23 @@ type UsageDailyPoint struct {
 	Cost     float64 `json:"cost"`
 }
 
+// SavingsAgg is the aggregated savings summary for a time range. Each type
+// (cache, RTK) has its own counters so the dashboard can show them
+// separately. Future saving mechanisms can add their own fields.
+type SavingsAgg struct {
+	CacheHits        int64   `json:"cache_hits"`
+	CacheTokensSaved int64   `json:"cache_tokens_saved"`
+	CacheCostSaved   float64 `json:"cache_cost_saved"`
+	RTKCompressions  int64   `json:"rtk_compressions"`
+	RTKBytesSaved    int64   `json:"rtk_bytes_saved"`
+	RTKTokensSaved   int64   `json:"rtk_tokens_saved"`
+	RTKCostSaved     float64 `json:"rtk_cost_saved"`
+}
+
 // ModelStat is per-model aggregate performance data.
 type ModelStat struct {
 	AvgTPS       float64 `json:"avg_tps"`
 	AvgTTFTMs    int64  `json:"avg_ttft_ms"`
 	AvgLatencyMs int64  `json:"avg_latency_ms"`
-	Requests     int    `json:"requests"`
+	Requests     int     `json:"requests"`
 }

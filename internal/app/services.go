@@ -258,8 +258,8 @@ type UsageService struct {
 	Repo domain.UsageRepo
 }
 
-func (s *UsageService) Stats(ctx context.Context, period string) (*domain.UsageStats, error) {
-	return s.Repo.Stats(ctx, period)
+func (s *UsageService) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domain.UsageStats, error) {
+	return s.Repo.Stats(ctx, q)
 }
 
 func (s *UsageService) History(ctx context.Context, limit int) ([]domain.UsageEntry, error) {

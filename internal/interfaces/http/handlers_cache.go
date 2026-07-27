@@ -30,18 +30,34 @@ func (s *Server) handleCacheFlush(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "flushed"})
 }
 
-// handleSavings returns cumulative token/byte savings from the response cache
-// and RTK request compression. Returns zeros when the tracker is nil.
+// handleSavings returns aggregated savings (cache + RTK) from the database
+// so the data survives restarts. Reads from usage_entries where savings
+// fields are populated. Falls back to in-memory tracker when Usage is nil.
 func (s *Server) handleSavings(w http.ResponseWriter, r *http.Request) {
-	if s.Savings == nil {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"cache_hits":        0,
-			"cache_tokens_saved": 0,
-			"rtk_compressions":  0,
-			"rtk_bytes_saved":   0,
-			"rtk_tokens_saved":  0,
-		})
+	period := r.URL.Query().Get("period")
+	if period == "" {
+		period = "60d"
+	}
+	if s.Usage != nil {
+		agg, err := s.Usage.Repo.SavingsStats(r.Context(), period)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, agg)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.Savings.Stats())
+	if s.Savings != nil {
+		writeJSON(w, http.StatusOK, s.Savings.Stats())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"cache_hits":         0,
+		"cache_tokens_saved": 0,
+		"cache_cost_saved":   0,
+		"rtk_compressions":   0,
+		"rtk_bytes_saved":    0,
+		"rtk_tokens_saved":   0,
+		"rtk_cost_saved":     0,
+	})
 }

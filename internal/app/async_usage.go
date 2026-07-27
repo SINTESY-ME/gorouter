@@ -52,8 +52,8 @@ func (r *AsyncUsageRecorder) drain() {
 	}
 }
 
-func (r *AsyncUsageRecorder) Stats(ctx context.Context, period string) (*domain.UsageStats, error) {
-	return r.repo.Stats(ctx, period)
+func (r *AsyncUsageRecorder) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domain.UsageStats, error) {
+	return r.repo.Stats(ctx, q)
 }
 
 func (r *AsyncUsageRecorder) History(ctx context.Context, limit int) ([]domain.UsageEntry, error) {
@@ -66,6 +66,10 @@ func (r *AsyncUsageRecorder) ModelStats(ctx context.Context) (map[string]*domain
 
 func (r *AsyncUsageRecorder) ModelStatsByID(ctx context.Context) (map[string]*domain.ModelStat, error) {
 	return r.repo.ModelStatsByID(ctx)
+}
+
+func (r *AsyncUsageRecorder) SavingsStats(ctx context.Context, period string) (*domain.SavingsAgg, error) {
+	return r.repo.SavingsStats(ctx, period)
 }
 
 // Close drains pending entries. Call during graceful shutdown.

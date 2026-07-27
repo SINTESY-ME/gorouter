@@ -234,6 +234,19 @@ type UsageEntry struct {
 	CachedTokens      int       `json:"cached_tokens,omitempty"`
 	Cost              float64   `json:"cost"`
 	Status            int       `json:"status"` // http status
+	// Cache savings — populated when this request was served from the
+	// response cache (no upstream call). The tokens/cost here represent
+	// what was avoided by serving the cached response.
+	CacheHit           bool    `json:"cache_hit,omitempty" gorm:"column:cache_hit;default:false"`
+	CacheTokensSaved   int     `json:"cache_tokens_saved,omitempty" gorm:"column:cache_tokens_saved;default:0"`
+	CacheCostSaved     float64 `json:"cache_cost_saved,omitempty" gorm:"column:cache_cost_saved;default:0"`
+	// RTK savings — populated when RTK compression reduced the request
+	// body before sending upstream. Tokens/bytes/cost represent what was
+	// shaved off the input.
+	RTKCompressed      bool    `json:"rtk_compressed,omitempty" gorm:"column:rtk_compressed;default:false"`
+	RTKBytesSaved      int     `json:"rtk_bytes_saved,omitempty" gorm:"column:rtk_bytes_saved;default:0"`
+	RTKTokensSaved     int     `json:"rtk_tokens_saved,omitempty" gorm:"column:rtk_tokens_saved;default:0"`
+	RTKCostSaved       float64 `json:"rtk_cost_saved,omitempty" gorm:"column:rtk_cost_saved;default:0"`
 }
 
 // Setting is a key-value persisted configuration entry (dashboard password

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Spinner } from "@heroui/react";
+import { Spinner, Select, SelectItem, Input, Button } from "@heroui/react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
   BarChart, Bar, PieChart, Pie, Cell, Legend,
@@ -10,11 +10,25 @@ import { formatCompact, formatCost } from "../format";
 const PIE_COLORS = ["#00C2A8", "#FF6B6B", "#4DA3FF", "#FFB347", "#B266FF", "#FFD93D", "#6BCB77"];
 
 const periods: { key: string; label: string }[] = [
+  { key: "1h", label: "1 hora" },
   { key: "24h", label: "24 horas" },
   { key: "7d", label: "7 dias" },
   { key: "30d", label: "30 dias" },
   { key: "60d", label: "60 dias" },
 ];
+
+const buckets: { key: string; label: string }[] = [
+  { key: "", label: "Auto" },
+  { key: "minute", label: "Minuto" },
+  { key: "5m", label: "5 min" },
+  { key: "30m", label: "30 min" },
+  { key: "hour", label: "Hora" },
+  { key: "day", label: "Dia" },
+];
+
+const bucketLabel: Record<string, string> = {
+  minute: "minuto", "5m": "5 min", "30m": "30 min", hour: "hora", day: "dia",
+};
 
 const chartTooltipStyle = {
   backgroundColor: "#1a1a1a",
@@ -25,22 +39,49 @@ const chartTooltipStyle = {
 };
 const chartItemStyle = { color: "#eee" };
 
+// formatBucketLabel formats the date string from the backend based on the
+// bucket type so the XAxis shows meaningful labels.
+function formatBucketLabel(dateStr: string, bucket: string): string {
+  // day: "2026-07-26" -> "07-26"
+  // hour: "2026-07-26T14:00" -> "14:00"
+  // minute/5m/30m: "2026-07-26T14:35" -> "14:35"
+  if (bucket === "day") return dateStr.slice(5);
+  if (dateStr.includes("T")) {
+    const time = dateStr.split("T")[1];
+    return time;
+  }
+  return dateStr.slice(5);
+}
+
 export default function Dashboard() {
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [savings, setSavings] = useState<SavingsStats | null>(null);
-  const [period, setPeriod] = useState("7d");
+  const [period, setPeriod] = useState("24h");
+  const [bucket, setBucket] = useState(""); // "" = auto
+  const [customMode, setCustomMode] = useState(false);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
+    const params: { period?: string; from?: string; to?: string; bucket?: string } = {};
+    if (customMode && fromDate) {
+      params.from = new Date(fromDate).toISOString();
+      if (toDate) params.to = new Date(toDate).toISOString();
+      if (bucket) params.bucket = bucket;
+    } else {
+      params.period = period;
+      if (bucket) params.bucket = bucket;
+    }
     Promise.all([
-      api.usage.stats(period),
-      api.savings.stats().catch(() => null),
+      api.usage.stats(params),
+      api.savings.stats(customMode && fromDate ? "60d" : period).catch(() => null),
     ])
       .then(([s, sv]) => { setStats(s); setSavings(sv); })
       .catch(() => setStats(null))
       .finally(() => setLoading(false));
-  }, [period]);
+  }, [period, bucket, customMode, fromDate, toDate]);
 
   if (loading) return (
     <div className="flex justify-center py-20"><Spinner label="Carregando..." /></div>
@@ -51,34 +92,93 @@ export default function Dashboard() {
     </div>
   );
 
-  const daily = stats.daily.map((d) => ({ ...d, date: d.date.slice(5) }));
+  const activeBucket = stats.bucket || "day";
+  const daily = stats.daily.map((d) => ({ ...d, label: formatBucketLabel(d.date, activeBucket) }));
   const byProvider = Object.entries(stats.by_provider).map(([name, value]) => ({ name, value }));
   const byModel = Object.entries(stats.by_model).map(([name, value]) => ({ name, value }));
   const byModelCost = Object.entries(stats.by_model_cost || {}).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Visão geral</h1>
           <p className="text-sm text-default-500 mt-0.5">
             Total de {stats.requests} requisições no período
           </p>
         </div>
-        <div className="flex bg-content1 rounded-lg p-0.5 border border-default-100">
-          {periods.map((p) => (
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Period presets */}
+          <div className="flex bg-content1 rounded-lg p-0.5 border border-default-100">
+            {periods.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => { setPeriod(p.key); setCustomMode(false); }}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  !customMode && period === p.key ? "bg-primary text-white" : "text-default-600 hover:bg-default-100"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
             <button
-              key={p.key}
-              onClick={() => setPeriod(p.key)}
+              onClick={() => setCustomMode(true)}
               className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                period === p.key ? "bg-primary text-white" : "text-default-600 hover:bg-default-100"
+                customMode ? "bg-primary text-white" : "text-default-600 hover:bg-default-100"
               }`}
             >
-              {p.label}
+              Personalizado
             </button>
-          ))}
+          </div>
+          {/* Bucket selector */}
+          <Select
+            aria-label="Granularidade"
+            selectedKeys={[bucket]}
+            onChange={(e) => setBucket(e.target.value)}
+            size="sm"
+            className="w-32"
+            disallowEmptySelection
+          >
+            {buckets.map((b) => (
+              <SelectItem key={b.key}>{b.label}</SelectItem>
+            ))}
+          </Select>
         </div>
       </div>
+
+      {/* Custom date range */}
+      {customMode && (
+        <div className="flex items-center gap-3 flex-wrap bg-content1 rounded-xl border border-default-100 p-4">
+          <Input
+            type="datetime-local"
+            label="De"
+            value={fromDate}
+            onValueChange={setFromDate}
+            size="sm"
+            className="w-48"
+          />
+          <Input
+            type="datetime-local"
+            label="Até"
+            value={toDate}
+            onValueChange={setToDate}
+            size="sm"
+            className="w-48"
+            placeholder="Agora"
+          />
+          <Button
+            size="sm"
+            variant="flat"
+            onPress={() => {
+              const now = new Date();
+              setFromDate(new Date(now.getTime() - 60 * 60 * 1000).toISOString().slice(0, 16));
+              setToDate(now.toISOString().slice(0, 16));
+            }}
+          >
+            Última hora
+          </Button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Requests" value={formatCompact(stats.requests)} sub="total no período" full={stats.requests.toLocaleString("en-US")} />
@@ -143,8 +243,8 @@ export default function Dashboard() {
       <div className="bg-content1 rounded-2xl border border-default-100 p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="font-semibold">Requisições por dia</h3>
-            <p className="text-xs text-default-500 mt-0.5">Volume diário de chamadas</p>
+            <h3 className="font-semibold">Requisições por {bucketLabel[activeBucket] || "período"}</h3>
+            <p className="text-xs text-default-500 mt-0.5">Volume de chamadas ({bucketLabel[activeBucket] || "dia"})</p>
           </div>
         </div>
         <ResponsiveContainer width="100%" height={280}>
@@ -156,7 +256,7 @@ export default function Dashboard() {
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
-            <XAxis dataKey="date" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
+            <XAxis dataKey="label" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={20} />
             <YAxis stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={(v: number) => formatCompact(v)} />
             <Tooltip contentStyle={chartTooltipStyle} itemStyle={chartItemStyle} labelStyle={{ color: "#888" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
             <Area type="monotone" dataKey="requests" stroke="#00C2A8" strokeWidth={2} fill="url(#gradReq)" />

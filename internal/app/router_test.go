@@ -170,7 +170,7 @@ func (r *mockUsageRepo) Record(ctx context.Context, e domain.UsageEntry) error {
 	r.mu.Unlock()
 	return nil
 }
-func (r *mockUsageRepo) Stats(ctx context.Context, period string) (*domain.UsageStats, error) {
+func (r *mockUsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domain.UsageStats, error) {
 	return &domain.UsageStats{}, nil
 }
 func (r *mockUsageRepo) History(ctx context.Context, limit int) ([]domain.UsageEntry, error) {
@@ -181,6 +181,9 @@ func (r *mockUsageRepo) ModelStats(ctx context.Context) (map[string]*domain.Mode
 }
 func (r *mockUsageRepo) ModelStatsByID(ctx context.Context) (map[string]*domain.ModelStat, error) {
 	return map[string]*domain.ModelStat{}, nil
+}
+func (r *mockUsageRepo) SavingsStats(ctx context.Context, period string) (*domain.SavingsAgg, error) {
+	return &domain.SavingsAgg{}, nil
 }
 
 // mockTranslator implements domain.Translator as passthrough (OpenAI->OpenAI).

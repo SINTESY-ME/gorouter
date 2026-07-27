@@ -642,11 +642,25 @@ func (s *Server) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 // ---- Usage ----
 
 func (s *Server) handleUsageStats(w http.ResponseWriter, r *http.Request) {
-	period := r.URL.Query().Get("period")
-	if period == "" {
-		period = "24h"
+	q := domain.UsageStatsQuery{
+		Period: r.URL.Query().Get("period"),
+		Bucket: r.URL.Query().Get("bucket"),
 	}
-	stats, err := s.Usage.Stats(r.Context(), period)
+	if q.Period == "" {
+		q.Period = "24h"
+	}
+	// Custom date range overrides period preset.
+	if fromStr := r.URL.Query().Get("from"); fromStr != "" {
+		if t, err := time.Parse(time.RFC3339, fromStr); err == nil {
+			q.From = t
+		}
+	}
+	if toStr := r.URL.Query().Get("to"); toStr != "" {
+		if t, err := time.Parse(time.RFC3339, toStr); err == nil {
+			q.To = t
+		}
+	}
+	stats, err := s.Usage.Stats(r.Context(), q)
 	if err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
