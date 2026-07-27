@@ -42,14 +42,14 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 	}
 	// Totals + success/error split
 	var totals struct {
-		Requests         int
-		PromptTokens     int
-		CompletionTokens int
+		Requests         int64
+		PromptTokens     int64
+		CompletionTokens int64
 		Cost             float64
-		Successful       int
-		Errors           int
-		CacheHits        int
-		ComboReqs        int
+		Successful       int64
+		Errors           int64
+		CacheHits        int64
+		ComboReqs        int64
 		CostSaved        float64
 		TokensSaved      int64
 	}
@@ -69,14 +69,14 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 		Scan(&totals).Error; err != nil {
 		return nil, err
 	}
-	s.Requests = totals.Requests
-	s.PromptTokens = totals.PromptTokens
-	s.CompletionTokens = totals.CompletionTokens
+	s.Requests = int(totals.Requests)
+	s.PromptTokens = int(totals.PromptTokens)
+	s.CompletionTokens = int(totals.CompletionTokens)
 	s.Cost = totals.Cost
-	s.SuccessfulRequests = totals.Successful
-	s.ErrorRequests = totals.Errors
-	s.ComboRequests = totals.ComboReqs
-	s.CacheHits = int64(totals.CacheHits)
+	s.SuccessfulRequests = int(totals.Successful)
+	s.ErrorRequests = int(totals.Errors)
+	s.ComboRequests = int(totals.ComboReqs)
+	s.CacheHits = totals.CacheHits
 	s.CostSaved = totals.CostSaved
 	s.TokensSaved = totals.TokensSaved
 	if s.Requests > 0 {
@@ -91,12 +91,9 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 
 	// Performance averages — only over successful requests with valid timings
 	var perf struct {
-		AvgTTFTMs    int64
-		AvgLatencyMs int64
+		AvgTTFTMs    float64
+		AvgLatencyMs float64
 		AvgTPS       float64
-		P50LatencyMs int64
-		P95LatencyMs int64
-		P99LatencyMs int64
 	}
 	if err := tx.Session(&gorm.Session{}).Where("timestamp >= ? AND timestamp < ? AND status < 400", from, to).
 		Select(`
@@ -111,8 +108,8 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 		Scan(&perf).Error; err != nil {
 		return nil, err
 	}
-	s.AvgTTFTMs = perf.AvgTTFTMs
-	s.AvgLatencyMs = perf.AvgLatencyMs
+	s.AvgTTFTMs = int64(perf.AvgTTFTMs)
+	s.AvgLatencyMs = int64(perf.AvgLatencyMs)
 	s.AvgTPS = perf.AvgTPS
 	// Percentiles — Postgres uses percentile_cont, SQLite uses a manual
 	// approximation (avg of 95th/99th value ordered + offset). Both run in
@@ -149,14 +146,14 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 	}
 
 	// By provider
-	type groupRow struct{ Key string; Count int }
+	type groupRow struct{ Key string; Count int64 }
 	var provRows []groupRow
 	if err := tx.Session(&gorm.Session{}).Where("timestamp >= ? AND timestamp < ?", from, to).
 		Select("provider as key, COUNT(*) as count").Group("provider").Scan(&provRows).Error; err != nil {
 		return nil, err
 	}
 	for _, row := range provRows {
-		s.ByProvider[row.Key] = row.Count
+		s.ByProvider[row.Key] = int(row.Count)
 	}
 
 	// By model
@@ -166,7 +163,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 		return nil, err
 	}
 	for _, row := range modelRows {
-		s.ByModel[row.Key] = row.Count
+		s.ByModel[row.Key] = int(row.Count)
 	}
 
 	// By model cost
@@ -190,7 +187,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 		return nil, err
 	}
 	for _, row := range keyRows {
-		s.ByApiKey[row.Key] = row.Count
+		s.ByApiKey[row.Key] = int(row.Count)
 	}
 
 	// By combo_name (non-empty only)
@@ -200,7 +197,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 		return nil, err
 	}
 	for _, row := range comboRows {
-		s.ByCombo[row.Key] = row.Count
+		s.ByCombo[row.Key] = int(row.Count)
 	}
 
 	// By endpoint
@@ -210,7 +207,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 		return nil, err
 	}
 	for _, row := range endpointRows {
-		s.ByEndpoint[row.Key] = row.Count
+		s.ByEndpoint[row.Key] = int(row.Count)
 	}
 
 	// Time series with dynamic bucket (includes errors + TPS for the chart)
@@ -333,10 +330,10 @@ func (r *UsageRepo) timeseries(ctx context.Context, from, to time.Time, bucket s
 	dateExpr := bucketExpr(bucket, isPg)
 	var rows []struct {
 		Date     string
-		Requests int
-		Tokens   int
+		Requests int64
+		Tokens   int64
 		Cost     float64
-		Errors   int
+		Errors   int64
 		AvgTPS   float64
 	}
 	tx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
@@ -362,10 +359,10 @@ func (r *UsageRepo) timeseries(ctx context.Context, from, to time.Time, bucket s
 	for _, row := range rows {
 		out = append(out, domain.UsageDailyPoint{
 			Date:     row.Date,
-			Requests: row.Requests,
-			Tokens:   row.Tokens,
+			Requests: int(row.Requests),
+			Tokens:   int(row.Tokens),
 			Cost:     row.Cost,
-			Errors:   row.Errors,
+			Errors:   int(row.Errors),
 			AvgTPS:   row.AvgTPS,
 		})
 	}
