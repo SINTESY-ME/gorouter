@@ -6,7 +6,6 @@ import {
   Autocomplete, AutocompleteItem, Textarea,
 } from "@heroui/react";
 import { api, type Combo, type ModelEntry, type ComboModelMeta } from "../api";
-
 const KIND_COLORS: Record<string, "primary" | "success" | "warning" | "secondary" | "danger" | "default"> = {
   llm: "primary", embedding: "success", image: "warning", tts: "secondary", stt: "danger",
   rerank: "default", ocr: "default", video: "default",
@@ -212,6 +211,7 @@ export default function Combos() {
 
             <ModelSelector
               selected={form.models}
+              excludeName={editId ? form.name : undefined}
               onChange={(models) => {
                 const defaultClassifier = form.classifier_model || models[0] || allCatalogModels[0]?.id || "";
                 setForm({
@@ -330,8 +330,17 @@ export default function Combos() {
   );
 }
 
-function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (m: string[]) => void }) {
+function ModelSelector({
+  selected,
+  onChange,
+  excludeName,
+}: {
+  selected: string[];
+  onChange: (m: string[]) => void;
+  excludeName?: string;
+}) {
   const [allModels, setAllModels] = useState<ModelEntry[]>([]);
+  const [allCombos, setAllCombos] = useState<Combo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchValue, setSearchValue] = useState("");
@@ -342,15 +351,17 @@ function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (
       setLoading(true);
       try {
         const ps = await api.providers.list();
-        const results = await Promise.allSettled(ps.map((p) => api.providers.models(p.id)));
+        const [providerModels, combosList] = await Promise.all([
+          Promise.allSettled(ps.map((p) => api.providers.models(p.id))),
+          api.combos.list().catch(() => []),
+        ]);
         if (cancelled) return;
         const models: ModelEntry[] = [];
-        results.forEach((r) => {
-          if (r.status === "fulfilled") {
-            r.value.forEach((m) => models.push(m));
-          }
+        providerModels.forEach((r) => {
+          if (r.status === "fulfilled") r.value.forEach((m) => models.push(m));
         });
         setAllModels(models);
+        setAllCombos(combosList);
       } catch (e: any) {
         if (!cancelled) setError(e?.message ?? "erro");
       } finally {
@@ -362,13 +373,34 @@ function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (
     };
   }, []);
 
-  const fixedKind = selected.length > 0 ? allModels.find((m) => m.id === selected[0])?.kind : undefined;
+  // Determine the Kind of the first selected member — can be a real model or a combo.
+  const fixedKind = (() => {
+    if (selected.length === 0) return undefined;
+    const first = selected[0];
+    const modelEntry = allModels.find((m) => m.id === first);
+    if (modelEntry) return modelEntry.kind;
+    const comboEntry = allCombos.find((c) => c.name === first);
+    return comboEntry?.kind ?? "llm";
+  })();
 
-  const available = allModels.filter((m) => {
-    if (selected.includes(m.id)) return false;
-    if (fixedKind && m.kind !== fixedKind) return false;
-    return true;
-  });
+  type Option =
+    | { kind: "model"; id: string; entry: ModelEntry }
+    | { kind: "combo"; id: string; entry: Combo };
+
+  const available: Option[] = [];
+  for (const m of allModels) {
+    if (selected.includes(m.id)) continue;
+    if (fixedKind && m.kind !== fixedKind) continue;
+    available.push({ kind: "model", id: m.id, entry: m });
+  }
+  for (const c of allCombos) {
+    if (!c.name) continue;
+    if (c.name === excludeName) continue; // disallow direct self-reference
+    if (selected.includes(c.name)) continue;
+    const ckind = c.kind || "llm";
+    if (fixedKind && ckind !== fixedKind) continue;
+    available.push({ kind: "combo", id: c.name, entry: c });
+  }
 
   const toggleModel = (id: string) => {
     if (selected.includes(id)) {
@@ -395,7 +427,7 @@ function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (
       <div>
         <label className="text-sm text-default-500">Modelos</label>
         <p className="text-xs text-default-400 mt-0.5 mb-2">
-          Selecione os modelos do combo.
+          Selecione modelos ou outros combos como membros.
           {fixedKind && (
             <>
               {" "}
@@ -408,19 +440,19 @@ function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (
         </p>
         {loading ? (
           <div className="flex items-center gap-2 py-2 text-sm text-default-500">
-            <Spinner size="sm" /> Carregando models...
+            <Spinner size="sm" /> Carregando models e combos...
           </div>
-        ) : error && allModels.length === 0 ? (
+        ) : error && allModels.length === 0 && allCombos.length === 0 ? (
           <div className="text-sm text-danger py-2">Erro: {error}</div>
         ) : available.length === 0 ? (
           <div className="text-sm text-default-400 py-2">
-            {fixedKind ? `Nenhum model disponível do tipo ${fixedKind}.` : "Nenhum model disponível."}
+            {fixedKind ? `Nenhuma opção do tipo ${fixedKind}.` : "Nenhuma opção disponível."}
           </div>
         ) : (
           <div className="space-y-2">
             <Autocomplete
-              label="Modelos disponíveis"
-              placeholder="Buscar model (ou digite um personalizado)..."
+              label="Modelos e combos disponíveis"
+              placeholder="Buscar model, combo ou digite um personalizado..."
               selectedKey={null}
               inputValue={searchValue}
               onInputChange={setSearchValue}
@@ -432,25 +464,45 @@ function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (
               }}
               maxListHeight={300}
             >
-              {available.map((m) => (
-                <AutocompleteItem key={m.id} textValue={m.id}>
-                  <div className="flex items-center justify-between w-full gap-2">
-                    <span className="font-mono text-xs">{m.id}</span>
-                    <div className="flex items-center gap-1">
-                      {!m.is_active && (
-                        <Chip size="sm" variant="dot" color="warning" className="text-[10px]">
-                          inativo
+              {available.map((opt) => {
+                if (opt.kind === "model") {
+                  const m = opt.entry;
+                  return (
+                    <AutocompleteItem key={opt.id} textValue={opt.id}>
+                      <div className="flex items-center justify-between w-full gap-2">
+                        <span className="font-mono text-xs">{opt.id}</span>
+                        <div className="flex items-center gap-1">
+                          {!m.is_active && (
+                            <Chip size="sm" variant="dot" color="warning" className="text-[10px]">inativo</Chip>
+                          )}
+                          <Chip size="sm" variant="flat" color={KIND_COLORS[m.kind] ?? "default"} className="text-[10px]">
+                            {m.kind}
+                          </Chip>
+                        </div>
+                      </div>
+                    </AutocompleteItem>
+                  );
+                }
+                const c = opt.entry;
+                return (
+                  <AutocompleteItem key={opt.id} textValue={opt.id}>
+                    <div className="flex items-center justify-between w-full gap-2">
+                      <div className="flex items-center gap-2">
+                        <IconStack className="w-3 h-3 text-secondary" />
+                        <span className="font-mono text-xs">{opt.id}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Chip size="sm" variant="flat" color="secondary" className="text-[10px]">combo</Chip>
+                        <Chip size="sm" variant="flat" color={KIND_COLORS[c.kind || "llm"] ?? "default"} className="text-[10px]">
+                          {c.kind || "llm"}
                         </Chip>
-                      )}
-                      <Chip size="sm" variant="flat" color={KIND_COLORS[m.kind] ?? "default"} className="text-[10px]">
-                        {m.kind}
-                      </Chip>
+                      </div>
                     </div>
-                  </div>
-                </AutocompleteItem>
-              ))}
+                  </AutocompleteItem>
+                );
+              })}
             </Autocomplete>
-            {searchValue.trim() && !available.some((m) => m.id === searchValue.trim()) && (
+            {searchValue.trim() && !available.some((opt) => opt.id === searchValue.trim()) && (
               <Button
                 size="sm"
                 variant="flat"
@@ -461,7 +513,7 @@ function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (
                   setSearchValue("");
                 }}
               >
-                + Adicionar modelo personalizado: "{searchValue.trim()}"
+                + Adicionar personalizado: "{searchValue.trim()}"
               </Button>
             )}
           </div>
@@ -470,18 +522,23 @@ function ModelSelector({ selected, onChange }: { selected: string[]; onChange: (
 
       {selected.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-xs text-default-500 uppercase tracking-wide font-medium">Modelos Selecionados</p>
+          <p className="text-xs text-default-500 uppercase tracking-wide font-medium">Membros do Combo</p>
           {selected.map((id, i) => {
-            const entry = allModels.find((m) => m.id === id);
+            const isCombo = allCombos.some((c) => c.name === id);
+            const modelEntry = allModels.find((m) => m.id === id);
+            const comboEntry = allCombos.find((c) => c.name === id);
+            const kind = modelEntry?.kind ?? comboEntry?.kind ?? "llm";
             return (
               <div key={id + i} className="flex items-center gap-2 bg-content2 rounded-lg px-3 py-2">
                 <span className="text-xs text-default-400 w-5 tabular-nums">{i + 1}.</span>
+                {isCombo && <IconStack className="w-3 h-3 text-secondary shrink-0" />}
                 <code className="text-xs flex-1 truncate">{id}</code>
-                {entry && (
-                  <Chip size="sm" variant="flat" color={KIND_COLORS[entry.kind] ?? "default"}>
-                    {entry.kind}
-                  </Chip>
+                {isCombo && (
+                  <Chip size="sm" variant="flat" color="secondary" className="text-[10px]">combo</Chip>
                 )}
+                <Chip size="sm" variant="flat" color={KIND_COLORS[kind] ?? "default"} className="text-[10px]">
+                  {kind}
+                </Chip>
                 <div className="flex gap-0.5">
                   <Button isIconOnly size="sm" variant="light" isDisabled={i === 0} onPress={() => move(i, -1)} aria-label="subir">
                     <IconArrow dir="up" />
@@ -544,6 +601,15 @@ function IconSparkles() {
   return (
     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
+    </svg>
+  );
+}
+function IconStack() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3">
+      <polygon points="12 2 2 7 12 12 22 7 12 2" />
+      <polyline points="2 17 12 22 22 17" />
+      <polyline points="2 12 12 17 22 12" />
     </svg>
   );
 }

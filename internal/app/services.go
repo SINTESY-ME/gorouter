@@ -80,6 +80,9 @@ func (s *ComboService) Create(ctx context.Context, c *domain.Combo) error {
 	if err := s.validateCombo(c); err != nil {
 		return err
 	}
+	if err := s.detectCycle(ctx, c.Name, c.Models); err != nil {
+		return err
+	}
 	kind, err := s.resolveComboKind(ctx, c.Models)
 	if err != nil {
 		return err
@@ -92,6 +95,9 @@ func (s *ComboService) Update(ctx context.Context, c *domain.Combo) error {
 	if err := s.validateCombo(c); err != nil {
 		return err
 	}
+	if err := s.detectCycle(ctx, c.Name, c.Models); err != nil {
+		return err
+	}
 	c.UpdatedAt = time.Now()
 	kind, err := s.resolveComboKind(ctx, c.Models)
 	if err != nil {
@@ -99,6 +105,54 @@ func (s *ComboService) Update(ctx context.Context, c *domain.Combo) error {
 	}
 	c.Kind = kind
 	return s.Repo.Update(ctx, c)
+}
+
+// detectCycle rejects a combo whose member list creates a nesting cycle.
+// A member without "/" is treated as a combo name; the function walks the
+// dependency tree transitively (BFS) and fails if the combo being saved
+// appears anywhere in the subtree — covering A→B→A, A→B→C→A, etc.
+// Self-reference (A→A) is also caught.
+func (s *ComboService) detectCycle(ctx context.Context, comboName string, models []string) error {
+	var queue []string
+	seen := map[string]bool{}
+	for _, m := range models {
+		if m == "" || strings.Contains(m, "/") {
+			continue
+		}
+		if m == comboName {
+			return fmtValidation(fmt.Sprintf("combo %q references itself", comboName))
+		}
+		if !seen[m] {
+			seen[m] = true
+			queue = append(queue, m)
+		}
+	}
+	visited := map[string]bool{}
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+		if visited[name] {
+			continue
+		}
+		visited[name] = true
+		nested, err := s.Repo.GetByName(ctx, name)
+		if err != nil {
+			continue
+		}
+		for _, m := range nested.Models {
+			if m == "" || strings.Contains(m, "/") {
+				continue
+			}
+			if m == comboName {
+				return fmtValidation(fmt.Sprintf("combo nesting cycle detected: %s → %s → %s", comboName, name, comboName))
+			}
+			if !visited[m] && !seen[m] {
+				seen[m] = true
+				queue = append(queue, m)
+			}
+		}
+	}
+	return nil
 }
 
 func (s *ComboService) validateCombo(c *domain.Combo) error {

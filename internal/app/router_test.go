@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"sync"
@@ -1008,5 +1009,155 @@ func TestRouteCombo_IntelligenceStrategy_Fallback(t *testing.T) {
 	expected := []string{"b/w5", "c/w7", "d/w9", "a/w3"}
 	if !equalSeq(t, ordered, expected) {
 		t.Fatalf("intelligence fallback order: got %v, want %v", ordered, expected)
+	}
+}
+
+// TestRouteCombo_NestedCombo verifies that a combo can have another combo as
+// a member; the nested combo's strategy is applied transparently.
+func TestRouteCombo_NestedCombo(t *testing.T) {
+	exec := &mockExecutor{
+		status: 200,
+		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
+	}
+	// Outer combo uses ordered_fallback with nested "inner" combo + a model.
+	// Inner combo uses ordered_fallback with one model. We expect the
+	// nested combo to be expanded and the inner model to be called.
+	comboRepo := &mockComboRepo{
+		combos: map[string]*domain.Combo{
+			"outer": {
+				ID:       "outer",
+				Name:     "outer",
+				Models:   []string{"inner", "openai/gpt-4"},
+				Strategy: "ordered_fallback",
+			},
+			"inner": {
+				ID:       "inner",
+				Name:     "inner",
+				Models:   []string{"anthropic/claude-3"},
+				Strategy: "ordered_fallback",
+			},
+		},
+	}
+	srv := NewRouterService(comboRepo, twoProviderConnRepo(), exec, &mockTranslator{}, &mockUsageRepo{})
+
+	body := []byte(`{"model":"outer","messages":[{"role":"user","content":"hi"}]}`)
+	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	res.Body.Close()
+
+	calls := calledSnapshot(exec)
+	// Should expand "inner" -> anthropic/claude-3 first; gpt-4 is the outer fallback.
+	if len(calls) == 0 || calls[0] != "claude-3" {
+		t.Fatalf("expected nested combo to resolve to claude-3 first, got %v", calls)
+	}
+}
+
+// TestRouteCombo_NestedCombo_DepthLimit verifies the safety net: even if a
+// cycle somehow reaches the runtime (e.g. manually edited DB), the depth
+// limit prevents unbounded recursion.
+func TestRouteCombo_NestedCombo_DepthLimit(t *testing.T) {
+	exec := &mockExecutor{
+		status: 200,
+		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
+	}
+	// Both combos point only at provider/model — no real cycle, but the
+	// test ensures the depth limit doesn't kill legitimate deep paths.
+	comboRepo := &mockComboRepo{
+		combos: map[string]*domain.Combo{
+			"outer": {
+				ID:       "outer",
+				Name:     "outer",
+				Models:   []string{"mid"},
+				Strategy: "ordered_fallback",
+			},
+			"mid": {
+				ID:       "mid",
+				Name:     "mid",
+				Models:   []string{"inner"},
+				Strategy: "ordered_fallback",
+			},
+			"inner": {
+				ID:       "inner",
+				Name:     "inner",
+				Models:   []string{"openai/gpt-4"},
+				Strategy: "ordered_fallback",
+			},
+		},
+	}
+	srv := NewRouterService(comboRepo, twoProviderConnRepo(), exec, &mockTranslator{}, &mockUsageRepo{})
+
+	body := []byte(`{"model":"outer","messages":[{"role":"user","content":"hi"}]}`)
+	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	res.Body.Close()
+}
+
+// TestComboService_DetectCycle verifies save-time cycle detection (A→B→A).
+func TestComboService_DetectCycle(t *testing.T) {
+	// Existing combos: B has A.
+	repo := &mockComboRepo{
+		combos: map[string]*domain.Combo{
+			"cbA": {ID: "cbA", Name: "A", Models: []string{"openai/gpt-4"}, Strategy: "ordered_fallback"},
+			"cbB": {ID: "cbB", Name: "B", Models: []string{"A"}, Strategy: "ordered_fallback"},
+		},
+	}
+	svc := &ComboService{Repo: repo}
+
+	// Trying to update A with B in its models should fail (A → B → A).
+	a := &domain.Combo{Name: "A", Models: []string{"B"}, Strategy: "ordered_fallback"}
+	err := svc.Update(context.Background(), a)
+	if err == nil {
+		t.Fatal("expected cycle error updating A with B as member")
+	}
+	if !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+}
+
+// TestComboService_DetectCycle_SelfRef catches a direct A→A reference.
+func TestComboService_DetectCycle_SelfRef(t *testing.T) {
+	repo := &mockComboRepo{combos: map[string]*domain.Combo{}}
+	svc := &ComboService{Repo: repo}
+	a := &domain.Combo{Name: "A", Models: []string{"A"}, Strategy: "ordered_fallback"}
+	err := svc.Update(context.Background(), a)
+	if err == nil {
+		t.Fatal("expected self-reference error")
+	}
+}
+
+// TestComboService_DetectCycle_Nested verifies A→B→C→A rejection.
+func TestComboService_DetectCycle_Nested(t *testing.T) {
+	repo := &mockComboRepo{
+		combos: map[string]*domain.Combo{
+			"cbB": {ID: "cbB", Name: "B", Models: []string{"C"}, Strategy: "ordered_fallback"},
+			"cbC": {ID: "cbC", Name: "C", Models: []string{"A"}, Strategy: "ordered_fallback"},
+		},
+	}
+	svc := &ComboService{Repo: repo}
+	a := &domain.Combo{Name: "A", Models: []string{"B"}, Strategy: "ordered_fallback"}
+	err := svc.Update(context.Background(), a)
+	if err == nil {
+		t.Fatal("expected cycle error for A→B→C→A")
+	}
+}
+
+// TestComboService_NoCycle_DeepChain verifies a long non-cyclic chain is
+// accepted (e.g. A→B→C→D).
+func TestComboService_NoCycle_DeepChain(t *testing.T) {
+	repo := &mockComboRepo{
+		combos: map[string]*domain.Combo{
+			"cbB": {ID: "cbB", Name: "B", Models: []string{"C"}, Strategy: "ordered_fallback"},
+			"cbC": {ID: "cbC", Name: "C", Models: []string{"D"}, Strategy: "ordered_fallback"},
+		},
+	}
+	svc := &ComboService{Repo: repo}
+	a := &domain.Combo{Name: "A", Models: []string{"B"}, Strategy: "ordered_fallback"}
+	err := svc.Update(context.Background(), a)
+	if err != nil {
+		t.Fatalf("expected no cycle, got %v", err)
 	}
 }

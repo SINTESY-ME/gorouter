@@ -82,6 +82,11 @@ type RouterService struct {
 // real request calls and avoid polluting call snapshots.
 type probeCtxKey struct{}
 
+// maxComboDepth caps how deeply the router will recurse into nested combos.
+// The dashboard validation (ComboService.detectCycle) already rejects cycles
+// at save time; this is a safety net for manually-edited data.
+const maxComboDepth = 5
+
 // IsProbeCall reports whether the given context originated from a health
 // probe. Exported for test doubles.
 func IsProbeCall(ctx context.Context) bool {
@@ -171,7 +176,7 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 	if err != nil {
 		return nil, err
 	}
-	return s.routeCombo(ctx, combo, body, stream, apiKey, opts, "")
+	return s.routeCombo(ctx, combo, body, stream, apiKey, opts, "", 0)
 }
 
 // RoutePassthrough routes a non-chat endpoint (embeddings, images) to a
@@ -191,7 +196,7 @@ func (s *RouterService) RoutePassthrough(ctx context.Context, body []byte, model
 	if err != nil {
 		return nil, err
 	}
-	return s.routeCombo(ctx, combo, body, false, apiKey, opts, endpoint, contentType)
+	return s.routeCombo(ctx, combo, body, false, apiKey, opts, endpoint, 0, contentType)
 }
 
 // RouterResponse is what the HTTP handler receives. It is either a buffered
@@ -356,7 +361,7 @@ func (s *RouterService) measureModelTPS(ctx context.Context, modelStr string, ap
 	return resp.Choices[0].Message.Content, tokens, nil
 }
 
-func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, body []byte, stream bool, apiKey string, opts RouteOptions, endpoint string, contentType ...string) (*RouterResponse, error) {
+func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, body []byte, stream bool, apiKey string, opts RouteOptions, endpoint string, depth int, contentType ...string) (*RouterResponse, error) {
 	start := time.Now()
 	ct := ""
 	if len(contentType) > 0 {
@@ -377,8 +382,32 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 	for _, modelStr := range models {
 		m, ok := domain.SplitModelID(modelStr)
 		if !ok {
-			lastErr = fmt.Errorf("combo model %q invalid", modelStr)
-			continue
+			// No "/" → treat as a nested combo. Resolved here so the
+			// nested combo's own strategy is applied transparently.
+			if depth >= maxComboDepth {
+				lastErr = fmt.Errorf("combo nesting depth limit reached at %q", combo.Name)
+				slog.Warn("combo nesting depth limit reached", "combo", combo.Name, "depth", depth)
+				continue
+			}
+			nested, err := s.Combos.GetByName(ctx, modelStr)
+			if err != nil {
+				lastErr = fmt.Errorf("combo model %q invalid: %w", modelStr, err)
+				continue
+			}
+			res, err := s.routeCombo(ctx, nested, body, stream, apiKey, opts, endpoint, depth+1, ct)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
+				lastErr = fmt.Errorf("upstream %d", res.StatusCode)
+				if res.Body != nil {
+					res.Body.Close()
+				}
+				continue
+			}
+			s.wrapUsageTracking(ctx, res, domain.ModelID{}, nil, apiKey, endpoint, combo.Name, start)
+			return res, nil
 		}
 		conns, err := s.Connections.ListByProvider(ctx, m.Provider)
 		if err != nil {
@@ -751,12 +780,16 @@ func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, a
 			cost = CalculateCost(pricing, endpoint, prompt, completion, cacheRead, cacheCreation)
 		}
 	}
+	var connID string
+	if conn != nil {
+		connID = conn.ID
+	}
 	entry := domain.UsageEntry{
 		Timestamp:         time.Now(),
 		Provider:          m.Provider,
 		Model:             m.Model,
 		ComboName:         comboName,
-		ConnectionID:      conn.ID,
+		ConnectionID:      connID,
 		ApiKey:            apiKey,
 		Endpoint:          endpoint,
 		LatencyMs:         time.Since(start).Milliseconds(),
