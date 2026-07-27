@@ -101,34 +101,40 @@ func run() error {
 	savings := app.NewSavingsTracker()
 	router.Savings = savings
 
-	// Response cache (direct-hash). Disabled when GOROUTER_CACHE_ENABLED=false.
-	// Can be toggled live via dashboard settings (persists to SettingRepo).
+	// Response cache (direct-hash). Controlled by the dashboard settings
+	// (persisted in SettingRepo). On boot we read the DB setting; if absent
+	// we fall back to the env var default and persist it. The dashboard can
+	// toggle it live without a restart.
 	var cacheSvc *app.CacheService
 	cacheFactory := func() domain.ResponseCache {
 		return responsecache.NewMemory(cfg.CacheMaxEntries, cfg.CacheTTL, cfg.CacheSweepInterval)
 	}
-	if cfg.CacheEnabled {
+	cacheEnabled := cfg.CacheEnabled
+	if v, err := settingRepo.Get(ctx, "cache_enabled"); err == nil {
+		cacheEnabled = v == "true"
+	} else {
+		_ = settingRepo.Set(ctx, "cache_enabled", strconv.FormatBool(cfg.CacheEnabled))
+	}
+	if cacheEnabled {
 		mc := cacheFactory()
 		defer mc.Close()
 		cacheSvc = app.NewCacheService(mc)
 		router.Cache = cacheSvc
 		slog.Info("response cache enabled", "ttl", cfg.CacheTTL, "max_entries", cfg.CacheMaxEntries)
 	}
-	// Persist initial cache state if not already set.
-	if _, err := settingRepo.Get(ctx, "cache_enabled"); err != nil {
-		_ = settingRepo.Set(ctx, "cache_enabled", strconv.FormatBool(cfg.CacheEnabled))
-	}
 
-	// RTK request token compression. Disabled when GOROUTER_RTK_ENABLED=false.
-	// Can be toggled live via dashboard settings (persists to SettingRepo).
+	// RTK request token compression. Same pattern as cache: read from DB
+	// setting on boot, fall back to env var, persist initial if absent.
 	rtkFactory := func() domain.RequestCompressor { return rtk.NewCompressor() }
-	if cfg.RTKEnabled {
+	rtkEnabled := cfg.RTKEnabled
+	if v, err := settingRepo.Get(ctx, "rtk_enabled"); err == nil {
+		rtkEnabled = v == "true"
+	} else {
+		_ = settingRepo.Set(ctx, "rtk_enabled", strconv.FormatBool(cfg.RTKEnabled))
+	}
+	if rtkEnabled {
 		router.Compressor = rtkFactory()
 		slog.Info("rtk compression enabled")
-	}
-	// Persist initial RTK state if not already set.
-	if _, err := settingRepo.Get(ctx, "rtk_enabled"); err != nil {
-		_ = settingRepo.Set(ctx, "rtk_enabled", strconv.FormatBool(cfg.RTKEnabled))
 	}
 
 	models := &app.ModelsService{Combos: comboRepo, Models: modelRepo}
