@@ -57,6 +57,11 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 	if err != nil {
 		return err
 	}
+	// Track whether the API itself returned models. Only when the API
+	// returned at least one model is it safe to deactivate stale entries.
+	// If the API returned nothing (empty 200, transient glitch, parse
+	// quirk), deactivating would mass-inactive the entire catalog.
+	apiReturnedModels := len(fetched) > 0
 	if len(fetched) == 0 {
 		if s.Catalog != nil {
 			if def := s.Catalog.Lookup(conn.ProviderID); def != nil && len(def.Models) > 0 {
@@ -68,7 +73,7 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 		}
 	}
 	if len(fetched) == 0 {
-		slog.Warn("model sync: no models returned by provider or catalog preset, skipping deactivation to prevent mass deletion", "provider", conn.ProviderID)
+		slog.Warn("model sync: no models returned by provider or catalog preset, skipping sync to prevent mass inactivation", "provider", conn.ProviderID)
 		return nil
 	}
 
@@ -104,6 +109,9 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 		// Resolve pricing: preserve manual overrides; otherwise ask the
 		// registry; if neither has data, keep the existing DB pricing.
 		if prev, ok := existing[entry.ID]; ok {
+			// Preserve manual entries: if the user manually added or
+			// toggled this model, don't let sync override its source or
+			// active state.
 			if prev.Source == "manual" {
 				entry.Source = "manual"
 				entry.IsActive = prev.IsActive
@@ -135,8 +143,20 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 	}
 
 	// Deactivate sync-sourced models that disappeared from the provider.
-	if err := s.Models.DeactivateStaleSync(ctx, conn.ProviderID, activeIDs); err != nil {
-		slog.Warn("model sync: deactivate stale failed", "provider", conn.ProviderID, "err", err)
+	// Only do this when the API actually returned models. If we're
+	// operating on catalog-preset fallback data (API returned empty),
+	// deactivating would wipe out real models that the API simply didn't
+	// list this time around.
+	if apiReturnedModels {
+		if err := s.Models.DeactivateStaleSync(ctx, conn.ProviderID, activeIDs); err != nil {
+			slog.Warn("model sync: deactivate stale failed", "provider", conn.ProviderID, "err", err)
+		}
+		// Reactivate sync-source models that reappeared in the API
+		// response (they may have been deactivated on a previous sync
+		// when the provider temporarily stopped listing them).
+		if err := s.Models.ReactivateSync(ctx, conn.ProviderID, activeIDs); err != nil {
+			slog.Warn("model sync: reactivate failed", "provider", conn.ProviderID, "err", err)
+		}
 	}
 	slog.Info("model sync: provider synced", "provider", conn.ProviderID, "models", len(fetched))
 	if s.OnSynced != nil {

@@ -105,3 +105,14 @@ func (r *ModelRepo) DeactivateStaleSync(ctx context.Context, providerID string, 
 	}
 	return q.Updates(map[string]any{"is_active": false, "updated_at": time.Now()}).Error
 }
+// ReactivateSync re-enables sync-sourced models for the given provider that
+// match the provided active IDs. This is used when the API starts listing a
+// previously-disappeared model again.
+func (r *ModelRepo) ReactivateSync(ctx context.Context, providerID string, activeIDs []string) error {
+	if len(activeIDs) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Model(&domain.ModelEntry{}).
+		Where("provider_id = ? AND source = 'sync' AND id IN ?", providerID, activeIDs).
+		Updates(map[string]any{"is_active": true, "updated_at": time.Now()}).Error
+}

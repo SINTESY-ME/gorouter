@@ -93,6 +93,10 @@ type ModelRepo interface {
 	// given provider whose IDs are not in activeIDs. Manual entries are
 	// always preserved.
 	DeactivateStaleSync(ctx context.Context, providerID string, activeIDs []string) error
+	// ReactivateSync re-enables sync-source entries for the given provider
+	// whose IDs are in activeIDs. Used when the API lists a model that was
+	// previously deactivated because it had disappeared.
+	ReactivateSync(ctx context.Context, providerID string, activeIDs []string) error
 }
 
 // SettingRepo persists key-value settings (dashboard password hash, health
