@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Spinner, Select, SelectItem, Input, Button } from "@heroui/react";
+import { Spinner, Select, SelectItem, Popover, PopoverTrigger, PopoverContent, Input, Button } from "@heroui/react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
   BarChart, Bar, PieChart, Pie, Cell, Legend,
@@ -121,15 +121,50 @@ export default function Dashboard() {
                 {p.label}
               </button>
             ))}
-            <button
-              onClick={() => setCustomMode(true)}
-              className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                customMode ? "bg-primary text-white" : "text-default-600 hover:bg-default-100"
-              }`}
-            >
-              Personalizado
-            </button>
           </div>
+          {/* Custom date range popover */}
+          <Popover placement="bottom">
+            <PopoverTrigger>
+              <Button
+                size="sm"
+                variant={customMode ? "solid" : "flat"}
+                color={customMode ? "primary" : "default"}
+                onPress={() => setCustomMode(true)}
+              >
+                <IconCalendar className="w-4 h-4" />
+                {customMode && fromDate ? formatRangeLabel(fromDate, toDate) : "Personalizado"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="p-3">
+              <div className="space-y-3 w-64">
+                <Input
+                  type="datetime-local"
+                  label="De"
+                  value={fromDate}
+                  onValueChange={(v) => { setFromDate(v); setCustomMode(true); }}
+                  size="sm"
+                  classNames={{ inputWrapper: "h-9 min-h-9" }}
+                />
+                <Input
+                  type="datetime-local"
+                  label="Até"
+                  value={toDate}
+                  onValueChange={setToDate}
+                  size="sm"
+                  placeholder="Agora"
+                  classNames={{ inputWrapper: "h-9 min-h-9" }}
+                />
+                <Button size="sm" color="primary" className="w-full" onPress={() => { setCustomMode(true); }}>
+                  Aplicar
+                </Button>
+                {customMode && (
+                  <Button size="sm" variant="flat" className="w-full" onPress={() => { setCustomMode(false); setFromDate(""); setToDate(""); }}>
+                    Voltar para presets
+                  </Button>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
           {/* Bucket selector */}
           <Select
             aria-label="Granularidade"
@@ -145,40 +180,6 @@ export default function Dashboard() {
           </Select>
         </div>
       </div>
-
-      {/* Custom date range */}
-      {customMode && (
-        <div className="flex items-center gap-3 flex-wrap bg-content1 rounded-xl border border-default-100 p-4">
-          <Input
-            type="datetime-local"
-            label="De"
-            value={fromDate}
-            onValueChange={setFromDate}
-            size="sm"
-            className="w-48"
-          />
-          <Input
-            type="datetime-local"
-            label="Até"
-            value={toDate}
-            onValueChange={setToDate}
-            size="sm"
-            className="w-48"
-            placeholder="Agora"
-          />
-          <Button
-            size="sm"
-            variant="flat"
-            onPress={() => {
-              const now = new Date();
-              setFromDate(new Date(now.getTime() - 60 * 60 * 1000).toISOString().slice(0, 16));
-              setToDate(now.toISOString().slice(0, 16));
-            }}
-          >
-            Última hora
-          </Button>
-        </div>
-      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Requests" value={formatCompact(stats.requests)} sub="total no período" full={stats.requests.toLocaleString("en-US")} />
@@ -346,4 +347,23 @@ function SavingsCard({ label, value, sub, full, color }: { label: string; value:
 
 function EmptyChart() {
   return <div className="h-[260px] flex items-center justify-center text-sm text-default-400">Sem dados</div>;
+}
+
+// formatRangeLabel shows a compact label on the "Personalizado" button.
+function formatRangeLabel(from: string, to: string): string {
+  const fmt = (s: string) => s.slice(11, 16) || s.slice(0, 10);
+  const f = from ? fmt(from) : "?";
+  const t = to ? fmt(to) : "agora";
+  return `${f} → ${t}`;
+}
+
+function IconCalendar({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  );
 }
