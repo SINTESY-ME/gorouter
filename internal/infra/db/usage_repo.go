@@ -107,30 +107,55 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 
 // resolveRange computes (from, to) from a UsageStatsQuery. When q.From is
 // non-zero, the custom range is used directly. Otherwise q.Period is
-// resolved via periodStart. To defaults to now when zero.
+// resolved via periodStart. To defaults to now when zero. Both bounds are
+// computed from the same now() call so the duration is exact (not off by
+// the nanoseconds between two time.Now() calls — which would push autoBucket
+// into the wrong tier).
 func resolveRange(q domain.UsageStatsQuery) (time.Time, time.Time, error) {
+	now := time.Now().UTC()
 	from := q.From
 	to := q.To
 	if from.IsZero() {
-		var err error
-		from, err = periodStart(q.Period)
+		dur, err := periodDuration(q.Period)
 		if err != nil {
 			return time.Time{}, time.Time{}, err
 		}
+		from = now.Add(-dur)
 	}
 	if to.IsZero() {
-		to = time.Now().UTC()
+		to = now
 	}
 	return from, to, nil
 }
 
+// periodDuration returns the duration for a preset period string.
+func periodDuration(period string) (time.Duration, error) {
+	switch period {
+	case "", "24h":
+		return 24 * time.Hour, nil
+	case "1h":
+		return time.Hour, nil
+	case "7d":
+		return 7 * 24 * time.Hour, nil
+	case "30d":
+		return 30 * 24 * time.Hour, nil
+	case "60d":
+		return 60 * 24 * time.Hour, nil
+	default:
+		return 0, fmt.Errorf("%w: unknown period %q", domain.ErrValidation, period)
+	}
+}
+
 // autoBucket selects a reasonable bucket size based on the time range width.
+// Uses a small margin (1 second) so that exact durations like 24h or 1h
+// don't fall into the wrong tier due to sub-second clock jitter.
 func autoBucket(from, to time.Time) string {
 	dur := to.Sub(from)
+	margin := time.Second
 	switch {
-	case dur <= time.Hour:
+	case dur <= time.Hour+margin:
 		return "minute"
-	case dur <= 24 * time.Hour:
+	case dur <= 24*time.Hour+margin:
 		return "hour"
 	default:
 		return "day"
