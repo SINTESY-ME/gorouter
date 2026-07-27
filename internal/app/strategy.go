@@ -139,8 +139,8 @@ func (s intelligenceStrategy) Order(ctx context.Context, req StrategyRequest) ([
 	}
 	prompt := extractPromptText(req.Body)
 	complexity, err := s.classify(ctx, combo, prompt, req.APIKey)
-	if err != nil {
-		slog.Warn("intelligence classification failed; defaulting to most capable", "combo", combo.Name, "err", err)
+	if err != nil || complexity == 0 {
+		slog.Warn("intelligence classification failed or unparseable; defaulting to most capable", "combo", combo.Name, "err", err, "complexity", complexity)
 		return orderIntelligence(combo.Models, combo.ModelMeta, maxComplexity), nil
 	}
 	return orderIntelligence(combo.Models, combo.ModelMeta, complexity), nil
