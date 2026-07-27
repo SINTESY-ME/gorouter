@@ -146,9 +146,9 @@ func bucketExpr(bucket string, isPostgres bool) string {
 		case "minute":
 			return "strftime('%Y-%m-%dT%H:%M', timestamp)"
 		case "5m":
-			return "strftime('%Y-%m-%dT%H:%M', datetime(timestamp, 'unixepoch', 'epoch', (strftime('%M', timestamp) / 5) * 5 * 60, 'unixepoch'))"
+			return "strftime('%Y-%m-%dT%H:%M', datetime(timestamp, 'unixepoch', ('-' || (strftime('%M', timestamp) % 5) || ' minutes'), 'unixepoch'))"
 		case "30m":
-			return "strftime('%Y-%m-%dT%H:%M', datetime(timestamp, 'unixepoch', 'epoch', (strftime('%M', timestamp) / 30) * 30 * 60, 'unixepoch'))"
+			return "strftime('%Y-%m-%dT%H:%M', datetime(timestamp, 'unixepoch', ('-' || (strftime('%M', timestamp) % 30) || ' minutes'), 'unixepoch'))"
 		case "hour":
 			return "strftime('%Y-%m-%dT%H:00', timestamp)"
 		default:
@@ -156,18 +156,18 @@ func bucketExpr(bucket string, isPostgres bool) string {
 		}
 	}
 	// Postgres date_trunc + to_char
-	trunc := "day"
 	switch bucket {
 	case "minute":
-		trunc = "minute"
+		return "to_char(date_trunc('minute', timestamp), 'YYYY-MM-DD\"T\"HH24:MI')"
 	case "5m":
 		return "to_char(date_trunc('hour', timestamp) + INTERVAL '5 min' * FLOOR(EXTRACT(minute FROM timestamp) / 5), 'YYYY-MM-DD\"T\"HH24:MI')"
 	case "30m":
 		return "to_char(date_trunc('hour', timestamp) + INTERVAL '30 min' * FLOOR(EXTRACT(minute FROM timestamp) / 30), 'YYYY-MM-DD\"T\"HH24:MI')"
 	case "hour":
-		trunc = "hour"
+		return "to_char(date_trunc('hour', timestamp), 'YYYY-MM-DD\"T\"HH24:00')"
+	default:
+		return "to_char(date_trunc('day', timestamp), 'YYYY-MM-DD')"
 	}
-	return "to_char(date_trunc('" + trunc + "', timestamp), 'YYYY-MM-DD\"T\"HH24:00')"
 }
 
 func (r *UsageRepo) timeseries(ctx context.Context, from, to time.Time, bucket string) ([]domain.UsageDailyPoint, error) {
