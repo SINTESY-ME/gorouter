@@ -17,8 +17,8 @@ const nav = [
   { to: "/providers", label: "Providers", icon: IconServer },
   { to: "/combos", label: "Combos", icon: IconLayers },
   { to: "/models", label: "Models", icon: IconBox },
-  { to: "/playground", label: "Playground", icon: IconChat },
   { to: "/keys", label: "API Keys", icon: IconKey },
+  { to: "/playground", label: "Playground", icon: IconChat },
   { to: "/logs", label: "Logs", icon: IconActivity },
   { to: "/performance", label: "Performance", icon: IconGauge },
 ];
