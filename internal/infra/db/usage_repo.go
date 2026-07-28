@@ -382,9 +382,9 @@ func (r *UsageRepo) ModelStats(ctx context.Context) (map[string]*domain.ModelSta
 	var rows []struct {
 		Model        string
 		AvgTPS       float64
-		AvgTTFTMs    int64
-		AvgLatencyMs int64
-		Requests     int
+		AvgTTFTMs    float64
+		AvgLatencyMs float64
+		Requests     int64
 	}
 	err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).
 		Where("status < 400 AND completion_tokens > 0 AND latency_ms > 0").
@@ -405,9 +405,9 @@ func (r *UsageRepo) ModelStats(ctx context.Context) (map[string]*domain.ModelSta
 	for _, row := range rows {
 		out[row.Model] = &domain.ModelStat{
 			AvgTPS:       row.AvgTPS,
-			AvgTTFTMs:    row.AvgTTFTMs,
-			AvgLatencyMs: row.AvgLatencyMs,
-			Requests:     row.Requests,
+			AvgTTFTMs:    int64(row.AvgTTFTMs),
+			AvgLatencyMs: int64(row.AvgLatencyMs),
+			Requests:     int(row.Requests),
 		}
 	}
 	return out, nil
@@ -418,9 +418,9 @@ func (r *UsageRepo) ModelStatsByID(ctx context.Context) (map[string]*domain.Mode
 	var rows []struct {
 		ID           string
 		AvgTPS       float64
-		AvgTTFTMs    int64
-		AvgLatencyMs int64
-		Requests     int
+		AvgTTFTMs    float64
+		AvgLatencyMs float64
+		Requests     int64
 	}
 	err := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).
 		Where("status < 400 AND completion_tokens > 0 AND latency_ms > 0").
@@ -441,9 +441,9 @@ func (r *UsageRepo) ModelStatsByID(ctx context.Context) (map[string]*domain.Mode
 	for _, row := range rows {
 		out[row.ID] = &domain.ModelStat{
 			AvgTPS:       row.AvgTPS,
-			AvgTTFTMs:    row.AvgTTFTMs,
-			AvgLatencyMs: row.AvgLatencyMs,
-			Requests:     row.Requests,
+			AvgTTFTMs:    int64(row.AvgTTFTMs),
+			AvgLatencyMs: int64(row.AvgLatencyMs),
+			Requests:     int(row.Requests),
 		}
 	}
 	return out, nil
