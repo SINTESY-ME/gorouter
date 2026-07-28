@@ -29,7 +29,10 @@ var (
 //     account/key is out of credit, the next connection may still work)
 //   - 404 -> fallback (model may be deprecated/removed on this provider,
 //     but the next model/combo may still work)
-//   - 400, 422 -> do not fallback (client error, will fail everywhere)
+//   - 400 -> fallback in combo context: the model may not support the
+//     request format (tool calls, vision, response_format), but the next
+//     model in the combo may handle it fine.
+//   - 422 -> do not fallback (validation error, will fail everywhere)
 func ShouldFallback(status int, err error) bool {
 	if err != nil {
 		return true // network / timeout
@@ -47,6 +50,8 @@ func ShouldFallback(status int, err error) bool {
 		return true // try next account (402 = out of credit on this key)
 	case status == http.StatusNotFound:
 		return true // model deprecated/removed on this provider; next may work
+	case status == http.StatusBadRequest:
+		return true // model may not support this request format; next model may
 	default:
 		return false
 	}
