@@ -217,11 +217,13 @@ func reorderChosenFirst(models []string, chosen string) []string {
 }
 
 // extractPromptText builds a text representation of the conversation for the
-// classifier. It includes the system prompt (for task context) and the last
-// few messages (to understand the current task), including tool calls and
-// results from the current turn. This gives the classifier enough context to
-// distinguish between coding, reasoning, writing, and simple chat tasks
-// without sending the entire conversation history.
+// classifier. It includes the last N messages (user, assistant, tool) with
+// their tool calls and results, so the classifier can understand the current
+// task context and distinguish between coding, reasoning, writing, and
+// simple chat tasks.
+//
+// System prompts are excluded — they can bias the classifier toward always
+// picking the same model regardless of the actual task.
 //
 // The text is capped at maxClassifierPromptChars. When the selected messages
 // exceed the cap, trimming is applied from the oldest included message so
@@ -236,20 +238,9 @@ func extractPromptText(body []byte) string {
 		return ""
 	}
 
-	// Collect system messages (always included) + last N messages.
-	const recentCount = 6
+	// Collect the last N non-system messages.
+	const recentCount = 10
 	var selected []map[string]any
-	for _, mi := range msgs {
-		m, _ := mi.(map[string]any)
-		if m == nil {
-			continue
-		}
-		if role, _ := m["role"].(string); role == "system" {
-			selected = append(selected, m)
-		}
-	}
-	// Add the last recentCount messages (deduplicated against system messages
-	// already selected).
 	start := len(msgs) - recentCount
 	if start < 0 {
 		start = 0
@@ -259,7 +250,6 @@ func extractPromptText(body []byte) string {
 		if m == nil {
 			continue
 		}
-		// Skip system messages already collected above.
 		if role, _ := m["role"].(string); role == "system" {
 			continue
 		}
