@@ -185,9 +185,6 @@ export default function Dashboard() {
               </div>
             </PopoverContent>
           </Popover>
-          <Select aria-label="Granularidade" selectedKeys={[bucket]} onChange={(e) => setBucket(e.target.value)} size="sm" className="w-32" disallowEmptySelection>
-            {buckets.map((b) => <SelectItem key={b.key}>{b.label}</SelectItem>)}
-          </Select>
           {apiKeys.length > 0 && (
             <Select aria-label="Token" selectedKeys={selectedKeyId ? [selectedKeyId] : []} onChange={(e) => setSelectedKeyId(e.target.value)} size="sm" className="w-44" placeholder="Todos os tokens">
               {apiKeys.map((k) => <SelectItem key={k.id}>{k.name}</SelectItem>)}
@@ -208,12 +205,17 @@ export default function Dashboard() {
       <Card className="border border-default-100">
         <CardHeader className="flex items-center justify-between gap-3 flex-wrap pb-0">
           <div>
-            <h3 className="font-semibold">Série temporal</h3>
-            <p className="text-xs text-default-500">Volume por {bucketLabel[activeBucket] || "período"}</p>
+            <h3 className="font-semibold">Volume por {bucketLabel[activeBucket] || "período"}</h3>
+            <p className="text-xs text-default-500">Série temporal</p>
           </div>
-          <Tabs size="sm" variant="underlined" selectedKey={chartMetric} onSelectionChange={(k) => setChartMetric(k as string)}>
-            {chartMetrics.map((m) => <Tab key={m.key} title={m.label} />)}
-          </Tabs>
+          <div className="flex items-center gap-2">
+            <Select aria-label="Granularidade" selectedKeys={[bucket]} onChange={(e) => setBucket(e.target.value)} size="sm" className="w-32" disallowEmptySelection>
+              {buckets.map((b) => <SelectItem key={b.key}>{b.label}</SelectItem>)}
+            </Select>
+            <Tabs size="sm" variant="underlined" selectedKey={chartMetric} onSelectionChange={(k) => setChartMetric(k as string)}>
+              {chartMetrics.map((m) => <Tab key={m.key} title={m.label} />)}
+            </Tabs>
+          </div>
         </CardHeader>
         <CardBody>
           <ResponsiveContainer width="100%" height={300}>
