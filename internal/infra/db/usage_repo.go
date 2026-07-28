@@ -47,13 +47,15 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 		bucket = autoBucket(from, to)
 	}
 	s := &domain.UsageStats{
-		ByProvider:  map[string]int{},
-		ByModel:     map[string]int{},
-		ByModelCost: map[string]float64{},
-		ByApiKey:    map[string]int{},
-		ByCombo:     map[string]int{},
-		ByEndpoint:  map[string]int{},
-		Bucket:      bucket,
+		ByProvider:    map[string]int{},
+		ByModel:       map[string]int{},
+		ByModelCost:   map[string]float64{},
+		ByApiKey:      map[string]int{},
+		ByCombo:       map[string]int{},
+		ByComboTokens: map[string]int{},
+		ByComboCost:   map[string]float64{},
+		ByEndpoint:    map[string]int{},
+		Bucket:        bucket,
 	}
 	tx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
 	if q.ApiKey != "" {
@@ -212,9 +214,13 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 	// By combo — JOIN combo_executions so every combo in the chain
 	// (parent + child) gets credit for the request.
 	var comboRows []groupRow
-	if err := r.db.WithContext(ctx).Table("combo_executions").
+	comboTx := r.db.WithContext(ctx).Table("combo_executions").
 		Joins("JOIN usage_entries ON usage_entries.id = combo_executions.usage_id").
-		Where("usage_entries.timestamp >= ? AND usage_entries.timestamp < ?", from, to).
+		Where("usage_entries.timestamp >= ? AND usage_entries.timestamp < ?", from, to)
+	if q.ApiKey != "" {
+		comboTx = comboTx.Where("usage_entries.api_key = ?", q.ApiKey)
+	}
+	if err := comboTx.
 		Group("combo_executions.combo_name").
 		Select("combo_executions.combo_name as key, COUNT(*) as count").
 		Scan(&comboRows).Error; err != nil {
@@ -222,6 +228,50 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 	}
 	for _, row := range comboRows {
 		s.ByCombo[row.Key] = int(row.Count)
+	}
+
+	// By combo tokens — sum of prompt+completion tokens per combo (via JOIN).
+	type comboTokenRow struct {
+		Key    string
+		Tokens int64
+	}
+	var comboTokenRows []comboTokenRow
+	comboTokenTx := r.db.WithContext(ctx).Table("combo_executions").
+		Joins("JOIN usage_entries ON usage_entries.id = combo_executions.usage_id").
+		Where("usage_entries.timestamp >= ? AND usage_entries.timestamp < ?", from, to)
+	if q.ApiKey != "" {
+		comboTokenTx = comboTokenTx.Where("usage_entries.api_key = ?", q.ApiKey)
+	}
+	if err := comboTokenTx.
+		Group("combo_executions.combo_name").
+		Select("combo_executions.combo_name as key, COALESCE(SUM(usage_entries.prompt_tokens + usage_entries.completion_tokens), 0) as tokens").
+		Scan(&comboTokenRows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range comboTokenRows {
+		s.ByComboTokens[row.Key] = int(row.Tokens)
+	}
+
+	// By combo cost — sum of cost per combo (via JOIN).
+	type comboCostRow struct {
+		Key  string
+		Cost float64
+	}
+	var comboCostRows []comboCostRow
+	comboCostTx := r.db.WithContext(ctx).Table("combo_executions").
+		Joins("JOIN usage_entries ON usage_entries.id = combo_executions.usage_id").
+		Where("usage_entries.timestamp >= ? AND usage_entries.timestamp < ?", from, to)
+	if q.ApiKey != "" {
+		comboCostTx = comboCostTx.Where("usage_entries.api_key = ?", q.ApiKey)
+	}
+	if err := comboCostTx.
+		Group("combo_executions.combo_name").
+		Select("combo_executions.combo_name as key, COALESCE(SUM(usage_entries.cost), 0) as cost").
+		Scan(&comboCostRows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range comboCostRows {
+		s.ByComboCost[row.Key] = row.Cost
 	}
 
 	// By endpoint

@@ -110,6 +110,7 @@ export default function Dashboard() {
   const byModel = Object.entries(stats.by_model).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
   const byModelCost = Object.entries(stats.by_model_cost || {}).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
   const byCombo = Object.entries(stats.by_combo || {}).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  const byComboTokens = Object.entries(stats.by_combo_tokens || {}).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
   const byApiKey = Object.entries(stats.by_api_key || {}).map(([name, value]) => ({ name: nameKey(name, apiKeys), value })).sort((a, b) => b.value - a.value);
 
   const totalTokens = stats.prompt_tokens + stats.completion_tokens;
@@ -409,6 +410,23 @@ export default function Dashboard() {
                   <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
                   <RTooltip contentStyle={tooltipStyle} itemStyle={itemStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
                   <Bar dataKey="value" fill="#B266FF" radius={[0, 4, 4, 0]} barSize={18} />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardBody>
+          </Card>
+        )}
+
+        {byComboTokens.length > 0 && (
+          <Card className="border border-default-100">
+            <CardHeader><div><h3 className="font-semibold">Tokens por combo</h3><p className="text-xs text-default-500">Prompt + completion</p></div></CardHeader>
+            <CardBody>
+              <ResponsiveContainer width="100%" height={Math.max(260, byComboTokens.length * 26)}>
+                <BarChart data={byComboTokens} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
+                  <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={formatCompact} />
+                  <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
+                  <RTooltip contentStyle={tooltipStyle} itemStyle={itemStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [formatCompact(v), "Tokens"]} />
+                  <Bar dataKey="value" fill="#4DA3FF" radius={[0, 4, 4, 0]} barSize={18} />
                 </BarChart>
               </ResponsiveContainer>
             </CardBody>

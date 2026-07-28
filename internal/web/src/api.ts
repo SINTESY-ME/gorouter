@@ -115,6 +115,8 @@ export interface UsageStats {
   by_model_cost: Record<string, number>;
   by_api_key: Record<string, number>;
   by_combo: Record<string, number>;
+  by_combo_tokens: Record<string, number>;
+  by_combo_cost: Record<string, number>;
   by_endpoint: Record<string, number>;
   daily: { date: string; requests: number; tokens: number; cost: number; errors?: number; avg_tps?: number }[];
   bucket?: string;

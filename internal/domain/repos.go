@@ -122,6 +122,8 @@ type UsageStats struct {
 	ByModelCost      map[string]float64 `json:"by_model_cost"`
 	ByApiKey         map[string]int     `json:"by_api_key"`
 	ByCombo          map[string]int     `json:"by_combo,omitempty"`
+	ByComboTokens    map[string]int     `json:"by_combo_tokens,omitempty"`
+	ByComboCost      map[string]float64 `json:"by_combo_cost,omitempty"`
 	ByEndpoint       map[string]int     `json:"by_endpoint,omitempty"`
 	Daily            []UsageDailyPoint  `json:"daily"`
 	Bucket           string             `json:"bucket"`
