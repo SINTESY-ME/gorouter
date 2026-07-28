@@ -3,7 +3,7 @@ import {
   Spinner, Select, SelectItem, Popover, PopoverTrigger, PopoverContent,
   Input, Button, Card, CardBody, CardHeader, Tabs, Tab,
   Table, TableHeader, TableColumn, TableBody, TableRow, TableCell,
-  Chip, Progress,
+  Progress,
 } from "@heroui/react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip,
@@ -343,7 +343,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {byProvider.length > 0 && (
           <Card className="border border-default-100">
-            <CardHeader><div><h3 className="font-semibold">Por provider</h3><p className="text-xs text-default-500">Distribuição de requisições</p></div></CardHeader>
+            <CardHeader><div><h3 className="font-semibold">Distribuição de requisições</h3><p className="text-xs text-default-500">Por provider</p></div></CardHeader>
             <CardBody>
               <ResponsiveContainer width="100%" height={260}>
                 <PieChart>
@@ -362,7 +362,7 @@ export default function Dashboard() {
 
         {byModel.length > 0 && (
           <Card className="border border-default-100">
-            <CardHeader><div><h3 className="font-semibold">Por modelo</h3><p className="text-xs text-default-500">Requisições por modelo</p></div></CardHeader>
+            <CardHeader><div><h3 className="font-semibold">Requisições por modelo</h3><p className="text-xs text-default-500">Por modelo</p></div></CardHeader>
             <CardBody>
               <ResponsiveContainer width="100%" height={Math.max(260, byModel.length * 26)}>
                 <BarChart data={byModel} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
@@ -379,7 +379,7 @@ export default function Dashboard() {
 
         {byModelCost.length > 0 && (
           <Card className="border border-default-100">
-            <CardHeader><div><h3 className="font-semibold">Custo por modelo</h3><p className="text-xs text-default-500">Gasto em USD</p></div></CardHeader>
+            <CardHeader><div><h3 className="font-semibold">Gasto em USD</h3><p className="text-xs text-default-500">Custo por modelo</p></div></CardHeader>
             <CardBody>
               <ResponsiveContainer width="100%" height={Math.max(260, byModelCost.length * 26)}>
                 <BarChart data={byModelCost} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
@@ -396,7 +396,7 @@ export default function Dashboard() {
 
         {byCombo.length > 0 && (
           <Card className="border border-default-100">
-            <CardHeader><div><h3 className="font-semibold">Por combo</h3><p className="text-xs text-default-500">Distribuição entre combos</p></div></CardHeader>
+            <CardHeader><div><h3 className="font-semibold">Distribuição entre combos</h3><p className="text-xs text-default-500">Por combo</p></div></CardHeader>
             <CardBody>
               <ResponsiveContainer width="100%" height={Math.max(260, byCombo.length * 26)}>
                 <BarChart data={byCombo} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
@@ -413,7 +413,7 @@ export default function Dashboard() {
 
         {byApiKey.length > 0 && (
           <Card className="border border-default-100">
-            <CardHeader><div><h3 className="font-semibold">Por token</h3><p className="text-xs text-default-500">Requisições por API key</p></div></CardHeader>
+            <CardHeader><div><h3 className="font-semibold">Requisições por API key</h3><p className="text-xs text-default-500">Por token</p></div></CardHeader>
             <CardBody>
               <ResponsiveContainer width="100%" height={Math.max(260, byApiKey.length * 26)}>
                 <BarChart data={byApiKey} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
@@ -429,36 +429,44 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Sistema — chips neutros */}
+      {/* Sistema */}
       {status && (
-        <Card className="border border-default-100">
-          <CardHeader><h3 className="font-semibold">Sistema</h3></CardHeader>
-          <CardBody>
-            <div className="flex flex-wrap gap-3">
-              <Chip variant="flat" size="lg">
-                Combos: <b className="ml-1">{status.combos.total}</b>
-              </Chip>
-              <Chip variant="flat" size="lg" color={status.connections.rate_limited > 0 ? "warning" : "default"}>
-                Conexões: <b className="ml-1">{status.connections.active}/{status.connections.total}</b>
-                {status.connections.rate_limited > 0 && <span className="ml-1">· {status.connections.rate_limited} rate-limited</span>}
-              </Chip>
-              <Chip variant="flat" size="lg" color={status.health.unhealthy > 0 ? "danger" : "success"}>
-                Saúde: <b className="ml-1">{status.health.unhealthy > 0 ? `${status.health.unhealthy} unhealthy` : "OK"}</b>
-                {status.health.probing > 0 && <span className="ml-1">· {status.health.probing} probing</span>}
-              </Chip>
-              <Chip variant="flat" size="lg">
-                Tokens: <b className="ml-1">{apiKeys.filter(k => k.is_active).length}</b>
-                <span className="text-default-400 ml-1">/ {apiKeys.length}</span>
-              </Chip>
-            </div>
-          </CardBody>
-        </Card>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <SystemCard label="Combos" value={status.combos.total} sub="estratégias" />
+          <SystemCard
+            label="Conexões"
+            value={status.connections.total}
+            sub={`${status.connections.active} ativas${status.connections.rate_limited > 0 ? ` · ${status.connections.rate_limited} rate-limited` : ""}`}
+          />
+          <SystemCard
+            label="Saúde"
+            value={status.health.unhealthy > 0 ? status.health.unhealthy : 0}
+            sub={status.health.unhealthy > 0 ? "unhealthy" : "OK"}
+            variant={status.health.unhealthy > 0 ? "danger" : "success"}
+          />
+          <SystemCard
+            label="Tokens"
+            value={apiKeys.filter(k => k.is_active).length}
+            sub={`de ${apiKeys.length} cadastrados`}
+          />
+        </div>
       )}
     </div>
   );
 }
 
 // ---- Components ----
+
+function SystemCard({ label, value, sub, variant }: { label: string; value: number; sub: string; variant?: "danger" | "success" | "default" }) {
+  const borderClass = variant === "danger" ? "border-danger-200" : variant === "success" ? "border-default-100" : "border-default-100";
+  return (
+    <div className={`bg-content1 rounded-2xl border ${borderClass} p-5`}>
+      <p className="text-xs text-default-500 uppercase tracking-wide font-medium">{label}</p>
+      <p className="text-2xl font-bold mt-2 tabular-nums">{value}</p>
+      <p className="text-xs text-default-500 mt-1">{sub}</p>
+    </div>
+  );
+}
 
 function StatCard({ label, value, sub, full }: { label: string; value: string | number; sub: string; full?: string }) {
   return (
