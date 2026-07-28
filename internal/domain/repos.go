@@ -61,11 +61,14 @@ type UsageStatsQuery struct {
 
 // UsageRepo records and aggregates request usage.
 type UsageRepo interface {
-	Record(ctx context.Context, e UsageEntry) error
+	// Record inserts a usage entry and its associated combo_executions
+	// rows (derived from entry.ComboChain) in a single transaction.
+	// The entry's ID is populated on success.
+	Record(ctx context.Context, e *UsageEntry) error
 	// Stats returns aggregated totals + a time-series for the given query.
-	// When q.From is zero, q.Period is used to compute the start time.
 	Stats(ctx context.Context, q UsageStatsQuery) (*UsageStats, error)
-	// History returns raw entries, newest first, limited.
+	// History returns raw entries, newest first, limited. Each entry
+	// includes the combo chain (populated from combo_executions).
 	History(ctx context.Context, limit int) ([]UsageEntry, error)
 	// ModelStats returns per-model aggregate stats (avg TPS, avg latency, requests).
 	ModelStats(ctx context.Context) (map[string]*ModelStat, error)
@@ -143,13 +146,8 @@ type UsageStats struct {
 	ErrorRequests      int     `json:"error_requests"`
 	ErrorRate          float64 `json:"error_rate"`
 
-	// Fallback metrics — Requests that fell through to the 2nd, 3rd, ...
-	// model in a combo. Approximated by checking if combo_name is set
-	// and the model field isn't the first model of the combo (set in
-	// the router). For combos we record the combo_name on the entry,
-	// and the count of entries where combo_name != "" gives the number
-	// of combo-routed requests; to detect fallbacks we use status >= 400
-	// on first-model entries as a proxy (computed in SQL below).
+	// ComboRequests counts entries that have at least one row in
+	// combo_executions (i.e. the request was routed through a combo).
 	ComboRequests    int     `json:"combo_requests"`
 	CacheHitRate     float64 `json:"cache_hit_rate"`
 	CacheHits        int64   `json:"cache_hits"`

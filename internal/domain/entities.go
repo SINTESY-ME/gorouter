@@ -217,13 +217,15 @@ type ApiKey struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-// UsageEntry is a single request's resource accounting.
+// UsageEntry is a single upstream call's resource accounting. One row per
+// real API call (not per combo level). Combo membership is tracked in the
+// separate combo_executions table so that nested combos don't duplicate
+// tokens/cost in aggregate queries.
 type UsageEntry struct {
 	ID                int64     `json:"id" gorm:"primaryKey;autoIncrement"`
 	Timestamp         time.Time `json:"timestamp" gorm:"index"`
 	Provider          string    `json:"provider"`
 	Model             string    `json:"model"`
-	ComboName         string    `json:"combo_name,omitempty" gorm:"column:combo_name;default:''"`
 	ConnectionID      string    `json:"connection_id" gorm:"column:connection_id"`
 	ApiKey            string    `json:"api_key,omitempty" gorm:"column:api_key"`
 	Endpoint          string    `json:"endpoint"`
@@ -233,20 +235,29 @@ type UsageEntry struct {
 	CompletionTokens  int       `json:"completion_tokens"`
 	CachedTokens      int       `json:"cached_tokens,omitempty"`
 	Cost              float64   `json:"cost"`
-	Status            int       `json:"status"` // http status
-	// Cache savings — populated when this request was served from the
-	// response cache (no upstream call). The tokens/cost here represent
-	// what was avoided by serving the cached response.
-	CacheHit           bool    `json:"cache_hit,omitempty" gorm:"column:cache_hit;default:false"`
-	CacheTokensSaved   int     `json:"cache_tokens_saved,omitempty" gorm:"column:cache_tokens_saved;default:0"`
-	CacheCostSaved     float64 `json:"cache_cost_saved,omitempty" gorm:"column:cache_cost_saved;default:0"`
-	// RTK savings — populated when RTK compression reduced the request
-	// body before sending upstream. Tokens/bytes/cost represent what was
-	// shaved off the input.
-	RTKCompressed      bool    `json:"rtk_compressed,omitempty" gorm:"column:rtk_compressed;default:false"`
-	RTKBytesSaved      int     `json:"rtk_bytes_saved,omitempty" gorm:"column:rtk_bytes_saved;default:0"`
-	RTKTokensSaved     int     `json:"rtk_tokens_saved,omitempty" gorm:"column:rtk_tokens_saved;default:0"`
-	RTKCostSaved       float64 `json:"rtk_cost_saved,omitempty" gorm:"column:rtk_cost_saved;default:0"`
+	Status            int       `json:"status"`
+	CacheHit          bool      `json:"cache_hit,omitempty" gorm:"column:cache_hit;default:false"`
+	CacheTokensSaved  int       `json:"cache_tokens_saved,omitempty" gorm:"column:cache_tokens_saved;default:0"`
+	CacheCostSaved    float64   `json:"cache_cost_saved,omitempty" gorm:"column:cache_cost_saved;default:0"`
+	RTKCompressed     bool      `json:"rtk_compressed,omitempty" gorm:"column:rtk_compressed;default:false"`
+	RTKBytesSaved     int       `json:"rtk_bytes_saved,omitempty" gorm:"column:rtk_bytes_saved;default:0"`
+	RTKTokensSaved    int       `json:"rtk_tokens_saved,omitempty" gorm:"column:rtk_tokens_saved;default:0"`
+	RTKCostSaved      float64   `json:"rtk_cost_saved,omitempty" gorm:"column:rtk_cost_saved;default:0"`
+	// ComboChain is the list of combo names from root to leaf
+	// (e.g. ["coding", "medium"]). It is NOT stored in usage_entries —
+	// it is used by Record() to insert rows into combo_executions, and
+	// populated by History() via a JOIN for the logs UI.
+	ComboChain []string `json:"combo_chain,omitempty" gorm:"-"`
+}
+
+// ComboExecution records which combos were traversed for a single upstream
+// call. One row per combo in the chain (root → ... → leaf). The leaf combo
+// is the one that directly contains the model that was called.
+type ComboExecution struct {
+	ID        int64  `json:"id" gorm:"primaryKey;autoIncrement"`
+	UsageID   int64  `json:"usage_id" gorm:"column:usage_id;index"`
+	ComboName string `json:"combo_name" gorm:"column:combo_name;index"`
+	Depth     int    `json:"depth" gorm:"column:depth"`
 }
 
 // Setting is a key-value persisted configuration entry (dashboard password

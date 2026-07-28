@@ -73,7 +73,7 @@ export default function Logs() {
                 return (
                 <TableRow key={e.id}>
                   <TableCell><span className="text-xs text-default-500">{new Date(e.timestamp).toLocaleString()}</span></TableCell>
-                  <TableCell>{e.combo_name ? <code className="text-xs">{e.combo_name}</code> : <span className="text-default-400">—</span>}</TableCell>
+                  <TableCell>{e.combo_chain?.length ? <code className="text-xs">{e.combo_chain.join(" → ")}</code> : <span className="text-default-400">—</span>}</TableCell>
                   <TableCell>{e.provider}</TableCell>
                   <TableCell><code className="text-xs">{e.model}</code></TableCell>
                   <TableCell><code className="text-xs text-default-500">{e.endpoint}</code></TableCell>

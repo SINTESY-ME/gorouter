@@ -8,10 +8,9 @@ import (
 	"github.com/jhon/gorouter/internal/domain"
 )
 
-// asyncUsageRecorder wraps a UsageRepo with a buffered channel so that
+// AsyncUsageRecorder wraps a UsageRepo with a buffered channel so that
 // Record() calls on the hot path (teeReadCloser.Close) never block on a
-// database INSERT. Entries are drained by a single background goroutine
-// that batches inserts when the channel has accumulated entries.
+// database INSERT. Entries are drained by a single background goroutine.
 //
 // If the channel is full (should only happen under extreme load or during
 // shutdown), the entry is dropped rather than blocking the request path.
@@ -33,11 +32,10 @@ func NewAsyncUsageRecorder(repo domain.UsageRepo) *AsyncUsageRecorder {
 	return r
 }
 
-func (r *AsyncUsageRecorder) Record(ctx context.Context, e domain.UsageEntry) error {
+func (r *AsyncUsageRecorder) Record(ctx context.Context, e *domain.UsageEntry) error {
 	select {
-	case r.entries <- e:
+	case r.entries <- *e:
 	default:
-		// Channel full — drop the entry rather than blocking the hot path.
 	}
 	return nil
 }
@@ -47,7 +45,7 @@ func (r *AsyncUsageRecorder) drain() {
 	ctx := context.Background()
 	for e := range r.entries {
 		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		_ = r.repo.Record(cctx, e)
+		_ = r.repo.Record(cctx, &e)
 		cancel()
 	}
 }

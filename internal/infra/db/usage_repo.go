@@ -14,8 +14,27 @@ type UsageRepo struct{ db *gorm.DB }
 
 func NewUsageRepo(db *gorm.DB) *UsageRepo { return &UsageRepo{db: db} }
 
-func (r *UsageRepo) Record(ctx context.Context, e domain.UsageEntry) error {
-	return r.db.WithContext(ctx).Create(&e).Error
+// Record inserts a usage entry and its combo_executions rows in a single
+// transaction. The entry's ComboChain (gorm:"-") is used to derive the
+// combo_executions rows. The entry's ID is populated on success.
+func (r *UsageRepo) Record(ctx context.Context, e *domain.UsageEntry) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(e).Error; err != nil {
+			return err
+		}
+		if len(e.ComboChain) == 0 {
+			return nil
+		}
+		executions := make([]domain.ComboExecution, len(e.ComboChain))
+		for i, name := range e.ComboChain {
+			executions[i] = domain.ComboExecution{
+				UsageID:   e.ID,
+				ComboName: name,
+				Depth:     i,
+			}
+		}
+		return tx.Create(&executions).Error
+	})
 }
 
 func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domain.UsageStats, error) {
@@ -62,7 +81,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 			COALESCE(SUM(CASE WHEN status < 400 THEN 1 ELSE 0 END), 0) as successful,
 			COALESCE(SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END), 0) as errors,
 			COALESCE(SUM(CASE WHEN cache_hit THEN 1 ELSE 0 END), 0) as cache_hits,
-			COALESCE(SUM(CASE WHEN combo_name != '' THEN 1 ELSE 0 END), 0) as combo_reqs,
+			COALESCE(SUM(CASE WHEN id IN (SELECT DISTINCT usage_id FROM combo_executions) THEN 1 ELSE 0 END), 0) as combo_reqs,
 			COALESCE(SUM(cache_cost_saved + rtk_cost_saved), 0) as cost_saved,
 			COALESCE(SUM(cache_tokens_saved + rtk_tokens_saved), 0) as tokens_saved
 		`).
@@ -190,10 +209,15 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 		s.ByApiKey[row.Key] = int(row.Count)
 	}
 
-	// By combo_name (non-empty only)
+	// By combo — JOIN combo_executions so every combo in the chain
+	// (parent + child) gets credit for the request.
 	var comboRows []groupRow
-	if err := tx.Session(&gorm.Session{}).Where("timestamp >= ? AND timestamp < ? AND combo_name != ''", from, to).
-		Select("combo_name as key, COUNT(*) as count").Group("combo_name").Scan(&comboRows).Error; err != nil {
+	if err := r.db.WithContext(ctx).Table("combo_executions").
+		Joins("JOIN usage_entries ON usage_entries.id = combo_executions.usage_id").
+		Where("usage_entries.timestamp >= ? AND usage_entries.timestamp < ?", from, to).
+		Group("combo_executions.combo_name").
+		Select("combo_executions.combo_name as key, COUNT(*) as count").
+		Scan(&comboRows).Error; err != nil {
 		return nil, err
 	}
 	for _, row := range comboRows {
@@ -374,8 +398,28 @@ func (r *UsageRepo) History(ctx context.Context, limit int) ([]domain.UsageEntry
 		limit = 100
 	}
 	var entries []domain.UsageEntry
-	err := r.db.WithContext(ctx).Order("timestamp DESC").Limit(limit).Find(&entries).Error
-	return entries, err
+	if err := r.db.WithContext(ctx).Order("timestamp DESC").Limit(limit).Find(&entries).Error; err != nil {
+		return nil, err
+	}
+	if len(entries) == 0 {
+		return entries, nil
+	}
+	// Batch-load combo chains for all entries in one query.
+	ids := make([]int64, len(entries))
+	for i := range entries {
+		ids[i] = entries[i].ID
+	}
+	var execs []domain.ComboExecution
+	r.db.WithContext(ctx).Where("usage_id IN ?", ids).Order("usage_id, depth").Find(&execs)
+	// Group by usage_id.
+	byUsage := map[int64][]string{}
+	for _, ce := range execs {
+		byUsage[ce.UsageID] = append(byUsage[ce.UsageID], ce.ComboName)
+	}
+	for i := range entries {
+		entries[i].ComboChain = byUsage[entries[i].ID]
+	}
+	return entries, nil
 }
 
 func (r *UsageRepo) ModelStats(ctx context.Context) (map[string]*domain.ModelStat, error) {

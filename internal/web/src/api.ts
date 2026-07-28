@@ -140,7 +140,7 @@ export interface StatusSnapshot {
   health: HealthSummary;
 }
 export interface UsageEntry {
-  id: number; timestamp: string; provider: string; model: string; combo_name?: string;
+  id: number; timestamp: string; provider: string; model: string; combo_chain?: string[];
   connection_id: string; api_key: string; endpoint: string;
   prompt_tokens: number; completion_tokens: number; cached_tokens: number;
   cost: number; status: number; latency_ms?: number; ttft_ms?: number;

@@ -164,9 +164,9 @@ type mockUsageRepo struct {
 	entries []domain.UsageEntry
 }
 
-func (r *mockUsageRepo) Record(ctx context.Context, e domain.UsageEntry) error {
+func (r *mockUsageRepo) Record(ctx context.Context, e *domain.UsageEntry) error {
 	r.mu.Lock()
-	r.entries = append(r.entries, e)
+	r.entries = append(r.entries, *e)
 	r.mu.Unlock()
 	return nil
 }
