@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
 import {
   Spinner, Select, SelectItem, Popover, PopoverTrigger, PopoverContent,
-  Input, Button, Card, CardBody, CardHeader, Divider, Chip, Tabs, Tab,
-  Progress, Tooltip as HeroTooltip,
+  Input, Button, Card, CardBody, CardHeader, Tabs, Tab,
+  Table, TableHeader, TableColumn, TableBody, TableRow, TableCell,
+  Chip, Progress,
 } from "@heroui/react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip,
-  CartesianGrid, BarChart, Bar, PieChart, Pie, Cell, Legend, LineChart, Line,
+  CartesianGrid, BarChart, Bar, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { api, type UsageStats, type SavingsStats, type ApiKey, type StatusSnapshot } from "../api";
+import { api, type UsageStats, type SavingsStats, type ApiKey, type StatusSnapshot, type ModelStat } from "../api";
 import { formatCompact, formatCost } from "../format";
 
 const PIE_COLORS = ["#00C2A8", "#FF6B6B", "#4DA3FF", "#FFB347", "#B266FF", "#FFD93D", "#6BCB77"];
@@ -60,6 +61,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [savings, setSavings] = useState<SavingsStats | null>(null);
   const [status, setStatus] = useState<StatusSnapshot | null>(null);
+  const [modelStats, setModelStats] = useState<Record<string, ModelStat>>({});
   const [period, setPeriod] = useState("24h");
   const [bucket, setBucket] = useState("");
   const [customMode, setCustomMode] = useState(false);
@@ -88,8 +90,9 @@ export default function Dashboard() {
       api.usage.stats(params),
       api.savings.stats(customMode && fromDate ? "60d" : period, selectedKeyId).catch(() => null),
       api.status().catch(() => null),
+      api.models.stats().catch(() => ({})),
     ])
-      .then(([s, sv, st]) => { setStats(s); setSavings(sv); setStatus(st); })
+      .then(([s, sv, st, ms]) => { setStats(s); setSavings(sv); setStatus(st); setModelStats(ms); })
       .catch(() => setStats(null))
       .finally(() => setLoading(false));
   }, [period, bucket, customMode, fromDate, toDate, selectedKeyId]);
@@ -111,7 +114,23 @@ export default function Dashboard() {
 
   const totalTokens = stats.prompt_tokens + stats.completion_tokens;
   const errorPct = stats.error_rate * 100;
-  const cachePct = stats.cache_hit_rate * 100;
+
+  // Build per-model performance table rows: merge by_model (request counts)
+  // with modelStats (TTFT, TPS, latency).
+  const perfRows = byModel.map((m) => {
+    const ms = modelStats[m.name];
+    const cost = stats.by_model_cost?.[m.name] || 0;
+    return {
+      name: m.name,
+      requests: m.value,
+      ttft: ms?.avg_ttft_ms,
+      tps: ms?.avg_tps,
+      latency: ms?.avg_latency_ms,
+      cost,
+      costPerReq: m.value > 0 ? cost / m.value : 0,
+      tokensPerReq: m.value > 0 ? (totalTokens / stats.requests) * (m.value / stats.requests) : 0,
+    };
+  });
 
   const chartMetrics = [
     { key: "requests", label: "Requests", color: "#00C2A8", fmt: (v: number) => v.toLocaleString("en-US"), yFmt: formatCompact },
@@ -177,15 +196,15 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Top stats — 4 most important numbers */}
+      {/* Top stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Requests" value={formatCompact(stats.requests)} sub="total no período" full={stats.requests.toLocaleString("en-US")} />
         <StatCard label="Tokens" value={formatCompact(totalTokens)} sub={`${formatCompact(stats.prompt_tokens)} in · ${formatCompact(stats.completion_tokens)} out`} full={totalTokens.toLocaleString("en-US")} />
         <StatCard label="Custo" value={formatCost(stats.cost)} sub={stats.cost_per_request > 0 ? `${formatCost(stats.cost_per_request)}/req` : "—"} full={`$${stats.cost.toFixed(6)}`} />
-        <StatCard label="Economia" value={formatCost(stats.cost_saved)} sub={`${formatCompact(stats.tokens_saved)} tokens poupados`} full={`$${stats.cost_saved.toFixed(6)}`} color="text-success" />
+        <StatCard label="Economia" value={formatCost(stats.cost_saved)} sub={`${formatCompact(stats.tokens_saved)} tokens poupados`} full={`$${stats.cost_saved.toFixed(6)}`} />
       </div>
 
-      {/* Time series — main chart, tabbed metric */}
+      {/* Time series */}
       <Card className="border border-default-100">
         <CardHeader className="flex items-center justify-between gap-3 flex-wrap pb-0">
           <div>
@@ -201,7 +220,7 @@ export default function Dashboard() {
             <AreaChart data={daily} margin={{ left: -16, right: 8, top: 8 }}>
               <defs>
                 <linearGradient id="gradChart" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={activeMetric.color} stopOpacity={0.5} />
+                  <stop offset="5%" stopColor={activeMetric.color} stopOpacity={0.4} />
                   <stop offset="95%" stopColor={activeMetric.color} stopOpacity={0.02} />
                 </linearGradient>
               </defs>
@@ -215,109 +234,106 @@ export default function Dashboard() {
         </CardBody>
       </Card>
 
-      {/* Performance + reliability — visual gauges + key numbers */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Performance card */}
-        <Card className="border border-default-100">
-          <CardHeader><h3 className="font-semibold">Performance</h3></CardHeader>
-          <CardBody className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <Metric label="TTFT médio" value={stats.avg_ttft_ms > 0 ? `${stats.avg_ttft_ms}ms` : "—"} />
-              <Metric label="TPS médio" value={stats.avg_tps > 0 ? stats.avg_tps.toFixed(1) : "—"} suffix="tok/s" />
-              <Metric label="Latência média" value={stats.avg_latency_ms > 0 ? `${stats.avg_latency_ms}ms` : "—"} />
-              <Metric label="P95 / P99" value={stats.p95_latency_ms > 0 ? `${stats.p95_latency_ms} / ${stats.p99_latency_ms}ms` : "—"} />
-            </div>
-            {stats.p50_latency_ms > 0 && (
-              <div>
-                <div className="flex justify-between text-xs text-default-500 mb-1">
-                  <span>Distribuição de latência (P50 → P99)</span>
-                </div>
-                <div className="flex items-center gap-1 h-8">
-                  <BarMini value={stats.p50_latency_ms} max={stats.p99_latency_ms} color="#00C2A8" label="P50" />
-                  <BarMini value={stats.p95_latency_ms} max={stats.p99_latency_ms} color="#FFB347" label="P95" />
-                  <BarMini value={stats.p99_latency_ms} max={stats.p99_latency_ms} color="#FF6B6B" label="P99" />
-                </div>
-              </div>
-            )}
-          </CardBody>
-        </Card>
-
-        {/* Reliability card */}
-        <Card className="border border-default-100">
-          <CardHeader><h3 className="font-semibold">Confiabilidade</h3></CardHeader>
-          <CardBody className="space-y-4">
-            <GaugeBar
-              label="Taxa de erro"
-              value={errorPct}
-              color={errorPct > 5 ? "danger" : "success"}
-              display={`${errorPct.toFixed(1)}%`}
-              sub={`${stats.error_requests.toLocaleString("en-US")} de ${stats.requests.toLocaleString("en-US")}`}
-            />
-            <GaugeBar
-              label="Cache hit rate"
-              value={cachePct}
-              color="primary"
-              display={`${cachePct.toFixed(1)}%`}
-              sub={`${stats.cache_hits.toLocaleString("en-US")} hits`}
-            />
-            <div className="grid grid-cols-2 gap-4 pt-2">
-              <Metric label="Requests OK" value={stats.successful_requests.toLocaleString("en-US")} color="text-success" />
-              <Metric label="Combo requests" value={stats.combo_requests.toLocaleString("en-US")} sub={stats.requests > 0 ? `${((stats.combo_requests / stats.requests) * 100).toFixed(0)}% do total` : ""} />
-            </div>
-          </CardBody>
-        </Card>
-      </div>
-
-      {/* Efficiency — cost insights */}
-      <Card className="border border-default-100">
-        <CardHeader><h3 className="font-semibold">Eficiência</h3></CardHeader>
-        <CardBody>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Metric label="Custo por request" value={stats.cost_per_request > 0 ? `$${stats.cost_per_request.toFixed(6)}` : "—"} />
-            <Metric label="Tokens por $" value={stats.tokens_per_dollar > 0 ? formatCompact(stats.tokens_per_dollar) : "—"} suffix={stats.tokens_per_dollar > 0 ? "tok/$" : ""} />
-            <Metric label="Custo / 1k tokens" value={stats.tokens_per_dollar > 0 ? `$${(1000 / stats.tokens_per_dollar).toFixed(4)}` : "—"} />
-            <Metric label="Tokens / request" value={stats.requests > 0 ? formatCompact(totalTokens / stats.requests) : "—"} />
-          </div>
-        </CardBody>
-      </Card>
-
-      {/* Savings — cache + RTK visual breakdown */}
-      {savings && (
+      {/* Performance por modelo — table with TTFT, TPS, latency, cost per request */}
+      {perfRows.length > 0 && (
         <Card className="border border-default-100">
           <CardHeader>
             <div>
-              <h3 className="font-semibold">Economia</h3>
-              <p className="text-xs text-default-500">Tokens e custos economizados por Response Cache e RTK</p>
+              <h3 className="font-semibold">Performance por modelo</h3>
+              <p className="text-xs text-default-500">TTFT, TPS, latência e custo por request</p>
             </div>
           </CardHeader>
-          <CardBody className="space-y-5">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <SavingsMetric label="Cache hits" value={formatCompact(savings.cache_hits)} sub={`${formatCost(savings.cache_cost_saved)} poupado`} color="#00C2A8" />
-              <SavingsMetric label="Tokens (cache)" value={formatCompact(savings.cache_tokens_saved)} sub="poupados" color="#00C2A8" />
-              <SavingsMetric label="Compressões RTK" value={formatCompact(savings.rtk_compressions)} sub="tool_results" color="#4DA3FF" />
-              <SavingsMetric label="Tokens (RTK)" value={formatCompact(savings.rtk_tokens_saved)} sub={`${formatCost(savings.rtk_cost_saved)} poupado`} color="#4DA3FF" />
-            </div>
-            {(savings.cache_cost_saved + savings.rtk_cost_saved) > 0 && (
-              <div className="flex items-center gap-6 pt-2 border-t border-default-100">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-default-500">Total economizado:</span>
-                  <Chip color="success" variant="flat" size="lg" className="font-bold">
-                    {formatCost(savings.cache_cost_saved + savings.rtk_cost_saved)}
-                  </Chip>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-default-500">Tokens:</span>
-                  <span className="text-lg font-bold text-success tabular-nums">
-                    {formatCompact(savings.cache_tokens_saved + savings.rtk_tokens_saved)}
-                  </span>
-                </div>
-              </div>
-            )}
+          <CardBody>
+            <Table removeWrapper aria-label="performance por modelo" className="text-sm">
+              <TableHeader>
+                <TableColumn>MODELO</TableColumn>
+                <TableColumn align="end">REQUESTS</TableColumn>
+                <TableColumn align="end">TTFT</TableColumn>
+                <TableColumn align="end">TPS</TableColumn>
+                <TableColumn align="end">LATÊNCIA</TableColumn>
+                <TableColumn align="end">CUSTO/REQ</TableColumn>
+                <TableColumn align="end">CUSTO TOTAL</TableColumn>
+              </TableHeader>
+              <TableBody items={perfRows}>
+                {(r) => (
+                  <TableRow key={r.name}>
+                    <TableCell><code className="text-xs">{r.name}</code></TableCell>
+                    <TableCell className="text-right tabular-nums">{r.requests.toLocaleString("en-US")}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.ttft ? `${r.ttft}ms` : "—"}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.tps ? r.tps.toFixed(1) : "—"}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.latency ? `${r.latency}ms` : "—"}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.costPerReq > 0 ? formatCost(r.costPerReq) : "—"}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.cost > 0 ? formatCost(r.cost) : "—"}</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
           </CardBody>
         </Card>
       )}
 
-      {/* Distributions — charts in 2-col grid */}
+      {/* Confiabilidade — só taxa de erro + requests OK */}
+      <Card className="border border-default-100">
+        <CardHeader><h3 className="font-semibold">Confiabilidade</h3></CardHeader>
+        <CardBody>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+            <div className="md:col-span-1">
+              <div className="flex justify-between items-baseline mb-2">
+                <span className="text-sm text-default-500">Taxa de erro</span>
+                <span className="text-lg font-semibold tabular-nums">{errorPct.toFixed(1)}%</span>
+              </div>
+              <Progress
+                aria-label="Taxa de erro"
+                size="md"
+                color={errorPct > 5 ? "danger" : "success"}
+                value={Math.min(errorPct, 100)}
+              />
+              <p className="text-xs text-default-400 mt-1.5">
+                {stats.error_requests.toLocaleString("en-US")} erros de {stats.requests.toLocaleString("en-US")}
+              </p>
+            </div>
+            <div className="md:col-span-1">
+              <p className="text-xs text-default-500 uppercase tracking-wide font-medium">Requests OK</p>
+              <p className="text-2xl font-semibold mt-1 tabular-nums">{stats.successful_requests.toLocaleString("en-US")}</p>
+            </div>
+            <div className="md:col-span-1">
+              <p className="text-xs text-default-500 uppercase tracking-wide font-medium">Combo requests</p>
+              <p className="text-2xl font-semibold mt-1 tabular-nums">
+                {stats.combo_requests.toLocaleString("en-US")}
+              </p>
+              <p className="text-xs text-default-400 mt-0.5">
+                {stats.requests > 0 ? `${((stats.combo_requests / stats.requests) * 100).toFixed(0)}% do total` : ""}
+              </p>
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* Economia — individual cards */}
+      {savings && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <SavingsCard label="Cache hits" value={formatCompact(savings.cache_hits)} sub="respostas do cache" full={savings.cache_hits.toLocaleString("en-US")} dot="#00C2A8" />
+          <SavingsCard label="Tokens (cache)" value={formatCompact(savings.cache_tokens_saved)} sub={formatCost(savings.cache_cost_saved)} full={savings.cache_tokens_saved.toLocaleString("en-US")} dot="#00C2A8" />
+          <SavingsCard label="Compressões RTK" value={formatCompact(savings.rtk_compressions)} sub="tool_results" full={savings.rtk_compressions.toLocaleString("en-US")} dot="#4DA3FF" />
+          <SavingsCard label="Tokens (RTK)" value={formatCompact(savings.rtk_tokens_saved)} sub={formatCost(savings.rtk_cost_saved)} full={savings.rtk_tokens_saved.toLocaleString("en-US")} dot="#4DA3FF" />
+        </div>
+      )}
+
+      {/* Total economizado — neutro, sem cor de fundo */}
+      {savings && (savings.cache_cost_saved + savings.rtk_cost_saved) > 0 && (
+        <div className="flex items-center gap-8 px-1">
+          <div className="flex items-baseline gap-2">
+            <span className="text-sm text-default-500">Total economizado</span>
+            <span className="text-lg font-semibold tabular-nums">{formatCost(savings.cache_cost_saved + savings.rtk_cost_saved)}</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-sm text-default-500">Tokens</span>
+            <span className="text-lg font-semibold tabular-nums">{formatCompact(savings.cache_tokens_saved + savings.rtk_tokens_saved)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Distributions */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {byProvider.length > 0 && (
           <Card className="border border-default-100">
@@ -407,30 +423,26 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* System status — compact footer with chips */}
+      {/* Sistema — chips neutros */}
       {status && (
         <Card className="border border-default-100">
           <CardHeader><h3 className="font-semibold">Sistema</h3></CardHeader>
           <CardBody>
             <div className="flex flex-wrap gap-3">
               <Chip variant="flat" size="lg">
-                <span className="text-default-500 mr-1">Combos:</span>
-                <b>{status.combos.total}</b>
+                Combos: <b className="ml-1">{status.combos.total}</b>
               </Chip>
               <Chip variant="flat" size="lg" color={status.connections.rate_limited > 0 ? "warning" : "default"}>
-                <span className="text-default-500 mr-1">Conexões:</span>
-                <b>{status.connections.active}/{status.connections.total}</b>
-                {status.connections.rate_limited > 0 && <span className="text-warning ml-1">· {status.connections.rate_limited} rate-limited</span>}
+                Conexões: <b className="ml-1">{status.connections.active}/{status.connections.total}</b>
+                {status.connections.rate_limited > 0 && <span className="ml-1">· {status.connections.rate_limited} rate-limited</span>}
               </Chip>
               <Chip variant="flat" size="lg" color={status.health.unhealthy > 0 ? "danger" : "success"}>
-                <span className="text-default-500 mr-1">Saúde:</span>
-                <b>{status.health.unhealthy > 0 ? `${status.health.unhealthy} unhealthy` : "OK"}</b>
-                {status.health.probing > 0 && <span className="text-default-500 ml-1">· {status.health.probing} probing</span>}
+                Saúde: <b className="ml-1">{status.health.unhealthy > 0 ? `${status.health.unhealthy} unhealthy` : "OK"}</b>
+                {status.health.probing > 0 && <span className="ml-1">· {status.health.probing} probing</span>}
               </Chip>
               <Chip variant="flat" size="lg">
-                <span className="text-default-500 mr-1">Tokens:</span>
-                <b>{apiKeys.filter(k => k.is_active).length}</b>
-                <span className="text-default-500 ml-1">/ {apiKeys.length}</span>
+                Tokens: <b className="ml-1">{apiKeys.filter(k => k.is_active).length}</b>
+                <span className="text-default-400 ml-1">/ {apiKeys.length}</span>
               </Chip>
             </div>
           </CardBody>
@@ -440,73 +452,32 @@ export default function Dashboard() {
   );
 }
 
-// ---- Reusable display components ----
+// ---- Components ----
 
-function StatCard({ label, value, sub, full, color }: { label: string; value: string | number; sub: string; full?: string; color?: string }) {
+function StatCard({ label, value, sub, full }: { label: string; value: string | number; sub: string; full?: string }) {
   return (
     <Card className="border border-default-100 hover:border-default-200 transition-colors">
       <CardBody className="p-5">
         <p className="text-xs text-default-500 uppercase tracking-wide font-medium">{label}</p>
-        <p className={`text-3xl font-bold mt-2 tabular-nums ${color || ""}`} title={full}>{value}</p>
+        <p className="text-3xl font-bold mt-2 tabular-nums" title={full}>{value}</p>
         <p className="text-xs text-default-500 mt-1">{sub}</p>
       </CardBody>
     </Card>
   );
 }
 
-function Metric({ label, value, sub, suffix, color }: { label: string; value: string | number; sub?: string; suffix?: string; color?: string }) {
+function SavingsCard({ label, value, sub, full, dot }: { label: string; value: string; sub: string; full?: string; dot: string }) {
   return (
-    <div>
-      <p className="text-xs text-default-500 uppercase tracking-wide font-medium">{label}</p>
-      <p className={`text-xl font-bold mt-1 tabular-nums ${color || ""}`}>
-        {value}{suffix && <span className="text-xs text-default-400 ml-1">{suffix}</span>}
-      </p>
-      {sub && <p className="text-[11px] text-default-400 mt-0.5">{sub}</p>}
-    </div>
-  );
-}
-
-function SavingsMetric({ label, value, sub, color }: { label: string; value: string; sub: string; color: string }) {
-  return (
-    <div className="flex items-start gap-3">
-      <span className="w-2.5 h-2.5 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: color }} />
-      <div>
-        <p className="text-xs text-default-500 uppercase tracking-wide font-medium">{label}</p>
-        <p className="text-2xl font-bold tabular-nums mt-0.5">{value}</p>
-        <p className="text-[11px] text-default-400">{sub}</p>
-      </div>
-    </div>
-  );
-}
-
-function GaugeBar({ label, value, color, display, sub }: { label: string; value: number; color: "danger" | "success" | "primary"; display: string; sub: string }) {
-  return (
-    <div>
-      <div className="flex justify-between items-baseline mb-1.5">
-        <span className="text-sm text-default-500">{label}</span>
-        <span className={`text-lg font-bold tabular-nums ${color === "danger" ? "text-danger" : color === "success" ? "text-success" : "text-primary"}`}>{display}</span>
-      </div>
-      <Progress
-        aria-label={label}
-        size="md"
-        color={color}
-        value={Math.min(value, 100)}
-        className="max-w-full"
-      />
-      <p className="text-[11px] text-default-400 mt-1">{sub}</p>
-    </div>
-  );
-}
-
-function BarMini({ value, max, color, label }: { value: number; max: number; color: string; label: string }) {
-  const pct = max > 0 ? (value / max) * 100 : 0;
-  return (
-    <div className="flex-1 flex flex-col items-center gap-1">
-      <div className="w-full h-6 bg-default-100 rounded relative overflow-hidden">
-        <div className="absolute bottom-0 w-full rounded transition-all" style={{ height: `${pct}%`, backgroundColor: color, opacity: 0.8 }} />
-      </div>
-      <span className="text-[10px] text-default-500">{label}</span>
-    </div>
+    <Card className="border border-default-100 hover:border-default-200 transition-colors">
+      <CardBody className="p-5">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: dot }} />
+          <p className="text-xs text-default-500 uppercase tracking-wide font-medium">{label}</p>
+        </div>
+        <p className="text-2xl font-bold mt-2 tabular-nums" title={full}>{value}</p>
+        <p className="text-xs text-default-500 mt-1">{sub}</p>
+      </CardBody>
+    </Card>
   );
 }
 
