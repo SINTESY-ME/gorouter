@@ -469,6 +469,11 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 		if err != nil {
 			slog.Warn("combo strategy failed; using configured order", "combo", combo.Name, "strategy", combo.Strategy, "err", err)
 		} else if len(ordered) > 0 {
+			// Log when the strategy reorders models (intelligence classifier
+			// chose a different first model than the configured order).
+			if ordered[0] != combo.Models[0] && combo.Strategy == StrategyIntelligence {
+				slog.Info("intelligence classifier chose different model", "combo", combo.Name, "configured_first", combo.Models[0], "chosen_first", ordered[0])
+			}
 			models = ordered
 		}
 	}
@@ -492,10 +497,12 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 			nestedChain := append(append([]string{}, comboChain...), combo.Name)
 			res, err := s.routeCombo(ctx, nested, body, stream, apiKey, opts, endpoint, depth+1, nestedChain, ct)
 			if err != nil {
+				slog.Warn("combo fallback: nested combo failed, trying next", "parent_combo", combo.Name, "failed_combo", modelStr, "err", err)
 				lastErr = err
 				continue
 			}
 			if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
+				slog.Warn("combo fallback: nested combo returned error status, trying next", "parent_combo", combo.Name, "failed_combo", modelStr, "status", res.StatusCode)
 				lastErr = fmt.Errorf("upstream %d", res.StatusCode)
 				if res.Body != nil {
 					res.Body.Close()
@@ -525,10 +532,12 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 		childChain := append(append([]string{}, comboChain...), combo.Name)
 		res, err := s.tryModelWithConns(ctx, m, conns, body, stream, apiKey, opts, childChain, start, true, ct)
 		if err != nil {
+			slog.Warn("combo fallback: model failed, trying next", "combo", combo.Name, "failed_model", modelStr, "err", err)
 			lastErr = err
 			continue
 		}
 		if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
+			slog.Warn("combo fallback: model returned error status, trying next", "combo", combo.Name, "failed_model", modelStr, "status", res.StatusCode)
 			lastErr = fmt.Errorf("upstream %d", res.StatusCode)
 			if res.Body != nil {
 				res.Body.Close()
