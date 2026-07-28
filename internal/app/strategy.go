@@ -172,7 +172,7 @@ func (s intelligenceStrategy) classify(ctx context.Context, combo *domain.Combo,
 	}
 
 	system := fmt.Sprintf(
-		"You are an intelligent LLM routing classifier. You analyze the full conversation flow below (including system instructions, user messages, assistant responses, tool calls, and tool results) and choose the single model that best fits the task.\n\nConsider:\n- The type of task (coding, reasoning, writing, math, simple chat, etc.)\n- The complexity indicated by the conversation context (not just the last message)\n- Whether tool calls or code execution are involved\n- The length and depth of the context\n\nAvailable models:\n%s\n\nRespond with ONLY the model id (exactly as written above), no extra words, no punctuation, no explanation.",
+		"You are an intelligent LLM routing classifier. Below is the recent conversation flow between a user and an assistant (including tool calls and results). Your job is to predict which model is best suited to generate the NEXT response, based on what the conversation needs next.\n\nFocus on the last message in the conversation — it determines what the next response must do. Use the earlier messages only as context to understand the task.\n\nConsider:\n- What the next response needs to be (code, reasoning, simple text, etc.)\n- Whether the last message is a tool result that needs interpretation, a user question, or a continuation\n- The complexity of what comes next, not what came before\n\nAvailable models:\n%s\n\nRespond with ONLY the model id (exactly as written above), no extra words, no punctuation, no explanation.",
 		strings.Join(modelLines, "\n"))
 	messages := []map[string]any{
 		{"role": "system", "content": system},
