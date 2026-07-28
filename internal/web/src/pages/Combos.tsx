@@ -159,11 +159,6 @@ export default function Combos() {
                           <Chip key={m + i} size="sm" variant="bordered">
                             <span className="text-default-400 mr-0.5">{i + 1}.</span>
                             {m}
-                            {c.strategy === "intelligence" && meta?.weight != null && (
-                              <span className="ml-1 text-[10px] bg-primary-100 text-primary-700 dark:bg-primary-950 dark:text-primary-300 px-1 rounded font-mono">
-                                peso {meta.weight}
-                              </span>
-                            )}
                           </Chip>
                         );
                       })}
@@ -247,8 +242,8 @@ export default function Combos() {
               <SelectItem key="velocity" description="Roteia para o modelo dos escolhidos com a maior taxa de tokens/seg (TPS) observada.">
                 velocity (Maior velocidade / TPS)
               </SelectItem>
-              <SelectItem key="intelligence" description="Classifica a complexidade do prompt via IA e roteia para o modelo com o peso ideal.">
-                intelligence (Classificação de complexidade)
+              <SelectItem key="intelligence" description="O classificador analisa o prompt e escolhe diretamente o modelo ideal.">
+                intelligence (Classificação por IA)
               </SelectItem>
             </Select>
 
@@ -279,27 +274,13 @@ export default function Combos() {
                 {form.models.length > 0 && (
                   <div className="space-y-3">
                     <label className="text-xs font-medium text-default-600 uppercase tracking-wide">
-                      Pesos e Capacidades dos Modelos (escala 1 a 10)
+                      Descrição dos Modelos
                     </label>
                     {form.models.map((m) => {
                       const meta = form.model_meta[m] ?? { weight: 5, description: "" };
                       return (
                         <div key={m} className="bg-content1 p-3 rounded-lg border border-default-200 space-y-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <code className="text-xs font-mono font-semibold">{m}</code>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-default-500 font-medium">Peso (1..10):</span>
-                              <Input
-                                type="number"
-                                size="sm"
-                                className="w-20"
-                                min={1}
-                                max={10}
-                                value={String(meta.weight ?? 5)}
-                                onValueChange={(v) => updateMeta(m, { weight: Math.max(1, Math.min(10, parseInt(v) || 1)) })}
-                              />
-                            </div>
-                          </div>
+                          <code className="text-xs font-mono font-semibold">{m}</code>
                           <Textarea
                             size="sm"
                             placeholder="Descrição/Capacidades (ex: tarefas complexas de lógica e código, ou respostas simples e rápidas)..."

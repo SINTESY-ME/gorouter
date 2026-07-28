@@ -877,10 +877,10 @@ func TestRouteCombo_VelocityStrategy(t *testing.T) {
 }
 
 func TestRouteCombo_IntelligenceStrategy(t *testing.T) {
-	// Mock executor that responds with "2" (simple) or "9" (complex) when classifier model is called
+	// Mock executor that responds with the model id the classifier picks.
 	exec := &mockExecutor{
 		status: 200,
-		body:   `{"id":"1","choices":[{"message":{"content":"2"}}]}`,
+		body:   `{"id":"1","choices":[{"message":{"content":"anthropic/claude-3"}}]}`,
 	}
 	comboRepo := &mockComboRepo{
 		combos: map[string]*domain.Combo{
@@ -891,15 +891,15 @@ func TestRouteCombo_IntelligenceStrategy(t *testing.T) {
 				Strategy:        "intelligence",
 				ClassifierModel: "openai/gpt-4",
 				ModelMeta: map[string]domain.ComboModelMeta{
-					"openai/gpt-4":       {Weight: 9, Description: "Robust model"},
-					"anthropic/claude-3": {Weight: 3, Description: "Lightweight model"},
+					"openai/gpt-4":       {Description: "Robust model for complex tasks"},
+					"anthropic/claude-3": {Description: "Lightweight model for simple tasks"},
 				},
 			},
 		},
 	}
 	srv := NewRouterService(comboRepo, twoProviderConnRepo(), exec, &mockTranslator{}, &mockUsageRepo{})
 
-	// Test 1: Classifier rates prompt as complexity 2 -> should route to claude-3 (weight 3 >= 2)
+	// Test 1: Classifier picks "anthropic/claude-3" -> should route to claude-3
 	body := []byte(`{"model":"intelcombo","messages":[{"role":"user","content":"hello"}]}`)
 	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
 	if err != nil {
@@ -908,17 +908,16 @@ func TestRouteCombo_IntelligenceStrategy(t *testing.T) {
 	res.Body.Close()
 
 	calls := calledSnapshot(exec)
-	// The call list should include the classifier call first (gpt-4), then the actual request (claude-3)
 	if len(calls) < 2 {
 		t.Fatalf("expected classifier call + target call, got: %v", calls)
 	}
 	targetCall := calls[len(calls)-1]
 	if targetCall != "claude-3" {
-		t.Fatalf("expected simple prompt to route to lightweight model 'claude-3', got: %s", targetCall)
+		t.Fatalf("expected classifier to pick 'claude-3', got: %s", targetCall)
 	}
 
-	// Test 2: Classifier rates prompt as complexity 9 -> should route to gpt-4 (weight 9 >= 9)
-	exec.body = `{"id":"1","choices":[{"message":{"content":"9"}}]} `
+	// Test 2: Classifier picks "openai/gpt-4" -> should route to gpt-4
+	exec.body = `{"id":"1","choices":[{"message":{"content":"openai/gpt-4"}}]} `
 	res2, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -928,7 +927,7 @@ func TestRouteCombo_IntelligenceStrategy(t *testing.T) {
 	calls2 := calledSnapshot(exec)
 	targetCall2 := calls2[len(calls2)-1]
 	if targetCall2 != "gpt-4" {
-		t.Fatalf("expected complex prompt to route to robust model 'gpt-4', got: %s", targetCall2)
+		t.Fatalf("expected classifier to pick 'gpt-4', got: %s", targetCall2)
 	}
 }
 
@@ -1031,24 +1030,16 @@ func TestRouteCombo_VelocityStrategy_TriggersProbe(t *testing.T) {
 	}
 }
 
-// TestRouteCombo_IntelligenceStrategy_Fallback verifies the fallback ordering:
-// capable models (weight >= complexity) first ascending, then rest descending.
-func TestRouteCombo_IntelligenceStrategy_Fallback(t *testing.T) {
-	// complexity = 5; models: weight 3, 5, 7, 9
-	// Expected order: 5 (capable, least overkill), 7, 9, then 3 (rest, closest)
-	ordered := orderIntelligence(
-		[]string{"a/w3", "b/w5", "c/w7", "d/w9"},
-		map[string]domain.ComboModelMeta{
-			"a/w3": {Weight: 3},
-			"b/w5": {Weight: 5},
-			"c/w7": {Weight: 7},
-			"d/w9": {Weight: 9},
-		},
-		5,
+// TestReorderChosenFirst verifies that the chosen model is moved to the front
+// and the remaining models keep their relative order as fallback.
+func TestReorderChosenFirst(t *testing.T) {
+	ordered := reorderChosenFirst(
+		[]string{"a/model-a", "b/model-b", "c/model-c", "d/model-d"},
+		"c/model-c",
 	)
-	expected := []string{"b/w5", "c/w7", "d/w9", "a/w3"}
+	expected := []string{"c/model-c", "a/model-a", "b/model-b", "d/model-d"}
 	if !equalSeq(t, ordered, expected) {
-		t.Fatalf("intelligence fallback order: got %v, want %v", ordered, expected)
+		t.Fatalf("reorderChosenFirst: got %v, want %v", ordered, expected)
 	}
 }
 
