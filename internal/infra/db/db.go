@@ -61,10 +61,13 @@ func Open(ctx context.Context, driver, dsn string) (*gorm.DB, error) {
 			sqlDB.SetMaxOpenConns(1)
 		}
 	}
-	if err := db.AutoMigrate(&domain.Connection{}, &domain.ProviderConfig{}, &domain.Combo{}, &domain.ApiKey{}, &domain.UsageEntry{}, &domain.ModelEntry{}, &domain.Setting{}); err != nil {
+	if err := db.AutoMigrate(&domain.Connection{}, &domain.ProviderConfig{}, &domain.Combo{}, &domain.ApiKey{}, &domain.UsageEntry{}, &domain.ComboExecution{}, &domain.ModelEntry{}, &domain.Setting{}); err != nil {
 		_ = Close(db)
 		return nil, fmt.Errorf("auto-migrate: %w", err)
 	}
+	// Drop the old combo_name column from usage_entries. Combo membership
+	// is now tracked in the combo_executions table.
+	dropColumnIfExists(db, "usage_entries", "combo_name")
 	// Backfill: create ProviderConfig rows for any provider_id that exists
 	// in connections but has no ProviderConfig row yet. This ensures
 	// existing deployments get the Provider entity without manual migration.
@@ -97,6 +100,30 @@ func backfillProviderConfigs(db *gorm.DB) {
 				Name:        pid,
 				LoadBalance: "failover",
 			})
+		}
+	}
+}
+
+// dropColumnIfExists removes a column from a table if it exists. Used to
+// clean up columns that were removed from the Go struct — GORM's
+// AutoMigrate adds new columns but never drops old ones.
+func dropColumnIfExists(db *gorm.DB, table, column string) {
+	if db.Dialector.Name() == "postgres" {
+		db.Exec("ALTER TABLE " + table + " DROP COLUMN IF EXISTS " + column)
+		return
+	}
+	// SQLite: PRAGMA table_info returns rows with {cid, name, type, ...}.
+	// We only care about the "name" field (index 1).
+	type pragmaRow struct {
+		CID  int    `gorm:"column:cid"`
+		Name string `gorm:"column:name"`
+	}
+	var rows []pragmaRow
+	db.Raw("PRAGMA table_info(" + table + ")").Scan(&rows)
+	for _, r := range rows {
+		if r.Name == column {
+			db.Exec("ALTER TABLE " + table + " DROP COLUMN " + column)
+			return
 		}
 	}
 }
