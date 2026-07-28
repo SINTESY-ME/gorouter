@@ -172,7 +172,7 @@ func (s intelligenceStrategy) classify(ctx context.Context, combo *domain.Combo,
 	}
 
 	system := fmt.Sprintf(
-		"You are an intelligent LLM routing classifier. Given the user's prompt and the list of available models below, choose the single model that best fits the task.\n\nAvailable models:\n%s\n\nRespond with ONLY the model id (exactly as written above), no extra words, no punctuation, no explanation.",
+		"You are an intelligent LLM routing classifier. You analyze the full conversation flow below (including system instructions, user messages, assistant responses, tool calls, and tool results) and choose the single model that best fits the task.\n\nConsider:\n- The type of task (coding, reasoning, writing, math, simple chat, etc.)\n- The complexity indicated by the conversation context (not just the last message)\n- Whether tool calls or code execution are involved\n- The length and depth of the context\n\nAvailable models:\n%s\n\nRespond with ONLY the model id (exactly as written above), no extra words, no punctuation, no explanation.",
 		strings.Join(modelLines, "\n"))
 	messages := []map[string]any{
 		{"role": "system", "content": system},
@@ -216,9 +216,15 @@ func reorderChosenFirst(models []string, chosen string) []string {
 	return out
 }
 
-// extractPromptText pulls the user's prompt out of a chat request body. It
-// prioritizes the last user message in the conversation so that system prompts
-// or previous conversation turns do not obscure the current user task.
+// extractPromptText builds the text representation of the entire conversation
+// flow for the classifier. It includes all messages (system, user, assistant,
+// tool calls, tool results) so the classifier can understand the full context
+// — not just the last user message. This allows it to distinguish between
+// tasks that need code capability, deep reasoning, or simple responses.
+//
+// The text is capped at maxClassifierPromptChars to avoid excessive payload
+// sizes, but the cap is applied from the END of the conversation (most recent
+// messages are preserved) so the current task context is never lost.
 func extractPromptText(body []byte) string {
 	var raw map[string]any
 	if err := json.Unmarshal(body, &raw); err != nil {
@@ -229,31 +235,65 @@ func extractPromptText(body []byte) string {
 		return ""
 	}
 
-	// 1. Prioritize the last user message in the conversation
-	for i := len(msgs) - 1; i >= 0; i-- {
-		m, _ := msgs[i].(map[string]any)
+	// Build a text representation of the entire conversation flow.
+	// Format: "[role] content" per message, including tool calls and results.
+	var lines []string
+	for _, mi := range msgs {
+		m, _ := mi.(map[string]any)
 		if m == nil {
 			continue
 		}
-		if role, ok := m["role"].(string); ok && role == "user" {
-			content := extractMessageContent(m)
-			if content != "" {
-				return truncate(content, maxClassifierPromptChars)
+		role, _ := m["role"].(string)
+		if role == "" {
+			role = "unknown"
+		}
+		content := extractMessageContent(m)
+
+		// Include tool_calls if present (assistant messages with function calls).
+		if tc, ok := m["tool_calls"].([]any); ok && len(tc) > 0 {
+			for _, call := range tc {
+				c, _ := call.(map[string]any)
+				if c == nil {
+					continue
+				}
+				fn, _ := c["function"].(map[string]any)
+				if fn != nil {
+					name, _ := fn["name"].(string)
+					args, _ := fn["arguments"].(string)
+					content += fmt.Sprintf("\n[tool_call: %s(%s)]", name, args)
+				}
 			}
+		}
+
+		// Include tool_role for tool messages (tool results).
+		if role == "tool" {
+			if name, ok := m["name"].(string); ok && name != "" {
+				role = "tool:" + name
+			}
+		}
+
+		if content != "" {
+			lines = append(lines, fmt.Sprintf("[%s] %s", role, content))
 		}
 	}
 
-	// 2. Fallback: join all message contents if no user message found
-	parts := make([]string, 0, len(msgs))
-	for _, mi := range msgs {
-		m, _ := mi.(map[string]any)
-		if m != nil {
-			if c := extractMessageContent(m); c != "" {
-				parts = append(parts, c)
-			}
-		}
+	if len(lines) == 0 {
+		return ""
 	}
-	return truncate(strings.Join(parts, "\n"), maxClassifierPromptChars)
+
+	full := strings.Join(lines, "\n")
+	// If the full conversation exceeds the cap, preserve the most recent
+	// messages (the current task context) and trim from the beginning.
+	if len(full) > maxClassifierPromptChars {
+		// Find a cut point that doesn't break a line in the middle.
+		cut := len(full) - maxClassifierPromptChars
+		// Advance to the next newline so we start at a clean [role] boundary.
+		if idx := strings.Index(full[cut:], "\n"); idx != -1 {
+			cut += idx + 1
+		}
+		full = full[cut:]
+	}
+	return full
 }
 
 func extractMessageContent(m map[string]any) string {
@@ -275,7 +315,7 @@ func extractMessageContent(m map[string]any) string {
 	return ""
 }
 
-const maxClassifierPromptChars = 2000
+const maxClassifierPromptChars = 8000
 
 func truncate(s string, n int) string {
 	if len(s) <= n {
