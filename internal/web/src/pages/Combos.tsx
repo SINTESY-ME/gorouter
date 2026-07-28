@@ -41,6 +41,7 @@ export default function Combos() {
   const [form, setForm] = useState<ComboForm>(empty);
   const [editId, setEditId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [triedSubmit, setTriedSubmit] = useState(false);
   const [allCatalogModels, setAllCatalogModels] = useState<ModelEntry[]>([]);
 
   const load = () => {
@@ -67,6 +68,7 @@ export default function Combos() {
   const openNew = () => {
     setForm({ ...empty, models: [], model_meta: {} });
     setEditId(null);
+    setTriedSubmit(false);
     onOpen();
   };
 
@@ -79,10 +81,18 @@ export default function Combos() {
       model_meta: c.model_meta ? { ...c.model_meta } : {},
     });
     setEditId(c.id);
+    setTriedSubmit(false);
     onOpen();
   };
 
   const submit = async () => {
+    if (form.strategy === "intelligence") {
+      const missing = form.models.some((m) => !(form.model_meta[m]?.description ?? "").trim());
+      if (missing) {
+        setTriedSubmit(true);
+        return;
+      }
+    }
     setSaving(true);
     try {
       const payload = {
@@ -282,20 +292,20 @@ export default function Combos() {
                     {form.models.map((m) => {
                       const meta = form.model_meta[m] ?? { weight: 5, description: "" };
                       const isEmpty = !(meta.description ?? "").trim();
+                      const showError = triedSubmit && isEmpty;
                       return (
-                        <div key={m} className={`bg-content1 p-3 rounded-lg border space-y-2 ${isEmpty ? "border-danger-300" : "border-default-200"}`}>
+                        <div key={m} className={`bg-content1 p-3 rounded-lg border space-y-2 ${showError ? "border-danger-300" : "border-default-200"}`}>
                           <div className="flex justify-between items-center">
                             <code className="text-xs font-mono font-semibold">{m}</code>
-                            {isEmpty && <span className="text-[10px] text-danger">Obrigatório</span>}
+                            {showError && <span className="text-[10px] text-danger">Obrigatório</span>}
                           </div>
                           <Textarea
                             size="sm"
                             placeholder="Descreva para o que este modelo é bom (ex: resolver erros de código complexos, matemática, ou respostas simples e rápidas)..."
                             minRows={1}
                             maxRows={3}
-                            isRequired
-                            isInvalid={isEmpty}
-                            errorMessage={isEmpty ? "Insira uma descrição para que o classificador saiba quando escolher este modelo" : undefined}
+                            isInvalid={showError}
+                            errorMessage={showError ? "Insira uma descrição para que o classificador saiba quando escolher este modelo" : undefined}
                             value={meta.description ?? ""}
                             onValueChange={(v) => updateMeta(m, { description: v })}
                           />
