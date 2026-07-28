@@ -219,15 +219,19 @@ func (s *RouterService) RoutePassthrough(ctx context.Context, body []byte, model
 // JSON body (non-stream) or a ReadCloser yielding SSE (stream). The caller
 // must close Body if non-nil.
 type RouterResponse struct {
-	StatusCode  int
-	Headers     http.Header
-	Body        io.ReadCloser
-	Stream      bool
-	Provider    string
-	Model       string
+	StatusCode   int
+	Headers      http.Header
+	Body         io.ReadCloser
+	Stream       bool
+	Provider     string
+	Model        string
 	ConnectionID string
 	// Cached is true when the response came from the response cache.
 	Cached bool
+	// FallbackReason is set when this request fell through to a
+	// different combo/model than the one chosen by the intelligence
+	// classifier. Empty when no fallback occurred.
+	FallbackReason string
 	// RTK savings — populated by executeOne when RTK compression reduced
 	// the request body. Propagated to recordUsage for persistence.
 	RTKBytesSaved  int

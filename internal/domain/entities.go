@@ -242,7 +242,13 @@ type UsageEntry struct {
 	RTKCompressed     bool      `json:"rtk_compressed,omitempty" gorm:"column:rtk_compressed;default:false"`
 	RTKBytesSaved     int       `json:"rtk_bytes_saved,omitempty" gorm:"column:rtk_bytes_saved;default:0"`
 	RTKTokensSaved    int       `json:"rtk_tokens_saved,omitempty" gorm:"column:rtk_tokens_saved;default:0"`
-	RTKCostSaved      float64   `json:"rtk_cost_saved,omitempty" gorm:"column:rtk_cost_saved;default:0"`
+	RTKCostSaved       float64 `json:"rtk_cost_saved,omitempty" gorm:"column:rtk_cost_saved;default:0"`
+	// FallbackReason is set when this request fell through to a
+	// different combo/model than the one chosen by the intelligence
+	// classifier (e.g. classifier chose "medium" but it was
+	// rate-limited and we fell back to "high"). Empty when no fallback
+	// occurred.
+	FallbackReason string `json:"fallback_reason,omitempty" gorm:"column:fallback_reason;default:''"`
 	// ComboChain is the list of combo names from root to leaf
 	// (e.g. ["coding", "medium"]). It is NOT stored in usage_entries —
 	// it is used by Record() to insert rows into combo_executions, and
@@ -258,6 +264,11 @@ type ComboExecution struct {
 	UsageID   int64  `json:"usage_id" gorm:"column:usage_id;index"`
 	ComboName string `json:"combo_name" gorm:"column:combo_name;index"`
 	Depth     int    `json:"depth" gorm:"column:depth"`
+	// FallbackReason is set when this combo in the chain was NOT the
+	// one initially chosen (e.g. classifier picked "medium" but it
+	// failed and execution fell through to this one). Empty when the
+	// combo was used directly.
+	FallbackReason string `json:"fallback_reason,omitempty" gorm:"column:fallback_reason;default:''"`
 }
 
 // Setting is a key-value persisted configuration entry (dashboard password
