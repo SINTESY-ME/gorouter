@@ -234,7 +234,78 @@ export default function Dashboard() {
         </CardBody>
       </Card>
 
-      {/* Performance por modelo — table with TTFT, TPS, latency, cost per request */}
+      {/* Distribuição de requisições + Requisições por modelo */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {byProvider.length > 0 && (
+          <Card className="border border-default-100">
+            <CardHeader><div><h3 className="font-semibold">Distribuição de requisições</h3><p className="text-xs text-default-500">Por provider</p></div></CardHeader>
+            <CardBody>
+              <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                  <Pie data={byProvider} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={2}
+                    label={(e: any) => <text x={e.x} y={e.y} fill="#aaa" fontSize={11} textAnchor={e.x > e.cx ? "start" : "end"} dominantBaseline="central">{e.name}</text>}
+                    labelLine={{ stroke: "#666" }}>
+                    {byProvider.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="none" />)}
+                  </Pie>
+                  <Legend formatter={(v) => <span className="text-xs text-default-600">{v}</span>} />
+                  <RTooltip contentStyle={tooltipStyle} itemStyle={itemStyle} labelStyle={{ color: "#aaa" }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </CardBody>
+          </Card>
+        )}
+
+        {byModel.length > 0 && (
+          <Card className="border border-default-100">
+            <CardHeader><div><h3 className="font-semibold">Requisições por modelo</h3><p className="text-xs text-default-500">Por modelo</p></div></CardHeader>
+            <CardBody>
+              <ResponsiveContainer width="100%" height={Math.max(260, byModel.length * 26)}>
+                <BarChart data={byModel} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
+                  <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={formatCompact} />
+                  <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
+                  <RTooltip contentStyle={tooltipStyle} itemStyle={itemStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
+                  <Bar dataKey="value" fill="#4DA3FF" radius={[0, 4, 4, 0]} barSize={18} />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardBody>
+          </Card>
+        )}
+      </div>
+
+      {/* Economia */}
+      {savings && (
+        <Card className="border border-default-100">
+          <CardHeader>
+            <div>
+              <h3 className="font-semibold">Economia</h3>
+              <p className="text-xs text-default-500">Tokens e custos economizados por Response Cache e RTK</p>
+            </div>
+          </CardHeader>
+          <CardBody className="space-y-5">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <SavingsCard label="Cache hits" value={formatCompact(savings.cache_hits)} sub="respostas do cache" full={savings.cache_hits.toLocaleString("en-US")} dot="#00C2A8" />
+              <SavingsCard label="Tokens (cache)" value={formatCompact(savings.cache_tokens_saved)} sub={formatCost(savings.cache_cost_saved)} full={savings.cache_tokens_saved.toLocaleString("en-US")} dot="#00C2A8" />
+              <SavingsCard label="Compressões RTK" value={formatCompact(savings.rtk_compressions)} sub="tool_results" full={savings.rtk_compressions.toLocaleString("en-US")} dot="#4DA3FF" />
+              <SavingsCard label="Tokens (RTK)" value={formatCompact(savings.rtk_tokens_saved)} sub={formatCost(savings.rtk_cost_saved)} full={savings.rtk_tokens_saved.toLocaleString("en-US")} dot="#4DA3FF" />
+            </div>
+            {(savings.cache_cost_saved + savings.rtk_cost_saved) > 0 && (
+              <div className="flex items-baseline gap-8 pt-2 border-t border-default-100">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-sm text-default-500">Total economizado</span>
+                  <span className="text-lg font-semibold tabular-nums">{formatCost(savings.cache_cost_saved + savings.rtk_cost_saved)}</span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-sm text-default-500">Tokens</span>
+                  <span className="text-lg font-semibold tabular-nums">{formatCompact(savings.cache_tokens_saved + savings.rtk_tokens_saved)}</span>
+                </div>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      )}
+
+      {/* Performance por modelo */}
       {perfRows.length > 0 && (
         <Card className="border border-default-100">
           <CardHeader>
@@ -272,7 +343,7 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* Confiabilidade — compact single-row card */}
+      {/* Confiabilidade */}
       <Card className="border border-default-100">
         <CardBody className="py-4">
           <div className="flex items-center gap-6 flex-wrap">
@@ -306,76 +377,8 @@ export default function Dashboard() {
         </CardBody>
       </Card>
 
-      {/* Economia — card pai com grid interno + total */}
-      {savings && (
-        <Card className="border border-default-100">
-          <CardHeader>
-            <div>
-              <h3 className="font-semibold">Economia</h3>
-              <p className="text-xs text-default-500">Tokens e custos economizados por Response Cache e RTK</p>
-            </div>
-          </CardHeader>
-          <CardBody className="space-y-5">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <SavingsCard label="Cache hits" value={formatCompact(savings.cache_hits)} sub="respostas do cache" full={savings.cache_hits.toLocaleString("en-US")} dot="#00C2A8" />
-              <SavingsCard label="Tokens (cache)" value={formatCompact(savings.cache_tokens_saved)} sub={formatCost(savings.cache_cost_saved)} full={savings.cache_tokens_saved.toLocaleString("en-US")} dot="#00C2A8" />
-              <SavingsCard label="Compressões RTK" value={formatCompact(savings.rtk_compressions)} sub="tool_results" full={savings.rtk_compressions.toLocaleString("en-US")} dot="#4DA3FF" />
-              <SavingsCard label="Tokens (RTK)" value={formatCompact(savings.rtk_tokens_saved)} sub={formatCost(savings.rtk_cost_saved)} full={savings.rtk_tokens_saved.toLocaleString("en-US")} dot="#4DA3FF" />
-            </div>
-            {(savings.cache_cost_saved + savings.rtk_cost_saved) > 0 && (
-              <div className="flex items-baseline gap-8 pt-2 border-t border-default-100">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-sm text-default-500">Total economizado</span>
-                  <span className="text-lg font-semibold tabular-nums">{formatCost(savings.cache_cost_saved + savings.rtk_cost_saved)}</span>
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-sm text-default-500">Tokens</span>
-                  <span className="text-lg font-semibold tabular-nums">{formatCompact(savings.cache_tokens_saved + savings.rtk_tokens_saved)}</span>
-                </div>
-              </div>
-            )}
-          </CardBody>
-        </Card>
-      )}
-
-      {/* Distributions */}
+      {/* Resto das distribuições */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {byProvider.length > 0 && (
-          <Card className="border border-default-100">
-            <CardHeader><div><h3 className="font-semibold">Distribuição de requisições</h3><p className="text-xs text-default-500">Por provider</p></div></CardHeader>
-            <CardBody>
-              <ResponsiveContainer width="100%" height={260}>
-                <PieChart>
-                  <Pie data={byProvider} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={2}
-                    label={(e: any) => <text x={e.x} y={e.y} fill="#aaa" fontSize={11} textAnchor={e.x > e.cx ? "start" : "end"} dominantBaseline="central">{e.name}</text>}
-                    labelLine={{ stroke: "#666" }}>
-                    {byProvider.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="none" />)}
-                  </Pie>
-                  <Legend formatter={(v) => <span className="text-xs text-default-600">{v}</span>} />
-                  <RTooltip contentStyle={tooltipStyle} itemStyle={itemStyle} labelStyle={{ color: "#aaa" }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </CardBody>
-          </Card>
-        )}
-
-        {byModel.length > 0 && (
-          <Card className="border border-default-100">
-            <CardHeader><div><h3 className="font-semibold">Requisições por modelo</h3><p className="text-xs text-default-500">Por modelo</p></div></CardHeader>
-            <CardBody>
-              <ResponsiveContainer width="100%" height={Math.max(260, byModel.length * 26)}>
-                <BarChart data={byModel} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
-                  <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={formatCompact} />
-                  <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
-                  <RTooltip contentStyle={tooltipStyle} itemStyle={itemStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
-                  <Bar dataKey="value" fill="#4DA3FF" radius={[0, 4, 4, 0]} barSize={18} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardBody>
-          </Card>
-        )}
-
         {byModelCost.length > 0 && (
           <Card className="border border-default-100">
             <CardHeader><div><h3 className="font-semibold">Gasto em USD</h3><p className="text-xs text-default-500">Custo por modelo</p></div></CardHeader>
