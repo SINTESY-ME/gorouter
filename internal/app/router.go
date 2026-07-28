@@ -927,7 +927,6 @@ func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, a
 		RTKCostSaved:     rtkCost,
 		ComboChain:       comboChain,
 	}
-	slog.Debug("recordUsage", "model", m.Model, "latency_ms", entry.LatencyMs, "ttft_ms", ttftMs, "prompt", prompt, "completion", completion, "stream", stream)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = s.Usage.Record(ctx, &entry)

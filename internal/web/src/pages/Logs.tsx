@@ -60,6 +60,7 @@ export default function Logs() {
               <TableColumn>TTFT</TableColumn>
               <TableColumn>LATÊNCIA</TableColumn>
               <TableColumn>STATUS</TableColumn>
+              <TableColumn>CACHE</TableColumn>
             </TableHeader>
             <TableBody items={paged}>
               {(e) => {
@@ -83,6 +84,7 @@ export default function Logs() {
                   <TableCell><span className="tabular-nums text-xs">{ttft > 0 ? `${ttft}ms` : "—"}</span></TableCell>
                   <TableCell><span className="tabular-nums text-xs">{lat > 0 ? `${lat}ms` : "—"}</span></TableCell>
                   <TableCell><Chip size="sm" color={statusColor(e.status)} variant="flat">{e.status}</Chip></TableCell>
+                  <TableCell>{e.cache_hit ? <Chip size="sm" color="success" variant="flat">hit</Chip> : <span className="text-default-400">—</span>}</TableCell>
                 </TableRow>
                 );
               }}
