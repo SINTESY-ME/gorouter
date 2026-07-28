@@ -22,12 +22,34 @@ var (
 // error) should trigger falling through to the next model in a combo or the
 // next account in a connection pool.
 //
-// Any error from an upstream call should trigger fallback — the next model
-// or connection may have different capabilities, limits, or account state.
+// Any error (status >= 400 or network error) from an upstream call triggers
+// fallback — the next model or connection may have different capabilities,
+// limits, or account state.
 func ShouldFallback(status int, err error) bool {
 	if err != nil {
 		return true // network / timeout
 	}
+	// Currently all 4xx/5xx trigger fallback. Preserving fine-grained rules below
+	// for reference or if selective fallback is needed in the future:
+	//
+	// switch {
+	// case status >= 500 && status <= 599:
+	// 	return true
+	// case status == http.StatusTooManyRequests:
+	// 	return true
+	// case status == http.StatusRequestTimeout:
+	// 	return true
+	// case status == http.StatusUnauthorized || status == http.StatusForbidden:
+	// 	return true // try next account
+	// case status == http.StatusPaymentRequired:
+	// 	return true // try next account (402 = out of credit on this key)
+	// case status == http.StatusNotFound:
+	// 	return true // model deprecated/removed on this provider; next may work
+	// case status == http.StatusBadRequest:
+	// 	return true // model may not support this request format; next model may
+	// default:
+	// 	return false
+	// }
 	return status >= 400
 }
 
