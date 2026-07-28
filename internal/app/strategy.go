@@ -216,15 +216,16 @@ func reorderChosenFirst(models []string, chosen string) []string {
 	return out
 }
 
-// extractPromptText builds the text representation of the entire conversation
-// flow for the classifier. It includes all messages (system, user, assistant,
-// tool calls, tool results) so the classifier can understand the full context
-// — not just the last user message. This allows it to distinguish between
-// tasks that need code capability, deep reasoning, or simple responses.
+// extractPromptText builds a text representation of the conversation for the
+// classifier. It includes the system prompt (for task context) and the last
+// few messages (to understand the current task), including tool calls and
+// results from the current turn. This gives the classifier enough context to
+// distinguish between coding, reasoning, writing, and simple chat tasks
+// without sending the entire conversation history.
 //
-// The text is capped at maxClassifierPromptChars to avoid excessive payload
-// sizes, but the cap is applied from the END of the conversation (most recent
-// messages are preserved) so the current task context is never lost.
+// The text is capped at maxClassifierPromptChars. When the selected messages
+// exceed the cap, trimming is applied from the oldest included message so
+// the most recent context (the current task) is always preserved.
 func extractPromptText(body []byte) string {
 	var raw map[string]any
 	if err := json.Unmarshal(body, &raw); err != nil {
@@ -235,14 +236,43 @@ func extractPromptText(body []byte) string {
 		return ""
 	}
 
-	// Build a text representation of the entire conversation flow.
-	// Format: "[role] content" per message, including tool calls and results.
-	var lines []string
+	// Collect system messages (always included) + last N messages.
+	const recentCount = 6
+	var selected []map[string]any
 	for _, mi := range msgs {
 		m, _ := mi.(map[string]any)
 		if m == nil {
 			continue
 		}
+		if role, _ := m["role"].(string); role == "system" {
+			selected = append(selected, m)
+		}
+	}
+	// Add the last recentCount messages (deduplicated against system messages
+	// already selected).
+	start := len(msgs) - recentCount
+	if start < 0 {
+		start = 0
+	}
+	for i := start; i < len(msgs); i++ {
+		m, _ := msgs[i].(map[string]any)
+		if m == nil {
+			continue
+		}
+		// Skip system messages already collected above.
+		if role, _ := m["role"].(string); role == "system" {
+			continue
+		}
+		selected = append(selected, m)
+	}
+
+	if len(selected) == 0 {
+		return ""
+	}
+
+	// Build text representation.
+	var lines []string
+	for _, m := range selected {
 		role, _ := m["role"].(string)
 		if role == "" {
 			role = "unknown"
@@ -259,13 +289,12 @@ func extractPromptText(body []byte) string {
 				fn, _ := c["function"].(map[string]any)
 				if fn != nil {
 					name, _ := fn["name"].(string)
-					args, _ := fn["arguments"].(string)
-					content += fmt.Sprintf("\n[tool_call: %s(%s)]", name, args)
+					content += fmt.Sprintf("\n[tool_call: %s]", name)
 				}
 			}
 		}
 
-		// Include tool_role for tool messages (tool results).
+		// Include tool name for tool messages (tool results).
 		if role == "tool" {
 			if name, ok := m["name"].(string); ok && name != "" {
 				role = "tool:" + name
@@ -282,12 +311,8 @@ func extractPromptText(body []byte) string {
 	}
 
 	full := strings.Join(lines, "\n")
-	// If the full conversation exceeds the cap, preserve the most recent
-	// messages (the current task context) and trim from the beginning.
 	if len(full) > maxClassifierPromptChars {
-		// Find a cut point that doesn't break a line in the middle.
 		cut := len(full) - maxClassifierPromptChars
-		// Advance to the next newline so we start at a clean [role] boundary.
 		if idx := strings.Index(full[cut:], "\n"); idx != -1 {
 			cut += idx + 1
 		}

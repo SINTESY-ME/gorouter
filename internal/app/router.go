@@ -300,7 +300,7 @@ func (s *RouterService) singleCompletion(ctx context.Context, modelStr string, m
 	reqBody, err := json.Marshal(map[string]any{
 		"model":       modelStr,
 		"messages":    messages,
-		"max_tokens":  100,
+		"max_tokens":  500,
 		"temperature": 0.0,
 	})
 	if err != nil {
