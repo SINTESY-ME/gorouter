@@ -22,39 +22,13 @@ var (
 // error) should trigger falling through to the next model in a combo or the
 // next account in a connection pool.
 //
-// Rules (intentionally simple, mirrors 9router's errorConfig at a high level):
-//   - 5xx and 429 -> fallback (transient upstream/rate limit)
-//   - 408, network errors -> fallback (timeout / unreachable)
-//   - 401, 403, 402 -> fallback (try another account; 402 means this
-//     account/key is out of credit, the next connection may still work)
-//   - 404 -> fallback (model may be deprecated/removed on this provider,
-//     but the next model/combo may still work)
-//   - 400 -> fallback in combo context: the model may not support the
-//     request format (tool calls, vision, response_format), but the next
-//     model in the combo may handle it fine.
-//   - 422 -> do not fallback (validation error, will fail everywhere)
+// Any error from an upstream call should trigger fallback — the next model
+// or connection may have different capabilities, limits, or account state.
 func ShouldFallback(status int, err error) bool {
 	if err != nil {
 		return true // network / timeout
 	}
-	switch {
-	case status >= 500 && status <= 599:
-		return true
-	case status == http.StatusTooManyRequests:
-		return true
-	case status == http.StatusRequestTimeout:
-		return true
-	case status == http.StatusUnauthorized || status == http.StatusForbidden:
-		return true // try next account
-	case status == http.StatusPaymentRequired:
-		return true // try next account (402 = out of credit on this key)
-	case status == http.StatusNotFound:
-		return true // model deprecated/removed on this provider; next may work
-	case status == http.StatusBadRequest:
-		return true // model may not support this request format; next model may
-	default:
-		return false
-	}
+	return status >= 400
 }
 
 // ParseRetryAfter extracts a retry delay from a Retry-After header value.
