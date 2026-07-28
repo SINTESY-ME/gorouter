@@ -272,35 +272,33 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* Confiabilidade — só taxa de erro + requests OK */}
+      {/* Confiabilidade — taxa de erro + requests OK + combo */}
       <Card className="border border-default-100">
         <CardHeader><h3 className="font-semibold">Confiabilidade</h3></CardHeader>
-        <CardBody>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-            <div className="md:col-span-1">
-              <div className="flex justify-between items-baseline mb-2">
-                <span className="text-sm text-default-500">Taxa de erro</span>
-                <span className="text-lg font-semibold tabular-nums">{errorPct.toFixed(1)}%</span>
-              </div>
-              <Progress
-                aria-label="Taxa de erro"
-                size="md"
-                color={errorPct > 5 ? "danger" : "success"}
-                value={Math.min(errorPct, 100)}
-              />
-              <p className="text-xs text-default-400 mt-1.5">
-                {stats.error_requests.toLocaleString("en-US")} erros de {stats.requests.toLocaleString("en-US")}
-              </p>
+        <CardBody className="space-y-5">
+          <div>
+            <div className="flex justify-between items-baseline mb-2">
+              <span className="text-sm text-default-500">Taxa de erro</span>
+              <span className="text-lg font-semibold tabular-nums">{errorPct.toFixed(1)}%</span>
             </div>
-            <div className="md:col-span-1">
+            <Progress
+              aria-label="Taxa de erro"
+              size="md"
+              color={errorPct > 5 ? "danger" : "success"}
+              value={Math.min(errorPct, 100)}
+            />
+            <p className="text-xs text-default-400 mt-1.5">
+              {stats.error_requests.toLocaleString("en-US")} erros de {stats.requests.toLocaleString("en-US")}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
               <p className="text-xs text-default-500 uppercase tracking-wide font-medium">Requests OK</p>
               <p className="text-2xl font-semibold mt-1 tabular-nums">{stats.successful_requests.toLocaleString("en-US")}</p>
             </div>
-            <div className="md:col-span-1">
+            <div>
               <p className="text-xs text-default-500 uppercase tracking-wide font-medium">Combo requests</p>
-              <p className="text-2xl font-semibold mt-1 tabular-nums">
-                {stats.combo_requests.toLocaleString("en-US")}
-              </p>
+              <p className="text-2xl font-semibold mt-1 tabular-nums">{stats.combo_requests.toLocaleString("en-US")}</p>
               <p className="text-xs text-default-400 mt-0.5">
                 {stats.requests > 0 ? `${((stats.combo_requests / stats.requests) * 100).toFixed(0)}% do total` : ""}
               </p>
@@ -309,28 +307,36 @@ export default function Dashboard() {
         </CardBody>
       </Card>
 
-      {/* Economia — individual cards */}
+      {/* Economia — card pai com grid interno + total */}
       {savings && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <SavingsCard label="Cache hits" value={formatCompact(savings.cache_hits)} sub="respostas do cache" full={savings.cache_hits.toLocaleString("en-US")} dot="#00C2A8" />
-          <SavingsCard label="Tokens (cache)" value={formatCompact(savings.cache_tokens_saved)} sub={formatCost(savings.cache_cost_saved)} full={savings.cache_tokens_saved.toLocaleString("en-US")} dot="#00C2A8" />
-          <SavingsCard label="Compressões RTK" value={formatCompact(savings.rtk_compressions)} sub="tool_results" full={savings.rtk_compressions.toLocaleString("en-US")} dot="#4DA3FF" />
-          <SavingsCard label="Tokens (RTK)" value={formatCompact(savings.rtk_tokens_saved)} sub={formatCost(savings.rtk_cost_saved)} full={savings.rtk_tokens_saved.toLocaleString("en-US")} dot="#4DA3FF" />
-        </div>
-      )}
-
-      {/* Total economizado — neutro, sem cor de fundo */}
-      {savings && (savings.cache_cost_saved + savings.rtk_cost_saved) > 0 && (
-        <div className="flex items-center gap-8 px-1">
-          <div className="flex items-baseline gap-2">
-            <span className="text-sm text-default-500">Total economizado</span>
-            <span className="text-lg font-semibold tabular-nums">{formatCost(savings.cache_cost_saved + savings.rtk_cost_saved)}</span>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-sm text-default-500">Tokens</span>
-            <span className="text-lg font-semibold tabular-nums">{formatCompact(savings.cache_tokens_saved + savings.rtk_tokens_saved)}</span>
-          </div>
-        </div>
+        <Card className="border border-default-100">
+          <CardHeader>
+            <div>
+              <h3 className="font-semibold">Economia</h3>
+              <p className="text-xs text-default-500">Tokens e custos economizados por Response Cache e RTK</p>
+            </div>
+          </CardHeader>
+          <CardBody className="space-y-5">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <SavingsCard label="Cache hits" value={formatCompact(savings.cache_hits)} sub="respostas do cache" full={savings.cache_hits.toLocaleString("en-US")} dot="#00C2A8" />
+              <SavingsCard label="Tokens (cache)" value={formatCompact(savings.cache_tokens_saved)} sub={formatCost(savings.cache_cost_saved)} full={savings.cache_tokens_saved.toLocaleString("en-US")} dot="#00C2A8" />
+              <SavingsCard label="Compressões RTK" value={formatCompact(savings.rtk_compressions)} sub="tool_results" full={savings.rtk_compressions.toLocaleString("en-US")} dot="#4DA3FF" />
+              <SavingsCard label="Tokens (RTK)" value={formatCompact(savings.rtk_tokens_saved)} sub={formatCost(savings.rtk_cost_saved)} full={savings.rtk_tokens_saved.toLocaleString("en-US")} dot="#4DA3FF" />
+            </div>
+            {(savings.cache_cost_saved + savings.rtk_cost_saved) > 0 && (
+              <div className="flex items-baseline gap-8 pt-2 border-t border-default-100">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-sm text-default-500">Total economizado</span>
+                  <span className="text-lg font-semibold tabular-nums">{formatCost(savings.cache_cost_saved + savings.rtk_cost_saved)}</span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-sm text-default-500">Tokens</span>
+                  <span className="text-lg font-semibold tabular-nums">{formatCompact(savings.cache_tokens_saved + savings.rtk_tokens_saved)}</span>
+                </div>
+              </div>
+            )}
+          </CardBody>
+        </Card>
       )}
 
       {/* Distributions */}
@@ -468,16 +474,14 @@ function StatCard({ label, value, sub, full }: { label: string; value: string | 
 
 function SavingsCard({ label, value, sub, full, dot }: { label: string; value: string; sub: string; full?: string; dot: string }) {
   return (
-    <Card className="border border-default-100 hover:border-default-200 transition-colors">
-      <CardBody className="p-5">
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: dot }} />
-          <p className="text-xs text-default-500 uppercase tracking-wide font-medium">{label}</p>
-        </div>
-        <p className="text-2xl font-bold mt-2 tabular-nums" title={full}>{value}</p>
-        <p className="text-xs text-default-500 mt-1">{sub}</p>
-      </CardBody>
-    </Card>
+    <div className="rounded-xl border border-default-100 p-5">
+      <div className="flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: dot }} />
+        <p className="text-xs text-default-500 uppercase tracking-wide font-medium">{label}</p>
+      </div>
+      <p className="text-2xl font-bold mt-2 tabular-nums" title={full}>{value}</p>
+      <p className="text-xs text-default-500 mt-1">{sub}</p>
+    </div>
   );
 }
 
