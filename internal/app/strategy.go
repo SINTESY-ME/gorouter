@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/jhon/gorouter/internal/domain"
@@ -153,13 +154,14 @@ func (s intelligenceStrategy) Order(ctx context.Context, req StrategyRequest) ([
 }
 
 // classify asks the classifier model to pick the best model for the prompt.
-// It returns the model id string (must match one of the combo's members).
+// It returns the model id string based on the classifier's numeric choice
+// (1-based index into combo.Models).
 func (s intelligenceStrategy) classify(ctx context.Context, combo *domain.Combo, prompt string, apiKey string) (string, error) {
 	if prompt == "" {
 		return "", nil
 	}
 	var modelLines []string
-	for _, mID := range combo.Models {
+	for i, mID := range combo.Models {
 		desc := ""
 		weight := 5
 		if meta, ok := combo.ModelMeta[mID]; ok {
@@ -168,7 +170,7 @@ func (s intelligenceStrategy) classify(ctx context.Context, combo *domain.Combo,
 				weight = meta.Weight
 			}
 		}
-		line := fmt.Sprintf("- %s (capability: %d/10)", mID, weight)
+		line := fmt.Sprintf("%d. (capability: %d/10) %s", i+1, weight, mID)
 		if desc != "" {
 			line += fmt.Sprintf(": %s", desc)
 		}
@@ -176,8 +178,8 @@ func (s intelligenceStrategy) classify(ctx context.Context, combo *domain.Combo,
 	}
 
 	system := fmt.Sprintf(
-		"You are an intelligent LLM routing classifier. Below is the recent conversation flow between a user and an assistant (including tool calls and results). Your job is to predict which model is best suited to generate the NEXT response, based on what the conversation needs next.\n\nFocus on the last message in the conversation — it determines what the next response must do. Use the earlier messages only as context to understand the task.\n\nRouting principle: prefer the simplest model that can handle the task well. Do not use a powerful model when a simpler one suffices, but do not route a complex task to a model that will struggle with it. When in doubt, pick the model that balances capability and cost.\n\nEach model has a capability score (1-10). Higher = more capable but more expensive. Choose the lowest capability that can handle the task.\n\nConsider:\n- What the next response needs to be (code, reasoning, simple text, etc.)\n- Whether the last message is a tool result that needs interpretation, a user question, or a continuation\n- The complexity of what comes next, not what came before\n\nAvailable models:\n%s\n\nRespond with ONLY the model id (exactly as written above), no extra words, no punctuation, no explanation.",
-		strings.Join(modelLines, "\n"))
+		"You are an intelligent LLM routing classifier. Below is the recent conversation flow between a user and an assistant (including tool calls and results). Your job is to predict which model is best suited to generate the NEXT response, based on what the conversation needs next.\n\nFocus on the last message in the conversation — it determines what the next response must do. Use the earlier messages only as context to understand the task.\n\nRouting principle: prefer the simplest model that can handle the task well. Do not use a powerful model when a simpler one suffices, but do not route a complex task to a model that will struggle with it. When in doubt, pick the model that balances capability and cost.\n\nEach model has a capability score (1-10). Higher = more capable but more expensive. Choose the lowest capability that can handle the task.\n\nConsider:\n- What the next response needs to be (code, reasoning, simple text, etc.)\n- Whether the last message is a tool result that needs interpretation, a user question, or a continuation\n- The complexity of what comes next, not what came before\n\nAvailable models:\n%s\n\nRespond with ONLY the number (1 to %d) of the model you choose. No words, no punctuation, no explanation.",
+		strings.Join(modelLines, "\n"), len(combo.Models))
 	messages := []map[string]any{
 		{"role": "system", "content": system},
 		{"role": "user", "content": prompt},
@@ -189,22 +191,13 @@ func (s intelligenceStrategy) classify(ctx context.Context, combo *domain.Combo,
 	}
 	chosen := strings.TrimSpace(text)
 	slog.Info("intelligence classifier result", "combo", combo.Name, "classifier", combo.ClassifierModel, "prompt_sample", truncate(prompt, 100), "raw_output", chosen)
-	// Validate that the classifier returned one of the combo members.
-	for _, mID := range combo.Models {
-		if mID == chosen {
-			return chosen, nil
-		}
+	// Parse the number. The classifier should return "1", "2", etc.
+	n, err := strconv.Atoi(chosen)
+	if err != nil || n < 1 || n > len(combo.Models) {
+		slog.Warn("intelligence classifier returned invalid choice; ignoring", "combo", combo.Name, "raw_output", chosen, "parsed", n)
+		return "", nil
 	}
-	// Fuzzy match: the classifier may have returned the model id with
-	// extra whitespace, quotes, or a partial match. Try a contains check.
-	lower := strings.ToLower(chosen)
-	for _, mID := range combo.Models {
-		if strings.ToLower(mID) == lower || strings.Contains(lower, strings.ToLower(mID)) {
-			return mID, nil
-		}
-	}
-	slog.Warn("intelligence classifier returned unknown model; ignoring", "combo", combo.Name, "chosen", chosen)
-	return "", nil
+	return combo.Models[n-1], nil
 }
 
 // reorderChosenFirst moves the chosen model to the front of the list,

@@ -877,10 +877,11 @@ func TestRouteCombo_VelocityStrategy(t *testing.T) {
 }
 
 func TestRouteCombo_IntelligenceStrategy(t *testing.T) {
-	// Mock executor that responds with the model id the classifier picks.
+	// Mock executor that responds with a number (1-based index) the classifier picks.
+	// Models: 1=openai/gpt-4, 2=anthropic/claude-3
 	exec := &mockExecutor{
 		status: 200,
-		body:   `{"id":"1","choices":[{"message":{"content":"anthropic/claude-3"}}]}`,
+		body:   `{"id":"1","choices":[{"message":{"content":"2"}}]}`,
 	}
 	comboRepo := &mockComboRepo{
 		combos: map[string]*domain.Combo{
@@ -899,7 +900,7 @@ func TestRouteCombo_IntelligenceStrategy(t *testing.T) {
 	}
 	srv := NewRouterService(comboRepo, twoProviderConnRepo(), exec, &mockTranslator{}, &mockUsageRepo{})
 
-	// Test 1: Classifier picks "anthropic/claude-3" -> should route to claude-3
+	// Test 1: Classifier returns "2" -> should route to claude-3 (index 2)
 	body := []byte(`{"model":"intelcombo","messages":[{"role":"user","content":"hello"}]}`)
 	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
 	if err != nil {
@@ -913,11 +914,11 @@ func TestRouteCombo_IntelligenceStrategy(t *testing.T) {
 	}
 	targetCall := calls[len(calls)-1]
 	if targetCall != "claude-3" {
-		t.Fatalf("expected classifier to pick 'claude-3', got: %s", targetCall)
+		t.Fatalf("expected classifier to pick 'claude-3' (choice 2), got: %s", targetCall)
 	}
 
-	// Test 2: Classifier picks "openai/gpt-4" -> should route to gpt-4
-	exec.body = `{"id":"1","choices":[{"message":{"content":"openai/gpt-4"}}]} `
+	// Test 2: Classifier returns "1" -> should route to gpt-4 (index 1)
+	exec.body = `{"id":"1","choices":[{"message":{"content":"1"}}]} `
 	res2, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -927,7 +928,7 @@ func TestRouteCombo_IntelligenceStrategy(t *testing.T) {
 	calls2 := calledSnapshot(exec)
 	targetCall2 := calls2[len(calls2)-1]
 	if targetCall2 != "gpt-4" {
-		t.Fatalf("expected classifier to pick 'gpt-4', got: %s", targetCall2)
+		t.Fatalf("expected classifier to pick 'gpt-4' (choice 1), got: %s", targetCall2)
 	}
 }
 
