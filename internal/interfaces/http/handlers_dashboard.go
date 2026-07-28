@@ -678,8 +678,36 @@ func (s *Server) handleUsageStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUsageHistory(w http.ResponseWriter, r *http.Request) {
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	h, err := s.Usage.History(r.Context(), limit)
+	q := domain.HistoryQuery{
+		Limit:  100,
+		Model:  r.URL.Query().Get("model"),
+		Combo:  r.URL.Query().Get("combo"),
+		ApiKey: r.URL.Query().Get("api_key"),
+		Search: r.URL.Query().Get("search"),
+	}
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			q.Limit = n
+		}
+	}
+	if v := r.URL.Query().Get("from"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			q.From = t
+		}
+	}
+	if v := r.URL.Query().Get("to"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			q.To = t
+		}
+	}
+	// Resolve api_key_id to raw key.
+	if keyID := r.URL.Query().Get("api_key_id"); keyID != "" && s.Keys != nil {
+		k, err := lookupKey(s.Keys, r.Context(), keyID)
+		if err == nil {
+			q.ApiKey = k.Key
+		}
+	}
+	h, err := s.Usage.History(r.Context(), q)
 	if err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return

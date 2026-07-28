@@ -443,12 +443,34 @@ func (r *UsageRepo) timeseries(ctx context.Context, from, to time.Time, bucket s
 	return out, nil
 }
 
-func (r *UsageRepo) History(ctx context.Context, limit int) ([]domain.UsageEntry, error) {
+func (r *UsageRepo) History(ctx context.Context, q domain.HistoryQuery) ([]domain.UsageEntry, error) {
+	limit := q.Limit
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
+	tx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
+	if !q.From.IsZero() {
+		tx = tx.Where("timestamp >= ?", q.From)
+	}
+	if !q.To.IsZero() {
+		tx = tx.Where("timestamp < ?", q.To)
+	}
+	if q.Model != "" {
+		tx = tx.Where("model = ?", q.Model)
+	}
+	if q.ApiKey != "" {
+		tx = tx.Where("api_key = ?", q.ApiKey)
+	}
+	if q.Search != "" {
+		like := "%" + q.Search + "%"
+		tx = tx.Where("model LIKE ? OR provider LIKE ? OR endpoint LIKE ?", like, like, like)
+	}
+	// Combo filter requires a subquery on combo_executions.
+	if q.Combo != "" {
+		tx = tx.Where("id IN (SELECT usage_id FROM combo_executions WHERE combo_name = ?)", q.Combo)
+	}
 	var entries []domain.UsageEntry
-	if err := r.db.WithContext(ctx).Order("timestamp DESC").Limit(limit).Find(&entries).Error; err != nil {
+	if err := tx.Order("timestamp DESC").Limit(limit).Find(&entries).Error; err != nil {
 		return nil, err
 	}
 	if len(entries) == 0 {
@@ -461,7 +483,6 @@ func (r *UsageRepo) History(ctx context.Context, limit int) ([]domain.UsageEntry
 	}
 	var execs []domain.ComboExecution
 	r.db.WithContext(ctx).Where("usage_id IN ?", ids).Order("usage_id, depth").Find(&execs)
-	// Group by usage_id.
 	byUsage := map[int64][]string{}
 	for _, ce := range execs {
 		byUsage[ce.UsageID] = append(byUsage[ce.UsageID], ce.ComboName)

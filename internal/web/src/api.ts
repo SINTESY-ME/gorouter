@@ -262,7 +262,18 @@ export const api = {
       if (q.api_key_id) sp.set("api_key_id", q.api_key_id);
       return request<UsageStats>(`/api/usage/stats?${sp.toString()}`);
     },
-    history: (limit = 100) => request<UsageEntry[]>(`/api/usage/history?limit=${limit}`),
+    history: (params: { from?: string; to?: string; model?: string; combo?: string; api_key_id?: string; api_key?: string; search?: string; limit?: number } = {}) => {
+      const sp = new URLSearchParams();
+      if (params.from) sp.set("from", params.from);
+      if (params.to) sp.set("to", params.to);
+      if (params.model) sp.set("model", params.model);
+      if (params.combo) sp.set("combo", params.combo);
+      if (params.api_key_id) sp.set("api_key_id", params.api_key_id);
+      if (params.api_key) sp.set("api_key", params.api_key);
+      if (params.search) sp.set("search", params.search);
+      sp.set("limit", String(params.limit ?? 200));
+      return request<UsageEntry[]>(`/api/usage/history?${sp.toString()}`);
+    },
   },
   settings: {
     get: () => request<{ rtk_enabled: boolean; cache_enabled: boolean }>("/api/settings"),

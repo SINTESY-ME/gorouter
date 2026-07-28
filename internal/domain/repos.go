@@ -59,6 +59,18 @@ type UsageStatsQuery struct {
 	ApiKey string    // filter by raw api key; empty = all keys
 }
 
+// HistoryQuery specifies filters for the logs/history endpoint. All fields
+// are optional; empty/zero values mean "no filter on this field".
+type HistoryQuery struct {
+	From   time.Time // inclusive; zero = no lower bound
+	To     time.Time // exclusive; zero = no upper bound
+	Model  string    // exact model name; empty = all
+	Combo  string    // combo name in the chain; empty = all
+	ApiKey string    // raw api key; empty = all
+	Search string    // substring match on model/provider/endpoint; empty = all
+	Limit  int       // max results; 0 = default 100
+}
+
 // UsageRepo records and aggregates request usage.
 type UsageRepo interface {
 	// Record inserts a usage entry and its associated combo_executions
@@ -67,9 +79,9 @@ type UsageRepo interface {
 	Record(ctx context.Context, e *UsageEntry) error
 	// Stats returns aggregated totals + a time-series for the given query.
 	Stats(ctx context.Context, q UsageStatsQuery) (*UsageStats, error)
-	// History returns raw entries, newest first, limited. Each entry
-	// includes the combo chain (populated from combo_executions).
-	History(ctx context.Context, limit int) ([]UsageEntry, error)
+	// History returns raw entries matching the query, newest first.
+	// Each entry includes the combo chain (populated from combo_executions).
+	History(ctx context.Context, q HistoryQuery) ([]UsageEntry, error)
 	// ModelStats returns per-model aggregate stats (avg TPS, avg latency, requests).
 	ModelStats(ctx context.Context) (map[string]*ModelStat, error)
 	// ModelStatsByID is like ModelStats but keyed by the full "provider/model"

@@ -269,8 +269,8 @@ func (s *UsageService) Stats(ctx context.Context, q domain.UsageStatsQuery) (*do
 	return s.Repo.Stats(ctx, q)
 }
 
-func (s *UsageService) History(ctx context.Context, limit int) ([]domain.UsageEntry, error) {
-	return s.Repo.History(ctx, limit)
+func (s *UsageService) History(ctx context.Context, q domain.HistoryQuery) ([]domain.UsageEntry, error) {
+	return s.Repo.History(ctx, q)
 }
 
 func fmtValidation(msg string) error {

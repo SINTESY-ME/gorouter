@@ -173,7 +173,7 @@ func (r *mockUsageRepo) Record(ctx context.Context, e *domain.UsageEntry) error 
 func (r *mockUsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domain.UsageStats, error) {
 	return &domain.UsageStats{}, nil
 }
-func (r *mockUsageRepo) History(ctx context.Context, limit int) ([]domain.UsageEntry, error) {
+func (r *mockUsageRepo) History(ctx context.Context, q domain.HistoryQuery) ([]domain.UsageEntry, error) {
 	return r.entries, nil
 }
 func (r *mockUsageRepo) ModelStats(ctx context.Context) (map[string]*domain.ModelStat, error) {

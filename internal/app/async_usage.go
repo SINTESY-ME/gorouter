@@ -54,8 +54,8 @@ func (r *AsyncUsageRecorder) Stats(ctx context.Context, q domain.UsageStatsQuery
 	return r.repo.Stats(ctx, q)
 }
 
-func (r *AsyncUsageRecorder) History(ctx context.Context, limit int) ([]domain.UsageEntry, error) {
-	return r.repo.History(ctx, limit)
+func (r *AsyncUsageRecorder) History(ctx context.Context, q domain.HistoryQuery) ([]domain.UsageEntry, error) {
+	return r.repo.History(ctx, q)
 }
 
 func (r *AsyncUsageRecorder) ModelStats(ctx context.Context) (map[string]*domain.ModelStat, error) {

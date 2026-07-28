@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   Table, TableHeader, TableColumn, TableBody, TableRow, TableCell,
-  Chip, Pagination, Spinner,
+  Chip, Pagination, Spinner, Input, Select, SelectItem, Button,
 } from "@heroui/react";
-import { api, type UsageEntry } from "../api";
+import { api, type UsageEntry, type ApiKey } from "../api";
 import { formatCompact, formatCost } from "../format";
 
 const statusColor = (s: number): "success" | "warning" | "danger" => {
@@ -19,33 +19,136 @@ const costColor = (cost: number): string => {
   return "text-danger";
 };
 
+function maskKey(k: string): string {
+  if (!k) return "—";
+  if (k.length <= 12) return k.slice(0, 3) + "..." + k.slice(-2);
+  return k.slice(0, 6) + "..." + k.slice(-4);
+}
+
 export default function Logs() {
   const [items, setItems] = useState<UsageEntry[]>([]);
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const perPage = 25;
 
-  useEffect(() => {
+  // Filters
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [modelFilter, setModelFilter] = useState("");
+  const [comboFilter, setComboFilter] = useState("");
+  const [keyFilter, setKeyFilter] = useState("");
+  const [search, setSearch] = useState("");
+
+  // Derive options from loaded data
+  const modelOptions = [...new Set(items.map((e) => e.model).filter(Boolean))].sort();
+  const comboOptions = [...new Set(items.flatMap((e) => e.combo_chain ?? []).filter(Boolean))].sort();
+
+  const fetchLogs = useCallback(() => {
     setLoading(true);
-    api.usage.history(500)
+    const params: Record<string, string | number> = { limit: 500 };
+    if (fromDate) params.from = new Date(fromDate).toISOString();
+    if (toDate) params.to = new Date(toDate).toISOString() ;
+    if (modelFilter) params.model = modelFilter;
+    if (comboFilter) params.combo = comboFilter;
+    if (keyFilter) params.api_key = keyFilter;
+    if (search) params.search = search;
+    api.usage.history(params)
       .then(setItems)
       .catch(() => setItems([]))
       .finally(() => setLoading(false));
+  }, [fromDate, toDate, modelFilter, comboFilter, keyFilter, search]);
+
+  useEffect(() => {
+    api.keys.list().then(setApiKeys).catch(() => {});
   }, []);
 
+  useEffect(() => { fetchLogs(); }, [fetchLogs]);
+  useEffect(() => { setPage(1); }, [fromDate, toDate, modelFilter, comboFilter, keyFilter, search]);
+
+  const clearFilters = () => {
+    setFromDate(""); setToDate(""); setModelFilter("");
+    setComboFilter(""); setKeyFilter(""); setSearch("");
+  };
+
+  const hasFilters = fromDate || toDate || modelFilter || comboFilter || keyFilter || search;
   const paged = items.slice((page - 1) * perPage, page * perPage);
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Logs de uso</h1>
-        <p className="text-sm text-default-500 mt-0.5">{items.length} registros</p>
+        <p className="text-sm text-default-500 mt-0.5">
+          {items.length} {hasFilters ? "registros filtrados" : "registros"}
+        </p>
       </div>
+
+      {/* Filters */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <Input
+          type="date"
+          label="De"
+          size="sm"
+          value={fromDate}
+          onValueChange={setFromDate}
+        />
+        <Input
+          type="date"
+          label="Até"
+          size="sm"
+          value={toDate}
+          onValueChange={setToDate}
+        />
+        <Select
+          label="Modelo"
+          size="sm"
+          selectedKeys={modelFilter ? [modelFilter] : [""]}
+          onChange={(e) => setModelFilter(e.target.value)}
+          disallowEmptySelection
+        >
+          {[<SelectItem key="">Todos</SelectItem>, ...modelOptions.map((m) => <SelectItem key={m}>{m}</SelectItem>)]}
+        </Select>
+        <Select
+          label="Combo"
+          size="sm"
+          selectedKeys={comboFilter ? [comboFilter] : [""]}
+          onChange={(e) => setComboFilter(e.target.value)}
+          disallowEmptySelection
+        >
+          {[<SelectItem key="">Todos</SelectItem>, ...comboOptions.map((c) => <SelectItem key={c}>{c}</SelectItem>)]}
+        </Select>
+        <Select
+          label="Token"
+          size="sm"
+          selectedKeys={keyFilter ? [keyFilter] : [""]}
+          onChange={(e) => setKeyFilter(e.target.value)}
+          disallowEmptySelection
+        >
+          {[<SelectItem key="">Todos</SelectItem>, ...apiKeys.map((k) => <SelectItem key={k.key}>{k.name}</SelectItem>)]}
+        </Select>
+        <Input
+          label="Buscar"
+          size="sm"
+          placeholder="modelo, provider..."
+          value={search}
+          onValueChange={setSearch}
+          isClearable
+        />
+      </div>
+
+      {hasFilters && (
+        <Button size="sm" variant="flat" onPress={clearFilters}>
+          Limpar filtros
+        </Button>
+      )}
+
       <div className="bg-content1 rounded-2xl border border-default-100 overflow-hidden">
         {loading ? (
           <div className="p-10 flex justify-center"><Spinner /></div>
         ) : items.length === 0 ? (
-          <div className="p-10 text-center text-default-500 text-sm">Nenhum log ainda.</div>
+          <div className="p-10 text-center text-default-500 text-sm">
+            {hasFilters ? "Nenhum registro encontrado." : "Nenhum log ainda."}
+          </div>
         ) : (
           <Table aria-label="logs" removeWrapper>
             <TableHeader>
