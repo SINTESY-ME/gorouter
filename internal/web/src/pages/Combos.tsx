@@ -273,19 +273,29 @@ export default function Combos() {
 
                 {form.models.length > 0 && (
                   <div className="space-y-3">
-                    <label className="text-xs font-medium text-default-600 uppercase tracking-wide">
-                      Descrição dos Modelos
+                    <label className="text-xs font-medium text-default-600 uppercase tracking-wide flex items-center gap-1">
+                      Descrição dos Modelos <span className="text-danger">*</span>
                     </label>
+                    <p className="text-[11px] text-default-400">
+                      O classificador usa estas descrições para decidir qual modelo atende melhor cada prompt.
+                    </p>
                     {form.models.map((m) => {
                       const meta = form.model_meta[m] ?? { weight: 5, description: "" };
+                      const isEmpty = !(meta.description ?? "").trim();
                       return (
-                        <div key={m} className="bg-content1 p-3 rounded-lg border border-default-200 space-y-2">
-                          <code className="text-xs font-mono font-semibold">{m}</code>
+                        <div key={m} className={`bg-content1 p-3 rounded-lg border space-y-2 ${isEmpty ? "border-danger-300" : "border-default-200"}`}>
+                          <div className="flex justify-between items-center">
+                            <code className="text-xs font-mono font-semibold">{m}</code>
+                            {isEmpty && <span className="text-[10px] text-danger">Obrigatório</span>}
+                          </div>
                           <Textarea
                             size="sm"
-                            placeholder="Descrição/Capacidades (ex: tarefas complexas de lógica e código, ou respostas simples e rápidas)..."
+                            placeholder="Descreva para o que este modelo é bom (ex: resolver erros de código complexos, matemática, ou respostas simples e rápidas)..."
                             minRows={1}
                             maxRows={3}
+                            isRequired
+                            isInvalid={isEmpty}
+                            errorMessage={isEmpty ? "Insira uma descrição para que o classificador saiba quando escolher este modelo" : undefined}
                             value={meta.description ?? ""}
                             onValueChange={(v) => updateMeta(m, { description: v })}
                           />

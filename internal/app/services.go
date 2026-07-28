@@ -167,6 +167,13 @@ func (s *ComboService) validateCombo(c *domain.Combo) error {
 				return fmtValidation("classifier_model is required when strategy is intelligence")
 			}
 		}
+		// Validate that every model in the combo has a non-empty description.
+		for _, m := range c.Models {
+			desc := strings.TrimSpace(c.ModelMeta[m].Description)
+			if desc == "" {
+				return fmtValidation(fmt.Sprintf("description is required for model %q when using intelligence strategy", m))
+			}
+		}
 	}
 	return nil
 }
