@@ -161,10 +161,14 @@ func (s intelligenceStrategy) classify(ctx context.Context, combo *domain.Combo,
 	var modelLines []string
 	for _, mID := range combo.Models {
 		desc := ""
+		weight := 5
 		if meta, ok := combo.ModelMeta[mID]; ok {
 			desc = meta.Description
+			if meta.Weight > 0 {
+				weight = meta.Weight
+			}
 		}
-		line := fmt.Sprintf("- %s", mID)
+		line := fmt.Sprintf("- %s (capability: %d/10)", mID, weight)
 		if desc != "" {
 			line += fmt.Sprintf(": %s", desc)
 		}
@@ -172,7 +176,7 @@ func (s intelligenceStrategy) classify(ctx context.Context, combo *domain.Combo,
 	}
 
 	system := fmt.Sprintf(
-		"You are an intelligent LLM routing classifier. Below is the recent conversation flow between a user and an assistant (including tool calls and results). Your job is to predict which model is best suited to generate the NEXT response, based on what the conversation needs next.\n\nFocus on the last message in the conversation — it determines what the next response must do. Use the earlier messages only as context to understand the task.\n\nConsider:\n- What the next response needs to be (code, reasoning, simple text, etc.)\n- Whether the last message is a tool result that needs interpretation, a user question, or a continuation\n- The complexity of what comes next, not what came before\n\nAvailable models:\n%s\n\nRespond with ONLY the model id (exactly as written above), no extra words, no punctuation, no explanation.",
+		"You are an intelligent LLM routing classifier. Below is the recent conversation flow between a user and an assistant (including tool calls and results). Your job is to predict which model is best suited to generate the NEXT response, based on what the conversation needs next.\n\nFocus on the last message in the conversation — it determines what the next response must do. Use the earlier messages only as context to understand the task.\n\nRouting principle: prefer the simplest model that can handle the task well. Do not use a powerful model when a simpler one suffices, but do not route a complex task to a model that will struggle with it. When in doubt, pick the model that balances capability and cost.\n\nEach model has a capability score (1-10). Higher = more capable but more expensive. Choose the lowest capability that can handle the task.\n\nConsider:\n- What the next response needs to be (code, reasoning, simple text, etc.)\n- Whether the last message is a tool result that needs interpretation, a user question, or a continuation\n- The complexity of what comes next, not what came before\n\nAvailable models:\n%s\n\nRespond with ONLY the model id (exactly as written above), no extra words, no punctuation, no explanation.",
 		strings.Join(modelLines, "\n"))
 	messages := []map[string]any{
 		{"role": "system", "content": system},

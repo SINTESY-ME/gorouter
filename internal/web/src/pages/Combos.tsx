@@ -284,10 +284,10 @@ export default function Combos() {
                 {form.models.length > 0 && (
                   <div className="space-y-3">
                     <label className="text-xs font-medium text-default-600 uppercase tracking-wide flex items-center gap-1">
-                      Descrição dos Modelos <span className="text-danger">*</span>
+                      Capacidade e Descrição dos Modelos <span className="text-danger">*</span>
                     </label>
                     <p className="text-[11px] text-default-400">
-                      O classificador usa estas descrições para decidir qual modelo atende melhor cada prompt.
+                      Nível de capacidade (1-10) e descrição. O classificador usa isso para escolher o modelo mais simples que resolve a tarefa.
                     </p>
                     {form.models.map((m) => {
                       const meta = form.model_meta[m] ?? { weight: 5, description: "" };
@@ -295,9 +295,20 @@ export default function Combos() {
                       const showError = triedSubmit && isEmpty;
                       return (
                         <div key={m} className={`bg-content1 p-3 rounded-lg border space-y-2 ${showError ? "border-danger-300" : "border-default-200"}`}>
-                          <div className="flex justify-between items-center">
+                          <div className="flex justify-between items-center gap-2">
                             <code className="text-xs font-mono font-semibold">{m}</code>
-                            {showError && <span className="text-[10px] text-danger">Obrigatório</span>}
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-default-500 font-medium">Capacidade:</span>
+                              <Input
+                                type="number"
+                                size="sm"
+                                className="w-20"
+                                min={1}
+                                max={10}
+                                value={String(meta.weight ?? 5)}
+                                onValueChange={(v) => updateMeta(m, { weight: Math.max(1, Math.min(10, parseInt(v) || 1)) })}
+                              />
+                            </div>
                           </div>
                           <Textarea
                             size="sm"
