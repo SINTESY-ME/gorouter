@@ -3,7 +3,7 @@ import {
   Spinner, Select, SelectItem, Popover, PopoverTrigger, PopoverContent,
   Input, Button, Card, CardBody, CardHeader, Tabs, Tab,
   Table, TableHeader, TableColumn, TableBody, TableRow, TableCell,
-  Progress,
+  Progress, Divider,
 } from "@heroui/react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip,
@@ -272,36 +272,35 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* Confiabilidade — taxa de erro + requests OK + combo */}
+      {/* Confiabilidade — compact single-row card */}
       <Card className="border border-default-100">
-        <CardHeader><h3 className="font-semibold">Confiabilidade</h3></CardHeader>
-        <CardBody className="space-y-5">
-          <div>
-            <div className="flex justify-between items-baseline mb-2">
-              <span className="text-sm text-default-500">Taxa de erro</span>
-              <span className="text-lg font-semibold tabular-nums">{errorPct.toFixed(1)}%</span>
-            </div>
-            <Progress
-              aria-label="Taxa de erro"
-              size="md"
-              color={errorPct > 5 ? "danger" : "success"}
-              value={Math.min(errorPct, 100)}
-            />
-            <p className="text-xs text-default-400 mt-1.5">
-              {stats.error_requests.toLocaleString("en-US")} erros de {stats.requests.toLocaleString("en-US")}
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-xs text-default-500 uppercase tracking-wide font-medium">Requests OK</p>
-              <p className="text-2xl font-semibold mt-1 tabular-nums">{stats.successful_requests.toLocaleString("en-US")}</p>
-            </div>
-            <div>
-              <p className="text-xs text-default-500 uppercase tracking-wide font-medium">Combo requests</p>
-              <p className="text-2xl font-semibold mt-1 tabular-nums">{stats.combo_requests.toLocaleString("en-US")}</p>
-              <p className="text-xs text-default-400 mt-0.5">
-                {stats.requests > 0 ? `${((stats.combo_requests / stats.requests) * 100).toFixed(0)}% do total` : ""}
+        <CardBody className="py-4">
+          <div className="flex items-center gap-6 flex-wrap">
+            <div className="flex-1 min-w-[200px]">
+              <div className="flex justify-between items-baseline mb-1.5">
+                <span className="text-sm text-default-500">Taxa de erro</span>
+                <span className="text-sm font-semibold tabular-nums">{errorPct.toFixed(1)}%</span>
+              </div>
+              <Progress
+                aria-label="Taxa de erro"
+                size="sm"
+                color={errorPct > 5 ? "danger" : "success"}
+                value={Math.min(errorPct, 100)}
+              />
+              <p className="text-[11px] text-default-400 mt-1">
+                {stats.error_requests.toLocaleString("en-US")} erros · {stats.successful_requests.toLocaleString("en-US")} ok
               </p>
+            </div>
+            <Divider orientation="vertical" className="hidden md:block h-12" />
+            <div className="flex gap-6">
+              <div>
+                <p className="text-xs text-default-500">Combos</p>
+                <p className="text-lg font-semibold tabular-nums mt-0.5">{stats.combo_requests.toLocaleString("en-US")}</p>
+              </div>
+              <div>
+                <p className="text-xs text-default-500">Erro/Total</p>
+                <p className="text-lg font-semibold tabular-nums mt-0.5">{stats.error_requests.toLocaleString("en-US")}/{stats.requests.toLocaleString("en-US")}</p>
+              </div>
             </div>
           </div>
         </CardBody>
