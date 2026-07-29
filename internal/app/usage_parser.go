@@ -133,3 +133,42 @@ func injectStreamUsage(body []byte) []byte {
 	}
 	return b
 }
+// sanitizeEmptyToolCalls removes "tool_calls": [] from messages in the request
+// body. Some providers (e.g. Qwen/DashScope) reject messages with an empty
+// tool_calls array, while OpenAI-compatible clients routinely send them. This
+// strips the field when the array is empty so the request is accepted
+// everywhere. Returns the original body if parsing fails.
+func sanitizeEmptyToolCalls(body []byte) []byte {
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		return body
+	}
+	msgs, ok := m["messages"].([]any)
+	if !ok {
+		return body
+	}
+	changed := false
+	for _, raw := range msgs {
+		msg, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		tc, exists := msg["tool_calls"]
+		if !exists {
+			continue
+		}
+		arr, ok := tc.([]any)
+		if ok && len(arr) == 0 {
+			delete(msg, "tool_calls")
+			changed = true
+		}
+	}
+	if !changed {
+		return body
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return b
+}

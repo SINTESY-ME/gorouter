@@ -725,6 +725,8 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 		if stream && targetFmt == domain.FormatOpenAI {
 			body = injectStreamUsage(body)
 		}
+		// Strip empty tool_calls arrays — some providers (Qwen) reject them.
+		body = sanitizeEmptyToolCalls(body)
 		// 2) OpenAI -> upstream format
 		var err error
 		translated, err = s.Translator.TranslateRequest(domain.FormatOpenAI, targetFmt, m.Model, body)
