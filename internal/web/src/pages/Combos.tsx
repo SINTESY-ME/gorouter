@@ -1,21 +1,19 @@
 import { useEffect, useState } from "react";
 import {
-  Table, TableHeader, TableColumn, TableBody, TableRow, TableCell,
-  Button, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter,
-  Input, Chip, useDisclosure, Select, SelectItem, Spinner,
-  Autocomplete, AutocompleteItem, Textarea,
+  Table, Button, Modal, Input, Chip, Select, ListBox, Spinner, TextArea, TextField, Label,
 } from "@heroui/react";
 import { api, type Combo, type ModelEntry, type ComboModelMeta } from "../api";
-const KIND_COLORS: Record<string, "primary" | "success" | "warning" | "secondary" | "danger" | "default"> = {
-  llm: "primary", embedding: "success", image: "warning", tts: "secondary", stt: "danger",
+
+const KIND_COLORS: Record<string, "accent" | "success" | "warning" | "default" | "danger"> = {
+  llm: "accent", embedding: "success", image: "warning", tts: "default", stt: "danger",
   rerank: "default", ocr: "default", video: "default",
 };
 
-const STRATEGY_COLORS: Record<string, "primary" | "success" | "warning" | "secondary" | "danger" | "default"> = {
-  ordered_fallback: "secondary",
+const STRATEGY_COLORS: Record<string, "accent" | "success" | "warning" | "default" | "danger"> = {
+  ordered_fallback: "default",
   "round-robin": "warning",
   velocity: "success",
-  intelligence: "primary",
+  intelligence: "accent",
 };
 
 interface ComboForm {
@@ -37,7 +35,7 @@ const empty: ComboForm = {
 export default function Combos() {
   const [items, setItems] = useState<Combo[]>([]);
   const [loading, setLoading] = useState(true);
-  const { isOpen, onOpen, onClose } = useDisclosure();
+  const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ComboForm>(empty);
   const [editId, setEditId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -50,7 +48,6 @@ export default function Combos() {
   };
   useEffect(load, []);
 
-  // Fetch all models for the classifier model picker
   useEffect(() => {
     (async () => {
       try {
@@ -69,7 +66,7 @@ export default function Combos() {
     setForm({ ...empty, models: [], model_meta: {} });
     setEditId(null);
     setTriedSubmit(false);
-    onOpen();
+    setOpen(true);
   };
 
   const openEdit = (c: Combo) => {
@@ -82,7 +79,7 @@ export default function Combos() {
     });
     setEditId(c.id);
     setTriedSubmit(false);
-    onOpen();
+    setOpen(true);
   };
 
   const submit = async () => {
@@ -104,7 +101,7 @@ export default function Combos() {
       };
       if (editId) await api.combos.update(editId, payload as any);
       else await api.combos.create(payload as any);
-      onClose();
+      setOpen(false);
       load();
     } finally {
       setSaving(false);
@@ -133,210 +130,227 @@ export default function Combos() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Combos</h1>
-          <p className="text-sm text-default-500 mt-0.5">{items.length} combos cadastrados</p>
+          <p className="text-sm text-muted mt-0.5">{items.length} combos cadastrados</p>
         </div>
-        <Button color="primary" variant="bordered" onPress={openNew} startContent={<IconPlus />}>
-          Novo combo
-        </Button>
+        <Button variant="outline" onPress={openNew}><IconPlus /> Novo combo</Button>
       </div>
 
-      <div className="bg-content1 rounded-2xl border border-default-100 overflow-hidden">
+      <div className="bg-surface rounded-2xl border border-border overflow-hidden">
         {loading ? (
-          <div className="p-10 text-center text-default-500 text-sm">Carregando...</div>
+          <div className="p-10 text-center text-muted text-sm">Carregando...</div>
         ) : items.length === 0 ? (
-          <div className="p-10 text-center text-default-500 text-sm">
+          <div className="p-10 text-center text-muted text-sm">
             Nenhum combo ainda. Clique em <strong>Novo combo</strong>.
           </div>
         ) : (
-          <Table aria-label="combos" removeWrapper>
-            <TableHeader>
-              <TableColumn>NOME</TableColumn>
-              <TableColumn>MODELOS</TableColumn>
-              <TableColumn>ESTRATÉGIA</TableColumn>
-              <TableColumn align="end">AÇÕES</TableColumn>
-            </TableHeader>
-            <TableBody items={items}>
-              {(c) => (
-                <TableRow key={c.id}>
-                  <TableCell>
-                    <span className="font-semibold">{c.name}</span>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {c.models.map((m, i) => {
-                        const meta = c.model_meta?.[m];
-                        return (
-                          <Chip key={m + i} size="sm" variant="bordered">
-                            <span className="text-default-400 mr-0.5">{i + 1}.</span>
-                            {m}
+          <Table>
+            <Table.ScrollContainer>
+              <Table.Content aria-label="combos" className="min-w-[560px]">
+                <Table.Header>
+                  <Table.Column isRowHeader id="name">Nome</Table.Column>
+                  <Table.Column id="models">Modelos</Table.Column>
+                  <Table.Column id="strategy">Estratégia</Table.Column>
+                  <Table.Column id="actions">Ações</Table.Column>
+                </Table.Header>
+                <Table.Body items={items}>
+                  {(c) => (
+                    <Table.Row key={c.id} id={c.id}>
+                      <Table.Cell><span className="font-semibold">{c.name}</span></Table.Cell>
+                      <Table.Cell>
+                        <div className="flex flex-wrap gap-1">
+                          {c.models.map((m, i) => (
+                            <Chip key={m + i} size="sm" variant="soft">
+                              <span className="text-muted mr-0.5">{i + 1}.</span>
+                              {m}
+                            </Chip>
+                          ))}
+                        </div>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <div className="flex flex-col gap-0.5 items-start">
+                          <Chip size="sm" variant="soft" color={STRATEGY_COLORS[c.strategy] ?? "default"}>
+                            {c.strategy}
                           </Chip>
-                        );
-                      })}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col gap-0.5 items-start">
-                      <Chip size="sm" variant="flat" color={STRATEGY_COLORS[c.strategy] ?? "default"}>
-                        {c.strategy}
-                      </Chip>
-                      {c.strategy === "intelligence" && c.classifier_model && (
-                        <span className="text-[11px] text-default-400 font-mono">
-                          classificador: {c.classifier_model}
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1 justify-end">
-                      <Button isIconOnly size="sm" variant="light" onPress={() => openEdit(c)} aria-label="editar">
-                        <IconPencil />
-                      </Button>
-                      <Button isIconOnly size="sm" variant="light" color="danger" onPress={() => remove(c.id)} aria-label="excluir">
-                        <IconTrash />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
+                          {c.strategy === "intelligence" && c.classifier_model && (
+                            <span className="text-[11px] text-muted font-mono">
+                              classificador: {c.classifier_model}
+                            </span>
+                          )}
+                        </div>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <div className="flex gap-1 justify-end">
+                          <Button isIconOnly size="sm" variant="ghost" onPress={() => openEdit(c)} aria-label="editar">
+                            <IconPencil />
+                          </Button>
+                          <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => remove(c.id)} aria-label="excluir">
+                            <IconTrash />
+                          </Button>
+                        </div>
+                      </Table.Cell>
+                    </Table.Row>
+                  )}
+                </Table.Body>
+              </Table.Content>
+            </Table.ScrollContainer>
           </Table>
         )}
       </div>
 
-      <Modal isOpen={isOpen} onClose={onClose} size="xl" scrollBehavior="inside">
-        <ModalContent>
-          <ModalHeader>{editId ? "Editar combo" : "Novo combo"}</ModalHeader>
-          <ModalBody className="gap-4">
-            <Input
-              label="Nome"
-              placeholder="ex: smart, fast, balanced"
-              value={form.name}
-              onValueChange={(v) => setForm({ ...form, name: v })}
-            />
+      <Modal isOpen={open} onOpenChange={setOpen}>
+        <Modal.Backdrop>
+          <Modal.Container>
+            <Modal.Dialog className="max-w-2xl max-h-[85vh]">
+              <Modal.Header><Modal.Heading>{editId ? "Editar combo" : "Novo combo"}</Modal.Heading></Modal.Header>
+              <Modal.Body className="gap-4 overflow-y-auto">
+                <TextField value={form.name} onChange={(v) => setForm({ ...form, name: v })}>
+                  <Label>Nome</Label>
+                  <Input placeholder="ex: smart, fast, balanced" />
+                </TextField>
 
-            <ModelSelector
-              selected={form.models}
-              excludeName={editId ? form.name : undefined}
-              onChange={(models) => {
-                const defaultClassifier = form.classifier_model || models[0] || allCatalogModels[0]?.id || "";
-                setForm({
-                  ...form,
-                  models,
-                  classifier_model: form.strategy === "intelligence" && !form.classifier_model ? defaultClassifier : form.classifier_model
-                });
-              }}
-            />
+                <ModelSelector
+                  selected={form.models}
+                  excludeName={editId ? form.name : undefined}
+                  onChange={(models) => {
+                    const defaultClassifier = form.classifier_model || models[0] || allCatalogModels[0]?.id || "";
+                    setForm({
+                      ...form,
+                      models,
+                      classifier_model: form.strategy === "intelligence" && !form.classifier_model ? defaultClassifier : form.classifier_model
+                    });
+                  }}
+                />
 
-            <Select
-              label="Estratégia"
-              description="Forma como o Gorouter seleciona entre os modelos declarados."
-              selectedKeys={[form.strategy]}
-              onSelectionChange={(keys) => {
-                const v = Array.from(keys)[0] as string;
-                if (v) {
-                  const defaultClassifier = form.classifier_model || form.models[0] || allCatalogModels[0]?.id || "";
-                  setForm({
-                    ...form,
-                    strategy: v,
-                    classifier_model: v === "intelligence" ? defaultClassifier : form.classifier_model
-                  });
-                }
-              }}
-            >
-              <SelectItem key="ordered_fallback" description="Usa o 1º modelo da lista e cai para os seguintes em caso de falha.">
-                ordered_fallback (Fallback em ordem)
-              </SelectItem>
-              <SelectItem key="round-robin" description="Alterna circularmente a cada requisição para distribuir a carga.">
-                round-robin (Alternância simples)
-              </SelectItem>
-              <SelectItem key="velocity" description="Roteia para o modelo dos escolhidos com a maior taxa de tokens/seg (TPS) observada.">
-                velocity (Maior velocidade / TPS)
-              </SelectItem>
-              <SelectItem key="intelligence" description="O classificador analisa o prompt e escolhe diretamente o modelo ideal.">
-                intelligence (Classificação por IA)
-              </SelectItem>
-            </Select>
-
-            {form.strategy === "intelligence" && (
-              <div className="space-y-4 p-3.5 bg-content2/50 rounded-xl border border-default-100">
-                <div className="text-xs font-semibold text-primary uppercase tracking-wide flex items-center gap-1.5">
-                  <IconSparkles /> Configurações da Estratégia Intelligence
+                <div className="flex flex-col gap-1">
+                  <Label>Estratégia</Label>
+                  <Select
+                    aria-label="Estratégia"
+                    selectedKey={form.strategy}
+                    onSelectionChange={(keys) => {
+                      const v = (keys as string) ?? "";
+                      if (v) {
+                        const defaultClassifier = form.classifier_model || form.models[0] || allCatalogModels[0]?.id || "";
+                        setForm({
+                          ...form,
+                          strategy: v,
+                          classifier_model: v === "intelligence" ? defaultClassifier : form.classifier_model
+                        });
+                      }
+                    }}
+                  >
+                    <Select.Trigger><Select.Value /></Select.Trigger>
+                    <Select.Popover>
+                      <ListBox>
+                        <ListBox.Item id="ordered_fallback" textValue="ordered_fallback">
+                          <span className="font-medium">ordered_fallback</span>
+                          <span className="text-xs text-muted">Fallback em ordem</span>
+                        </ListBox.Item>
+                        <ListBox.Item id="round-robin" textValue="round-robin">
+                          <span className="font-medium">round-robin</span>
+                          <span className="text-xs text-muted">Alternância simples</span>
+                        </ListBox.Item>
+                        <ListBox.Item id="velocity" textValue="velocity">
+                          <span className="font-medium">velocity</span>
+                          <span className="text-xs text-muted">Maior velocidade / TPS</span>
+                        </ListBox.Item>
+                        <ListBox.Item id="intelligence" textValue="intelligence">
+                          <span className="font-medium">intelligence</span>
+                          <span className="text-xs text-muted">Classificação por IA</span>
+                        </ListBox.Item>
+                      </ListBox>
+                    </Select.Popover>
+                  </Select>
+                  <p className="text-xs text-muted">Forma como o Gorouter seleciona entre os modelos declarados.</p>
                 </div>
 
-                <Autocomplete
-                  label="Modelo Classificador"
-                  placeholder="Selecione o modelo que vai classificar a complexidade (ex: openai/gpt-4o-mini)..."
-                  selectedKey={form.classifier_model || null}
-                  onSelectionChange={(key) => setForm({ ...form, classifier_model: (key as string) ?? "" })}
-                >
-                  {allCatalogModels.map((m) => (
-                    <AutocompleteItem key={m.id} textValue={m.id}>
-                      <div className="flex justify-between items-center w-full">
-                        <span className="font-mono text-xs">{m.id}</span>
-                        <Chip size="sm" variant="flat" color={KIND_COLORS[m.kind] ?? "default"} className="text-[10px]">
-                          {m.kind}
-                        </Chip>
-                      </div>
-                    </AutocompleteItem>
-                  ))}
-                </Autocomplete>
+                {form.strategy === "intelligence" && (
+                  <div className="space-y-4 p-3.5 bg-surface-secondary/50 rounded-xl border border-border">
+                    <div className="text-xs font-semibold text-accent uppercase tracking-wide flex items-center gap-1.5">
+                      <IconSparkles /> Configurações da Estratégia Intelligence
+                    </div>
 
-                {form.models.length > 0 && (
-                  <div className="space-y-3">
-                    <label className="text-xs font-medium text-default-600 uppercase tracking-wide flex items-center gap-1">
-                      Capacidade e Descrição dos Modelos <span className="text-danger">*</span>
-                    </label>
-                    <p className="text-[11px] text-default-400">
-                      Nível de capacidade (1-10) e descrição. O classificador usa isso para escolher o modelo mais simples que resolve a tarefa.
-                    </p>
-                    {form.models.map((m) => {
-                      const meta = form.model_meta[m] ?? { weight: 5, description: "" };
-                      const isEmpty = !(meta.description ?? "").trim();
-                      const showError = triedSubmit && isEmpty;
-                      return (
-                        <div key={m} className={`bg-content1 p-3 rounded-lg border space-y-2 ${showError ? "border-danger-300" : "border-default-200"}`}>
-                          <div className="flex justify-between items-center gap-2">
-                            <code className="text-xs font-mono font-semibold">{m}</code>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-default-500 font-medium">Capacidade:</span>
-                              <Input
-                                type="number"
-                                size="sm"
-                                className="w-20"
-                                min={1}
-                                max={10}
-                                value={String(meta.weight ?? 5)}
-                                onValueChange={(v) => updateMeta(m, { weight: Math.max(1, Math.min(10, parseInt(v) || 1)) })}
+                    <div className="flex flex-col gap-1">
+                      <Label>Modelo Classificador</Label>
+                      <Select
+                        aria-label="Modelo Classificador"
+                        selectedKey={form.classifier_model || null}
+                        onSelectionChange={(key) => setForm({ ...form, classifier_model: (key as string) ?? "" })}
+                      >
+                        <Select.Trigger>
+                          <Select.Value>{form.classifier_model || "Selecione o modelo classificador..."}</Select.Value>
+                          <Select.Indicator />
+                        </Select.Trigger>
+                        <Select.Popover>
+                          <ListBox>
+                            {allCatalogModels.map((m) => (
+                              <ListBox.Item key={m.id} id={m.id} textValue={m.id}>
+                                <div className="flex justify-between items-center w-full gap-2">
+                                  <span className="font-mono text-xs">{m.id}</span>
+                                  <Chip size="sm" variant="soft" color={KIND_COLORS[m.kind] ?? "default"} className="text-[10px]">
+                                    {m.kind}
+                                  </Chip>
+                                </div>
+                              </ListBox.Item>
+                            ))}
+                          </ListBox>
+                        </Select.Popover>
+                      </Select>
+                    </div>
+
+                    {form.models.length > 0 && (
+                      <div className="space-y-3">
+                        <label className="text-xs font-medium text-foreground/80 uppercase tracking-wide flex items-center gap-1">
+                          Capacidade e Descrição dos Modelos <span className="text-danger">*</span>
+                        </label>
+                        <p className="text-[11px] text-muted">
+                          Nível de capacidade (1-10) e descrição. O classificador usa isso para escolher o modelo mais simples que resolve a tarefa.
+                        </p>
+                        {form.models.map((m) => {
+                          const meta = form.model_meta[m] ?? { weight: 5, description: "" };
+                          const isEmpty = !(meta.description ?? "").trim();
+                          const showError = triedSubmit && isEmpty;
+                          return (
+                            <div key={m} className={`bg-surface p-3 rounded-lg border space-y-2 ${showError ? "border-danger/40" : "border-border"}`}>
+                              <div className="flex justify-between items-center gap-2">
+                                <code className="text-xs font-mono font-semibold">{m}</code>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-muted font-medium">Capacidade:</span>
+                                  <Input
+                                    type="number"
+                                    className="w-20"
+                                    min={1}
+                                    max={10}
+                                    aria-label="Capacidade"
+                                    value={String(meta.weight ?? 5)}
+                                    onChange={(e) => updateMeta(m, { weight: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })}
+                                  />
+                                </div>
+                              </div>
+                              <TextArea
+                                placeholder="Descreva para o que este modelo é bom (ex: resolver erros de código complexos, matemática, ou respostas simples e rápidas)..."
+                                rows={2}
+                                value={meta.description ?? ""}
+                                onChange={(e) => updateMeta(m, { description: e.target.value })}
+                                className="text-sm"
                               />
+                              {showError && (
+                                <p className="text-[11px] text-danger">Insira uma descrição para que o classificador saiba quando escolher este modelo</p>
+                              )}
                             </div>
-                          </div>
-                          <Textarea
-                            size="sm"
-                            placeholder="Descreva para o que este modelo é bom (ex: resolver erros de código complexos, matemática, ou respostas simples e rápidas)..."
-                            minRows={1}
-                            maxRows={3}
-                            isInvalid={showError}
-                            errorMessage={showError ? "Insira uma descrição para que o classificador saiba quando escolher este modelo" : undefined}
-                            value={meta.description ?? ""}
-                            onValueChange={(v) => updateMeta(m, { description: v })}
-                          />
-                        </div>
-                      );
-                    })}
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
-            )}
-          </ModalBody>
-          <ModalFooter>
-            <Button variant="flat" onPress={onClose}>
-              Cancelar
-            </Button>
-            <Button color="primary" onPress={submit} isLoading={saving}>
-              Salvar
-            </Button>
-          </ModalFooter>
-        </ModalContent>
+              </Modal.Body>
+              <Modal.Footer>
+                <Button variant="secondary" onPress={() => setOpen(false)}>Cancelar</Button>
+                <Button variant="primary" onPress={submit} isDisabled={saving}>Salvar</Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
       </Modal>
     </div>
   );
@@ -385,7 +399,6 @@ function ModelSelector({
     };
   }, []);
 
-  // Determine the Kind of the first selected member — can be a real model or a combo.
   const fixedKind = (() => {
     if (selected.length === 0) return undefined;
     const first = selected[0];
@@ -407,12 +420,15 @@ function ModelSelector({
   }
   for (const c of allCombos) {
     if (!c.name) continue;
-    if (c.name === excludeName) continue; // disallow direct self-reference
+    if (c.name === excludeName) continue;
     if (selected.includes(c.name)) continue;
     const ckind = c.kind || "llm";
     if (fixedKind && ckind !== fixedKind) continue;
     available.push({ kind: "combo", id: c.name, entry: c });
   }
+
+  const q = searchValue.trim().toLowerCase();
+  const filtered = q ? available.filter((o) => o.id.toLowerCase().includes(q)) : available;
 
   const toggleModel = (id: string) => {
     if (selected.includes(id)) {
@@ -437,88 +453,70 @@ function ModelSelector({
   return (
     <div className="space-y-3">
       <div>
-        <label className="text-sm text-default-500">Modelos</label>
-        <p className="text-xs text-default-400 mt-0.5 mb-2">
+        <label className="text-sm text-muted">Modelos</label>
+        <p className="text-xs text-muted mt-0.5 mb-2">
           Selecione modelos ou outros combos como membros.
           {fixedKind && (
             <>
               {" "}
               Tipo fixado:{" "}
-              <Chip size="sm" variant="flat" color={KIND_COLORS[fixedKind] ?? "default"}>
+              <Chip size="sm" variant="soft" color={KIND_COLORS[fixedKind] ?? "default"}>
                 {fixedKind}
               </Chip>
             </>
           )}
         </p>
         {loading ? (
-          <div className="flex items-center gap-2 py-2 text-sm text-default-500">
+          <div className="flex items-center gap-2 py-2 text-sm text-muted">
             <Spinner size="sm" /> Carregando models e combos...
           </div>
         ) : error && allModels.length === 0 && allCombos.length === 0 ? (
           <div className="text-sm text-danger py-2">Erro: {error}</div>
-        ) : available.length === 0 ? (
-          <div className="text-sm text-default-400 py-2">
-            {fixedKind ? `Nenhuma opção do tipo ${fixedKind}.` : "Nenhuma opção disponível."}
-          </div>
         ) : (
           <div className="space-y-2">
-            <Autocomplete
-              label="Modelos e combos disponíveis"
-              placeholder="Buscar model, combo ou digite um personalizado..."
-              selectedKey={null}
-              inputValue={searchValue}
-              onInputChange={setSearchValue}
-              onSelectionChange={(key) => {
-                if (key) {
-                  toggleModel(key as string);
-                  setSearchValue("");
-                }
-              }}
-              maxListHeight={300}
-            >
-              {available.map((opt) => {
-                if (opt.kind === "model") {
-                  const m = opt.entry;
-                  return (
-                    <AutocompleteItem key={opt.id} textValue={opt.id}>
-                      <div className="flex items-center justify-between w-full gap-2">
-                        <span className="font-mono text-xs">{opt.id}</span>
-                        <div className="flex items-center gap-1">
-                          {!m.is_active && (
-                            <Chip size="sm" variant="dot" color="warning" className="text-[10px]">inativo</Chip>
-                          )}
-                          <Chip size="sm" variant="flat" color={KIND_COLORS[m.kind] ?? "default"} className="text-[10px]">
-                            {m.kind}
-                          </Chip>
-                        </div>
-                      </div>
-                    </AutocompleteItem>
-                  );
-                }
-                const c = opt.entry;
-                return (
-                  <AutocompleteItem key={opt.id} textValue={opt.id}>
-                    <div className="flex items-center justify-between w-full gap-2">
-                      <div className="flex items-center gap-2">
-                        <IconStack className="w-3 h-3 text-secondary" />
-                        <span className="font-mono text-xs">{opt.id}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Chip size="sm" variant="flat" color="secondary" className="text-[10px]">combo</Chip>
-                        <Chip size="sm" variant="flat" color={KIND_COLORS[c.kind || "llm"] ?? "default"} className="text-[10px]">
-                          {c.kind || "llm"}
-                        </Chip>
-                      </div>
+            <Input
+              value={searchValue}
+              onChange={(e) => setSearchValue(e.target.value)}
+              placeholder="Buscar model ou combo..."
+              variant="secondary"
+              aria-label="Buscar modelos e combos"
+            />
+            <div className="max-h-56 overflow-y-auto rounded-lg border border-border divide-y divide-border">
+              {filtered.length === 0 ? (
+                <div className="text-sm text-muted px-3 py-3">
+                  {fixedKind ? `Nenhuma opção do tipo ${fixedKind}.` : "Nenhuma opção disponível."}
+                </div>
+              ) : (
+                filtered.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => toggleModel(opt.id)}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-2 hover:bg-surface-secondary transition-colors text-left"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      {opt.kind === "combo" && <IconStack />}
+                      <span className="font-mono text-xs truncate">{opt.id}</span>
                     </div>
-                  </AutocompleteItem>
-                );
-              })}
-            </Autocomplete>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {opt.kind === "model" && !(opt.entry as ModelEntry).is_active && (
+                        <Chip size="sm" variant="soft" color="warning" className="text-[10px]">inativo</Chip>
+                      )}
+                      {opt.kind === "combo" && (
+                        <Chip size="sm" variant="soft" color="default" className="text-[10px]">combo</Chip>
+                      )}
+                      <Chip size="sm" variant="soft" color={KIND_COLORS[opt.kind === "model" ? (opt.entry as ModelEntry).kind : ((opt.entry as Combo).kind || "llm")] ?? "default"} className="text-[10px]">
+                        {opt.kind === "model" ? (opt.entry as ModelEntry).kind : ((opt.entry as Combo).kind || "llm")}
+                      </Chip>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
             {searchValue.trim() && !available.some((opt) => opt.id === searchValue.trim()) && (
               <Button
                 size="sm"
-                variant="flat"
-                color="primary"
+                variant="outline"
                 className="w-full font-mono text-xs justify-start"
                 onPress={() => {
                   toggleModel(searchValue.trim());
@@ -534,31 +532,31 @@ function ModelSelector({
 
       {selected.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-xs text-default-500 uppercase tracking-wide font-medium">Membros do Combo</p>
+          <p className="text-xs text-muted uppercase tracking-wide font-medium">Membros do Combo</p>
           {selected.map((id, i) => {
             const isCombo = allCombos.some((c) => c.name === id);
             const modelEntry = allModels.find((m) => m.id === id);
             const comboEntry = allCombos.find((c) => c.name === id);
             const kind = modelEntry?.kind ?? comboEntry?.kind ?? "llm";
             return (
-              <div key={id + i} className="flex items-center gap-2 bg-content2 rounded-lg px-3 py-2">
-                <span className="text-xs text-default-400 w-5 tabular-nums">{i + 1}.</span>
-                {isCombo && <IconStack className="w-3 h-3 text-secondary shrink-0" />}
+              <div key={id + i} className="flex items-center gap-2 bg-surface-secondary rounded-lg px-3 py-2">
+                <span className="text-xs text-muted w-5 tabular-nums">{i + 1}.</span>
+                {isCombo && <IconStack />}
                 <code className="text-xs flex-1 truncate">{id}</code>
                 {isCombo && (
-                  <Chip size="sm" variant="flat" color="secondary" className="text-[10px]">combo</Chip>
+                  <Chip size="sm" variant="soft" color="default" className="text-[10px]">combo</Chip>
                 )}
-                <Chip size="sm" variant="flat" color={KIND_COLORS[kind] ?? "default"} className="text-[10px]">
+                <Chip size="sm" variant="soft" color={KIND_COLORS[kind] ?? "default"} className="text-[10px]">
                   {kind}
                 </Chip>
                 <div className="flex gap-0.5">
-                  <Button isIconOnly size="sm" variant="light" isDisabled={i === 0} onPress={() => move(i, -1)} aria-label="subir">
+                  <Button isIconOnly size="sm" variant="ghost" isDisabled={i === 0} onPress={() => move(i, -1)} aria-label="subir">
                     <IconArrow dir="up" />
                   </Button>
-                  <Button isIconOnly size="sm" variant="light" isDisabled={i === selected.length - 1} onPress={() => move(i, 1)} aria-label="descer">
+                  <Button isIconOnly size="sm" variant="ghost" isDisabled={i === selected.length - 1} onPress={() => move(i, 1)} aria-label="descer">
                     <IconArrow dir="down" />
                   </Button>
-                  <Button isIconOnly size="sm" variant="light" color="danger" onPress={() => removeAt(i)} aria-label="remover">
+                  <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => removeAt(i)} aria-label="remover">
                     <IconX />
                   </Button>
                 </div>

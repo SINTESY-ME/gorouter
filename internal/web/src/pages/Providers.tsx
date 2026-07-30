@@ -1,9 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import {
-  Table, TableHeader, TableColumn, TableBody, TableRow, TableCell,
-  Button, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter,
-  Input, Select, SelectItem, Chip, useDisclosure, Spinner,
-  Popover, PopoverTrigger, PopoverContent,
+  Table, Button, Modal, Input, Select, ListBox, Chip, Spinner, Popover, TextField, Label,
 } from "@heroui/react";
 import { api, type Provider, type Connection, type ModelEntry, type ProviderDef } from "../api";
 
@@ -18,15 +15,13 @@ export default function Providers() {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [catalog, setCatalog] = useState<ProviderDef[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // Modal for Provider (Endpoint Config)
-  const { isOpen: isProviderOpen, onOpen: onProviderOpen, onClose: onProviderClose } = useDisclosure();
+
+  const [isProviderOpen, setProviderOpen] = useState(false);
   const [providerForm, setProviderForm] = useState<Record<string, string>>(emptyProvider);
   const [providerEditId, setProviderEditId] = useState<string | null>(null);
   const [providerStep, setProviderStep] = useState<"pick" | "form" | "oauth">("pick");
-  
-  // Modal for Connection (API Key)
-  const { isOpen: isConnOpen, onOpen: onConnOpen, onClose: onConnClose } = useDisclosure();
+
+  const [isConnOpen, setConnOpen] = useState(false);
   const [connForm, setConnForm] = useState<Record<string, string>>(emptyConnection);
   const [connEditId, setConnEditId] = useState<string | null>(null);
   const [connProviderId, setConnProviderId] = useState<string>("");
@@ -36,7 +31,6 @@ export default function Providers() {
   const [search, setSearch] = useState("");
   const [savingConfig, setSavingConfig] = useState<string | null>(null);
 
-  // OAuth states
   const [oauthProviders, setOauthProviders] = useState<string[]>([]);
   const [oauthState, setOauthState] = useState("");
   const [oauthCode, setOauthCode] = useState("");
@@ -63,7 +57,6 @@ export default function Providers() {
 
   useEffect(() => { loadData(); }, []);
 
-  // --- PROVIDER ACTIONS ---
   const openNewProvider = () => {
     setProviderForm(emptyProvider);
     setProviderEditId(null);
@@ -72,7 +65,7 @@ export default function Providers() {
     setSearch("");
     api.providers.catalog().then(setCatalog).catch(() => setCatalog([]));
     api.oauth.list().then(setOauthProviders).catch(() => setOauthProviders([]));
-    onProviderOpen();
+    setProviderOpen(true);
   };
 
   const openEditProvider = (p: Provider) => {
@@ -82,7 +75,7 @@ export default function Providers() {
     setProviderEditId(p.id);
     setProviderStep("form");
     setError("");
-    onProviderOpen();
+    setProviderOpen(true);
   };
 
   const pickTemplate = async (t: ProviderDef) => {
@@ -116,7 +109,7 @@ export default function Providers() {
     setError("");
     try {
       await api.oauth.complete(oauthProviderId, { state: oauthState, code: oauthCode });
-      onProviderClose();
+      setProviderOpen(false);
       loadData();
     } catch (e: any) {
       setError(e?.message ?? "oauth complete failed");
@@ -142,10 +135,9 @@ export default function Providers() {
       } else {
         await api.providers.create(payload);
       }
-      onProviderClose();
+      setProviderOpen(false);
       loadData();
-      
-      // If creating a new provider, automatically prompt to add a key
+
       if (!providerEditId) {
         openNewConnection(providerForm.id);
         setExpandedProviderId(providerForm.id);
@@ -177,21 +169,20 @@ export default function Providers() {
     }
   };
 
-  // --- CONNECTION ACTIONS ---
   const openNewConnection = (providerId: string) => {
     setConnProviderId(providerId);
     setConnForm(emptyConnection);
     setConnEditId(null);
     setError("");
-    onConnOpen();
+    setConnOpen(true);
   };
 
   const openEditConnection = (c: Connection) => {
     setConnProviderId(c.provider_id);
-    setConnForm({ name: c.name, api_key: "" }); // Never pre-fill API key for security
+    setConnForm({ name: c.name, api_key: "" });
     setConnEditId(c.id);
     setError("");
-    onConnOpen();
+    setConnOpen(true);
   };
 
   const submitConnection = async () => {
@@ -208,7 +199,7 @@ export default function Providers() {
       } else {
         await api.connections.create(payload);
       }
-      onConnClose();
+      setConnOpen(false);
       loadData();
     } catch (e: any) {
       setError(e?.message ?? "falha ao salvar chave");
@@ -224,7 +215,6 @@ export default function Providers() {
     }
   };
 
-  // --- MODELS ACTIONS ---
   const toggleProviderView = useCallback(async (providerId: string) => {
     if (expandedProviderId === providerId) {
       setExpandedProviderId(null);
@@ -232,7 +222,7 @@ export default function Providers() {
     }
     setExpandedProviderId(providerId);
     if (modelsCache[providerId] || modelErrors[providerId]) return;
-    
+
     setLoadingModels(providerId);
     try {
       const entries = await api.providers.models(providerId);
@@ -261,7 +251,6 @@ export default function Providers() {
     }
   };
 
-  // --- RENDER HELPERS ---
   const groupedConnections = useMemo(() => {
     const groups: Record<string, Connection[]> = {};
     connections.forEach(c => {
@@ -295,15 +284,15 @@ export default function Providers() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Providers</h1>
-          <p className="text-sm text-default-500 mt-0.5">{providers.length} providers, {connections.length} chaves ativas</p>
+          <p className="text-sm text-muted mt-0.5">{providers.length} providers, {connections.length} chaves ativas</p>
         </div>
-        <Button color="primary" variant="bordered" onPress={openNewProvider} startContent={<IconPlus />}>Novo provider</Button>
+        <Button variant="outline" onPress={openNewProvider}><IconPlus /> Novo provider</Button>
       </div>
-      
+
       {loading ? (
-        <div className="p-10 text-center text-default-500 text-sm bg-content1 rounded-2xl border border-default-100">Carregando...</div>
+        <div className="p-10 text-center text-muted text-sm bg-surface rounded-2xl border border-border">Carregando...</div>
       ) : providers.length === 0 ? (
-        <div className="p-10 text-center text-default-500 text-sm bg-content1 rounded-2xl border border-default-100">
+        <div className="p-10 text-center text-muted text-sm bg-surface rounded-2xl border border-border">
           Nenhum provider configurado. Clique em <strong>Novo provider</strong>.
         </div>
       ) : (
@@ -312,12 +301,11 @@ export default function Providers() {
             const conns = groupedConnections[provider.id] || [];
             const isExpanded = expandedProviderId === provider.id;
             const activeCount = conns.filter(c => c.is_active).length;
-            
+
             return (
-              <div key={provider.id} className="bg-content1 rounded-2xl border border-default-100 overflow-hidden">
-                {/* Header / Summary */}
-                <div 
-                  className={`flex items-center justify-between p-4 cursor-pointer hover:bg-default-100 transition-colors ${isExpanded ? "bg-primary/5 border-b border-default-100" : ""}`}
+              <div key={provider.id} className="bg-surface rounded-2xl border border-border overflow-hidden">
+                <div
+                  className={`flex items-center justify-between p-4 cursor-pointer hover:bg-default-soft transition-colors ${isExpanded ? "bg-accent/5 border-b border-border" : ""}`}
                   onClick={() => toggleProviderView(provider.id)}
                 >
                   <div className="flex items-center gap-3">
@@ -325,49 +313,51 @@ export default function Providers() {
                     <div>
                       <div className="font-semibold flex items-center gap-2">
                         {provider.name || provider.id}
-                        {provider.name && <span className="text-xs font-mono text-default-400 font-normal">({provider.id})</span>}
+                        {provider.name && <span className="text-xs font-mono text-muted font-normal">({provider.id})</span>}
                       </div>
-                      <div className="text-xs text-default-500 flex items-center gap-2 mt-0.5">
-                        <code className="text-default-400">{provider.base_url}</code>
+                      <div className="text-xs text-muted flex items-center gap-2 mt-0.5">
+                        <code className="text-muted">{provider.base_url}</code>
                         <span>•</span>
                         <span>{conns.length} {conns.length === 1 ? 'chave' : 'chaves'} ({activeCount} ativas)</span>
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="flex items-center gap-3">
-                    <Chip size="sm" variant="flat" color="primary">{provider.format}</Chip>
+                    <Chip size="sm" variant="soft" color="accent">{provider.format}</Chip>
                     <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                      <Button isIconOnly size="sm" variant="light" onPress={() => openEditProvider(provider)} aria-label="editar"><IconPencil /></Button>
-                      <Button isIconOnly size="sm" variant="light" color="danger" onPress={() => removeProvider(provider.id)} aria-label="excluir"><IconTrash /></Button>
+                      <Button isIconOnly size="sm" variant="ghost" onPress={() => openEditProvider(provider)} aria-label="editar"><IconPencil /></Button>
+                      <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => removeProvider(provider.id)} aria-label="excluir"><IconTrash /></Button>
                     </div>
                   </div>
                 </div>
-                
-                {/* Expanded Content */}
+
                 {isExpanded && (
-                  <div className="p-4 bg-content1">
-                    {/* Load Balance — inline in header area, compact */}
-                    <div className="flex items-center gap-3 mb-4 pb-3 border-b border-default-100">
+                  <div className="p-4 bg-surface">
+                    <div className="flex items-center gap-3 mb-4 pb-3 border-b border-border">
                       <span className="text-sm font-medium shrink-0">Balanceamento:</span>
                       <Select
-                        selectedKeys={[provider.load_balance || "failover"]}
-                        onChange={(e) => updateLoadBalance(provider.id, e.target.value)}
-                        size="sm"
+                        aria-label="Balanceamento"
+                        selectedKey={provider.load_balance || "failover"}
+                        onSelectionChange={(k) => updateLoadBalance(provider.id, (k as string) ?? "failover")}
                         className="max-w-[260px]"
                         isDisabled={savingConfig === provider.id}
                       >
-                        <SelectItem key="failover">Failover (prioriza 1ª chave ativa)</SelectItem>
-                        <SelectItem key="round-robin">Round-robin (distribui entre chaves)</SelectItem>
+                        <Select.Trigger><Select.Value /></Select.Trigger>
+                        <Select.Popover>
+                          <ListBox>
+                            <ListBox.Item id="failover" textValue="Failover">Failover (prioriza 1ª chave ativa)</ListBox.Item>
+                            <ListBox.Item id="round-robin" textValue="Round-robin">Round-robin (distribui entre chaves)</ListBox.Item>
+                          </ListBox>
+                        </Select.Popover>
                       </Select>
                       {savingConfig === provider.id && <Spinner size="sm" />}
                     </div>
 
-                    {/* Models */}
                     <div className="mb-4">
                       <div className="flex justify-between items-center mb-2">
                         <div className="text-sm font-semibold">Modelos do Provider</div>
-                        <Button size="sm" variant="flat" color="primary" onPress={() => syncProviderModels(provider.id)} isLoading={loadingModels === provider.id}>
+                        <Button size="sm" variant="outline" onPress={() => syncProviderModels(provider.id)} isDisabled={loadingModels === provider.id}>
                           Sincronizar
                         </Button>
                       </div>
@@ -401,46 +391,47 @@ export default function Providers() {
                       </div>
                     </div>
 
-                    {/* Connections Table */}
                     <div className="mb-3 text-sm font-semibold flex justify-between items-center">
                       Conexões / Chaves API
-                      <Button size="sm" variant="flat" color="primary" onPress={() => openNewConnection(provider.id)} startContent={<IconPlus />}>
-                        Adicionar Chave
-                      </Button>
+                      <Button size="sm" variant="outline" onPress={() => openNewConnection(provider.id)}><IconPlus /> Adicionar Chave</Button>
                     </div>
-                    
+
                     {conns.length === 0 ? (
-                      <div className="text-sm text-default-400 py-4 text-center border border-dashed border-default-200 rounded-xl">
+                      <div className="text-sm text-muted py-4 text-center border border-dashed border-border rounded-xl">
                         Nenhuma chave configurada para este provider.
                       </div>
                     ) : (
-                      <div className="border border-default-100 rounded-xl overflow-hidden">
-                        <Table aria-label="connections" removeWrapper className="bg-content2">
-                          <TableHeader>
-                            <TableColumn>NOME</TableColumn>
-                            <TableColumn>ID</TableColumn>
-                            <TableColumn>STATUS</TableColumn>
-                            <TableColumn align="end">AÇÕES</TableColumn>
-                          </TableHeader>
-                          <TableBody items={conns}>
-                            {(c) => (
-                              <TableRow key={c.id}>
-                                <TableCell className="font-medium">{c.name || "Padrão"}</TableCell>
-                                <TableCell><code className="text-[11px] text-default-400 font-mono">{c.id}</code></TableCell>
-                                <TableCell>
-                                  <Chip size="sm" variant="flat" color={c.is_active ? "success" : "default"}>
-                                    {c.is_active ? "ativa" : "inativa"}
-                                  </Chip>
-                                </TableCell>
-                                <TableCell>
-                                  <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
-                                    <Button isIconOnly size="sm" variant="light" onPress={() => openEditConnection(c)} aria-label="editar"><IconPencil /></Button>
-                                    <Button isIconOnly size="sm" variant="light" color="danger" onPress={() => removeConnection(c.id)} aria-label="excluir"><IconTrash /></Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            )}
-                          </TableBody>
+                      <div className="border border-border rounded-xl overflow-hidden">
+                        <Table>
+                          <Table.ScrollContainer>
+                            <Table.Content aria-label="connections" className="bg-surface-secondary min-w-[420px]">
+                              <Table.Header>
+                                <Table.Column isRowHeader id="name">Nome</Table.Column>
+                                <Table.Column id="id">ID</Table.Column>
+                                <Table.Column id="status">Status</Table.Column>
+                                <Table.Column id="actions">Ações</Table.Column>
+                              </Table.Header>
+                              <Table.Body items={conns}>
+                                {(c) => (
+                                  <Table.Row key={c.id} id={c.id}>
+                                    <Table.Cell className="font-medium">{c.name || "Padrão"}</Table.Cell>
+                                    <Table.Cell><code className="text-[11px] text-muted font-mono">{c.id}</code></Table.Cell>
+                                    <Table.Cell>
+                                      <Chip size="sm" variant="soft" color={c.is_active ? "success" : "default"}>
+                                        {c.is_active ? "ativa" : "inativa"}
+                                      </Chip>
+                                    </Table.Cell>
+                                    <Table.Cell>
+                                      <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
+                                        <Button isIconOnly size="sm" variant="ghost" onPress={() => openEditConnection(c)} aria-label="editar"><IconPencil /></Button>
+                                        <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => removeConnection(c.id)} aria-label="excluir"><IconTrash /></Button>
+                                      </div>
+                                    </Table.Cell>
+                                  </Table.Row>
+                                )}
+                              </Table.Body>
+                            </Table.Content>
+                          </Table.ScrollContainer>
                         </Table>
                       </div>
                     )}
@@ -452,132 +443,163 @@ export default function Providers() {
         </div>
       )}
 
-      {/* MODAL: PROVIDER CONFIG */}
-      <Modal isOpen={isProviderOpen} onClose={onProviderClose} size="lg">
-        <ModalContent>
-          <ModalHeader>
-            {providerEditId ? "Editar Endpoint (Provider)" : providerStep === "pick" ? "Escolher Provider" : "Configurar Provider"}
-          </ModalHeader>
-          <ModalBody className="gap-4">
-            {!providerEditId && providerStep === "pick" && (
-              <>
-                <Input
-                  isClearable
-                  value={search}
-                  onValueChange={setSearch}
-                  placeholder="Buscar provider..."
-                  variant="bordered"
-                  className="mb-2"
-                  startContent={<IconSearch />}
-                  autoFocus
-                />
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-80 overflow-y-auto custom-scrollbar pr-1">
-                  {filteredCatalog.map((t) => {
-                    const isOauth = oauthProviders.includes(t.id);
-                    const isPopular = POPULAR.includes(t.id);
-                    return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => pickTemplate(t)}
-                      className="text-left rounded-xl border border-default-100 p-3 hover:border-primary/50 hover:bg-default-50 transition-colors"
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: t.display.color || "#888" }} />
-                        <span className="font-medium text-sm truncate">{t.display.name}</span>
-                      </div>
-                      <p className="text-[11px] text-default-400 font-mono truncate">{t.id}</p>
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {isOauth && <Chip size="sm" color="secondary" variant="flat" className="h-5 text-[10px]">OAuth</Chip>}
-                        {isPopular && <Chip size="sm" color="primary" variant="flat" className="h-5 text-[10px]">Popular</Chip>}
-                      </div>
-                    </button>
-                    );
-                  })}
-                </div>
-                <Button variant="flat" onPress={() => { setProviderForm(emptyProvider); setProviderStep("form"); }}>Custom / OpenAI-compatible</Button>
-              </>
-            )}
-
-            {providerStep === "oauth" && (
-              <>
-                <Button size="sm" variant="light" className="self-start" onPress={() => setProviderStep("pick")}>← voltar</Button>
-                <div className="bg-primary/10 rounded-lg p-3 text-sm space-y-1">
-                  <p className="font-medium">Conectando <strong>{oauthProviderId}</strong></p>
-                  <p className="text-default-600">
-                    Siga as instruções na janela do navegador, copie a URL final e cole abaixo.
-                  </p>
-                </div>
-                {oauthAuthURL && (
-                  <a href={oauthAuthURL} target="_blank" rel="noreferrer" className="text-sm text-primary underline break-all">
-                    Abrir login novamente
-                  </a>
+      <Modal isOpen={isProviderOpen} onOpenChange={setProviderOpen}>
+        <Modal.Backdrop>
+          <Modal.Container>
+            <Modal.Dialog className="max-w-xl">
+              <Modal.Header>
+                <Modal.Heading>
+                  {providerEditId ? "Editar Endpoint (Provider)" : providerStep === "pick" ? "Escolher Provider" : "Configurar Provider"}
+                </Modal.Heading>
+              </Modal.Header>
+              <Modal.Body className="gap-4">
+                {!providerEditId && providerStep === "pick" && (
+                  <>
+                    <div className="relative mb-2">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><IconSearch /></span>
+                      <Input
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Buscar provider..."
+                        variant="secondary"
+                        className="pl-9"
+                        autoFocus
+                        aria-label="Buscar provider"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-80 overflow-y-auto custom-scrollbar pr-1">
+                      {filteredCatalog.map((t) => {
+                        const isOauth = oauthProviders.includes(t.id);
+                        const isPopular = POPULAR.includes(t.id);
+                        return (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => pickTemplate(t)}
+                            className="text-left rounded-xl border border-border p-3 hover:border-accent/50 hover:bg-background transition-colors"
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: t.display.color || "#888" }} />
+                              <span className="font-medium text-sm truncate">{t.display.name}</span>
+                            </div>
+                            <p className="text-[11px] text-muted font-mono truncate">{t.id}</p>
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {isOauth && <Chip size="sm" color="default" variant="soft" className="h-5 text-[10px]">OAuth</Chip>}
+                              {isPopular && <Chip size="sm" color="accent" variant="soft" className="h-5 text-[10px]">Popular</Chip>}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <Button variant="secondary" onPress={() => { setProviderForm(emptyProvider); setProviderStep("form"); }}>Custom / OpenAI-compatible</Button>
+                  </>
                 )}
-                <Input
-                  label="URL de callback ou Code"
-                  value={oauthCode}
-                  onValueChange={setOauthCode}
-                />
-              </>
-            )}
 
-            {(providerEditId || providerStep === "form") && (
-              <>
-                {!providerEditId && (
-                  <Button size="sm" variant="light" className="self-start" onPress={() => setProviderStep("pick")}>← voltar</Button>
+                {providerStep === "oauth" && (
+                  <>
+                    <Button size="sm" variant="ghost" className="self-start" onPress={() => setProviderStep("pick")}>← voltar</Button>
+                    <div className="bg-accent/10 rounded-lg p-3 text-sm space-y-1">
+                      <p className="font-medium">Conectando <strong>{oauthProviderId}</strong></p>
+                      <p className="text-foreground/80">
+                        Siga as instruções na janela do navegador, copie a URL final e cole abaixo.
+                      </p>
+                    </div>
+                    {oauthAuthURL && (
+                      <a href={oauthAuthURL} target="_blank" rel="noreferrer" className="text-sm text-accent underline break-all">
+                        Abrir login novamente
+                      </a>
+                    )}
+                    <TextField value={oauthCode} onChange={setOauthCode}>
+                      <Label>URL de callback ou Code</Label>
+                      <Input />
+                    </TextField>
+                  </>
                 )}
-                <div className="grid grid-cols-2 gap-4">
-                  <Input label="ID do Provider" placeholder="ex: openai" value={providerForm.id} onValueChange={(v) => setProviderForm({ ...providerForm, id: v })} isDisabled={!!providerEditId} />
-                  <Input label="Nome Amigável" placeholder="ex: OpenAI" value={providerForm.name} onValueChange={(v) => setProviderForm({ ...providerForm, name: v })} />
-                </div>
-                <Input label="Base URL" placeholder="https://api.openai.com/v1" value={providerForm.base_url} onValueChange={(v) => setProviderForm({ ...providerForm, base_url: v })} />
-                <div className="grid grid-cols-2 gap-4">
-                  <Select label="Formato API" selectedKeys={[providerForm.format]} onChange={(e) => setProviderForm({ ...providerForm, format: e.target.value })}>
-                    {FORMATS.map((f) => <SelectItem key={f}>{f}</SelectItem>)}
-                  </Select>
-                  <Select label="Autenticação" selectedKeys={[providerForm.auth]} onChange={(e) => setProviderForm({ ...providerForm, auth: e.target.value })}>
-                    {AUTHS.map((a) => <SelectItem key={a}>{a}</SelectItem>)}
-                  </Select>
-                </div>
-              </>
-            )}
-            
-            {error && <p className="text-sm text-danger mt-2">{error}</p>}
-          </ModalBody>
-          <ModalFooter>
-            {(providerEditId || providerStep === "form") && (
-              <Button color="primary" onPress={submitProvider} isLoading={saving}>Salvar Provider</Button>
-            )}
-            {providerStep === "oauth" && (
-              <Button color="primary" onPress={completeOAuth} isLoading={saving} isDisabled={!oauthCode.trim()}>Conectar</Button>
-            )}
-          </ModalFooter>
-        </ModalContent>
+
+                {(providerEditId || providerStep === "form") && (
+                  <>
+                    {!providerEditId && (
+                      <Button size="sm" variant="ghost" className="self-start" onPress={() => setProviderStep("pick")}>← voltar</Button>
+                    )}
+                    <div className="grid grid-cols-2 gap-4">
+                      <TextField value={providerForm.id} onChange={(v) => setProviderForm({ ...providerForm, id: v })} isDisabled={!!providerEditId}>
+                        <Label>ID do Provider</Label>
+                        <Input placeholder="ex: openai" />
+                      </TextField>
+                      <TextField value={providerForm.name} onChange={(v) => setProviderForm({ ...providerForm, name: v })}>
+                        <Label>Nome Amigável</Label>
+                        <Input placeholder="ex: OpenAI" />
+                      </TextField>
+                    </div>
+                    <TextField value={providerForm.base_url} onChange={(v) => setProviderForm({ ...providerForm, base_url: v })}>
+                      <Label>Base URL</Label>
+                      <Input placeholder="https://api.openai.com/v1" />
+                    </TextField>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="flex flex-col gap-1">
+                        <Label>Formato API</Label>
+                        <Select aria-label="Formato API" selectedKey={providerForm.format} onSelectionChange={(k) => setProviderForm({ ...providerForm, format: (k as string) ?? "auto" })}>
+                          <Select.Trigger><Select.Value /></Select.Trigger>
+                          <Select.Popover>
+                            <ListBox>{FORMATS.map((f) => <ListBox.Item key={f} id={f}>{f}</ListBox.Item>)}</ListBox>
+                          </Select.Popover>
+                        </Select>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <Label>Autenticação</Label>
+                        <Select aria-label="Autenticação" selectedKey={providerForm.auth} onSelectionChange={(k) => setProviderForm({ ...providerForm, auth: (k as string) ?? "bearer" })}>
+                          <Select.Trigger><Select.Value /></Select.Trigger>
+                          <Select.Popover>
+                            <ListBox>{AUTHS.map((a) => <ListBox.Item key={a} id={a}>{a}</ListBox.Item>)}</ListBox>
+                          </Select.Popover>
+                        </Select>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {error && <p className="text-sm text-danger mt-2">{error}</p>}
+              </Modal.Body>
+              <Modal.Footer>
+                {(providerEditId || providerStep === "form") && (
+                  <Button variant="primary" onPress={submitProvider} isDisabled={saving}>Salvar Provider</Button>
+                )}
+                {providerStep === "oauth" && (
+                  <Button variant="primary" onPress={completeOAuth} isDisabled={saving || !oauthCode.trim()}>Conectar</Button>
+                )}
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
       </Modal>
 
-      {/* MODAL: CONNECTION (API KEY) */}
-      <Modal isOpen={isConnOpen} onClose={onConnClose} size="md">
-        <ModalContent>
-          <ModalHeader>
-            {connEditId ? "Editar Chave" : "Adicionar Chave"} <span className="text-default-400 text-sm ml-2 font-normal">({connProviderId})</span>
-          </ModalHeader>
-          <ModalBody className="gap-4">
-            <Input label="Nome da Chave" placeholder="ex: Produção, Conta Secundária" value={connForm.name} onValueChange={(v) => setConnForm({ ...connForm, name: v })} />
-            <Input 
-              label="API Key" 
-              type="password" 
-              placeholder={connEditId ? "Deixe em branco para manter a atual" : "sk-..."} 
-              value={connForm.api_key} 
-              onValueChange={(v) => setConnForm({ ...connForm, api_key: v })} 
-            />
-            {error && <p className="text-sm text-danger">{error}</p>}
-          </ModalBody>
-          <ModalFooter>
-            <Button color="primary" onPress={submitConnection} isLoading={saving}>Salvar Chave</Button>
-          </ModalFooter>
-        </ModalContent>
+      <Modal isOpen={isConnOpen} onOpenChange={setConnOpen}>
+        <Modal.Backdrop>
+          <Modal.Container>
+            <Modal.Dialog>
+              <Modal.Header>
+                <Modal.Heading>
+                  {connEditId ? "Editar Chave" : "Adicionar Chave"} <span className="text-muted text-sm ml-2 font-normal">({connProviderId})</span>
+                </Modal.Heading>
+              </Modal.Header>
+              <Modal.Body className="gap-4">
+                <TextField value={connForm.name} onChange={(v) => setConnForm({ ...connForm, name: v })}>
+                  <Label>Nome da Chave</Label>
+                  <Input placeholder="ex: Produção, Conta Secundária" />
+                </TextField>
+                <TextField value={connForm.api_key} onChange={(v) => setConnForm({ ...connForm, api_key: v })}>
+                  <Label>API Key</Label>
+                  <Input type="password" placeholder={connEditId ? "Deixe em branco para manter a atual" : "sk-..."} />
+                </TextField>
+                {error && <p className="text-sm text-danger">{error}</p>}
+              </Modal.Body>
+              <Modal.Footer>
+                <Button variant="primary" onPress={submitConnection} isDisabled={saving}>Salvar Chave</Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
       </Modal>
-
     </div>
   );
 }
@@ -634,92 +656,74 @@ function ModelsPanel({ providerId, loading, models, error, onAdd, onRemove, onTo
     }
   };
 
-  if (loading) return <div className="py-2 flex items-center gap-2 text-sm text-default-500"><Spinner size="sm" /> Sincronizando...</div>;
+  if (loading) return <div className="py-2 flex items-center gap-2 text-sm text-muted"><Spinner size="sm" /> Sincronizando...</div>;
   if (error) return <div className="py-2 text-sm text-danger">Erro: {error}</div>;
 
   return (
     <div className="flex flex-wrap gap-2 items-center">
-      {/* Add button — first position */}
       {adding ? (
         <form onSubmit={(e) => { e.preventDefault(); handleAdd(); }} className="flex items-center gap-1">
           <Input
             autoFocus
-            size="sm"
-            className="min-w-[120px] h-6 text-[11px] font-mono"
-            classNames={{ inputWrapper: "h-6 min-h-6" }}
+            className="min-w-[120px] text-[11px] font-mono"
             placeholder="nome do modelo"
             value={newModel}
             onChange={(e) => setNewModel(e.target.value)}
-            isDisabled={saving}
+            disabled={saving}
             onBlur={() => !saving && handleAdd()}
+            aria-label="Novo modelo"
           />
         </form>
       ) : (
-        <Chip
-          size="sm"
-          variant="bordered"
-          className="text-[11px] font-mono cursor-pointer border-dashed border-primary hover:bg-primary/10 transition-colors text-primary"
+        <button
+          type="button"
           onClick={() => setAdding(true)}
-          startContent={<span className="text-primary font-bold">+</span>}
+          className="inline-flex items-center gap-1 rounded-full border border-dashed border-accent px-2.5 py-0.5 text-[11px] font-mono text-accent hover:bg-accent/10 transition-colors"
         >
-          adicionar
-        </Chip>
+          <span className="font-bold">+</span> adicionar
+        </button>
       )}
 
       {models?.map((m) => (
-        <Popover key={m.id} placement="bottom">
-          <PopoverTrigger>
-            <Chip
-              size="sm"
-              variant="flat"
-              color={m.is_active ? "primary" : "default"}
-              className="text-[11px] font-mono cursor-pointer hover:opacity-80 transition-opacity"
+        <Popover key={m.id}>
+          <Popover.Trigger>
+            <button
+              type="button"
+              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-mono cursor-pointer hover:opacity-80 transition-opacity ${m.is_active ? "bg-accent/15 text-accent" : "bg-default-soft text-muted"}`}
             >
-              {m.is_active ? "" : <span className="text-default-400 mr-0.5">○</span>}
+              {m.is_active ? "" : <span className="text-muted mr-0.5">○</span>}
               {m.model_id || m.id}
-            </Chip>
-          </PopoverTrigger>
-          <PopoverContent className="p-1">
+            </button>
+          </Popover.Trigger>
+          <Popover.Content placement="bottom" className="p-1">
             <div className="flex flex-col gap-1 min-w-[140px]">
-              <div className="text-[11px] font-mono text-default-400 px-2 pt-1 pb-1 break-all">{m.id}</div>
-              <Button
-                size="sm"
-                variant="light"
-                onPress={() => handleToggle(m)}
-                className="justify-start"
-                startContent={m.is_active ? <IconEyeOff /> : <IconEye />}
-              >
+              <div className="text-[11px] font-mono text-muted px-2 pt-1 pb-1 break-all">{m.id}</div>
+              <Button size="sm" variant="ghost" onPress={() => handleToggle(m)} className="justify-start">
+                {m.is_active ? <IconEyeOff /> : <IconEye />}
                 {m.is_active ? "Inativar" : "Ativar"}
               </Button>
-              <Button
-                size="sm"
-                variant="light"
-                color="danger"
-                onPress={() => handleRemove(m)}
-                className="justify-start"
-                startContent={<IconTrash />}
-              >
-                Remover
+              <Button size="sm" variant="ghost" className="justify-start text-danger" onPress={() => handleRemove(m)}>
+                <IconTrash /> Remover
               </Button>
             </div>
-          </PopoverContent>
+          </Popover.Content>
         </Popover>
       ))}
       {models && models.length === 0 && !adding && (
-        <span className="text-sm text-default-500">Nenhum modelo sincronizado.</span>
+        <span className="text-sm text-muted">Nenhum modelo sincronizado.</span>
       )}
     </div>
   );
 }
 
 function IconPlus() { return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5v14"/></svg>; }
-function IconSearch() { return <svg className="w-4 h-4 text-default-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>; }
+function IconSearch() { return <svg className="w-4 h-4 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>; }
 function IconPencil() { return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>; }
 function IconTrash() { return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1.5 14a2 2 0 0 1-2 2H8.5a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>; }
 function IconChevron({ expanded }: { expanded: boolean }) {
   return (
     <svg
-      className={`w-4 h-4 text-default-400 transition-transform ${expanded ? "rotate-90" : ""}`}
+      className={`w-4 h-4 text-muted transition-transform ${expanded ? "rotate-90" : ""}`}
       viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
     >
       <polyline points="9 18 15 12 9 6" />

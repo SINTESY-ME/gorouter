@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  Button, Chip, Autocomplete, AutocompleteItem, Textarea, Tooltip,
+  Button, Chip, Autocomplete, ListBox, TextArea, Tooltip,
 } from "@heroui/react";
 import {
   api, streamChat, type ChatMessage, type ModelEntry, type Combo,
@@ -20,8 +20,8 @@ interface PlaygroundMsg {
   error?: string;
 }
 
-const KIND_COLORS: Record<string, "primary" | "success" | "warning" | "secondary" | "danger" | "default"> = {
-  llm: "primary", embedding: "success", image: "warning", tts: "secondary", stt: "danger",
+const KIND_COLORS: Record<string, "accent" | "success" | "warning" | "default" | "danger"> = {
+  llm: "accent", embedding: "success", image: "warning", tts: "default", stt: "danger",
   rerank: "default", ocr: "default", video: "default",
 };
 
@@ -44,7 +44,6 @@ export default function Playground() {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // Load model + combo lists
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -69,8 +68,6 @@ export default function Playground() {
     return () => { cancelled = true; };
   }, []);
 
-  // Auto-scroll: only scroll to bottom if user is already near the bottom.
-  // Otherwise (scrolled up reading history), leave them where they are.
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
@@ -142,7 +139,7 @@ export default function Playground() {
                 combo: comboName,
                 latencyMs: Math.round(elapsedMs),
                 ttftMs,
-                tokens: finalUsage,
+                tokens: finalUsage ? { prompt: finalUsage.prompt_tokens, completion: finalUsage.completion_tokens, total: finalUsage.total_tokens } : undefined,
                 tps,
               }
             : m
@@ -184,63 +181,62 @@ export default function Playground() {
   ];
 
   return (
-    <div className="flex flex-col h-full bg-default-50">
-      {/* Top bar — model selector + new chat (ChatGPT-style header) */}
-      <div className="shrink-0 h-12 border-b border-default-100 bg-content1/80 backdrop-blur flex items-center justify-between px-4 gap-4">
+    <div className="flex flex-col h-full bg-background">
+      <div className="shrink-0 h-12 border-b border-border bg-surface/80 backdrop-blur flex items-center justify-between px-4 gap-4">
         <div className="flex items-center gap-2 min-w-0">
-          <IconChat className="w-4 h-4 text-primary shrink-0" />
+          <IconChat className="w-4 h-4 text-accent shrink-0" />
           <span className="font-semibold text-sm shrink-0">Playground</span>
-          <span className="text-default-300 shrink-0">/</span>
+          <span className="text-muted/70 shrink-0">/</span>
           <Autocomplete
             aria-label="Modelo"
             selectedKey={selectedModel || null}
             onSelectionChange={(key) => setSelectedModel((key as string) ?? "")}
-            size="sm"
-            variant="flat"
-            className="w-72"
-            classNames={{
-              base: "min-h-0",
-              input: "text-sm",
-              inputWrapper: "h-8 min-h-8 bg-content2/60",
-            }}
-            placeholder={loadingOpts ? "Carregando..." : "Selecione um modelo ou combo..."}
             isDisabled={loadingOpts}
-            inputValue={selectedModel}
-            onInputChange={(v) => setSelectedModel(v)}
-            allowsCustomValue={false}
+            placeholder={loadingOpts ? "Carregando..." : "Selecione um modelo ou combo..."}
+            className="w-72"
           >
-            {options.map((opt) => (
-              <AutocompleteItem key={opt.id} textValue={opt.id}>
-                <div className="flex items-center justify-between w-full gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    {opt.isCombo && <IconStack className="w-3 h-3 text-secondary shrink-0" />}
-                    <span className="font-mono text-xs truncate">{opt.label}</span>
-                  </div>
-                  <Chip
-                    size="sm"
-                    variant="flat"
-                    color={opt.isCombo ? "secondary" : KIND_COLORS[opt.kind] ?? "default"}
-                    className="text-[10px] shrink-0"
-                  >
-                    {opt.isCombo ? "combo" : opt.kind}
-                  </Chip>
-                </div>
-              </AutocompleteItem>
-            ))}
+            <Autocomplete.Trigger className="h-8 min-h-8 bg-surface-secondary/60 text-sm">
+              <Autocomplete.Value />
+              <Autocomplete.Indicator />
+            </Autocomplete.Trigger>
+            <Autocomplete.Popover>
+              <ListBox>
+                {options.map((opt) => (
+                  <ListBox.Item key={opt.id} id={opt.id} textValue={opt.id}>
+                    <div className="flex items-center justify-between w-full gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {opt.isCombo && <IconStack />}
+                        <span className="font-mono text-xs truncate">{opt.label}</span>
+                      </div>
+                      <Chip
+                        size="sm"
+                        variant="soft"
+                        color={opt.isCombo ? "default" : KIND_COLORS[opt.kind] ?? "default"}
+                        className="text-[10px] shrink-0"
+                      >
+                        {opt.isCombo ? "combo" : opt.kind}
+                      </Chip>
+                    </div>
+                  </ListBox.Item>
+                ))}
+              </ListBox>
+            </Autocomplete.Popover>
           </Autocomplete>
         </div>
         <div className="flex items-center gap-1">
           {messages.length > 0 && (
-            <Tooltip content="Nova conversa">
-              <Button isIconOnly size="sm" variant="light" onPress={clear} isDisabled={streaming}>
-                <IconPlus className="w-4 h-4" />
-              </Button>
+            <Tooltip>
+              <Tooltip.Trigger>
+                <Button isIconOnly size="sm" variant="ghost" onPress={clear} isDisabled={streaming} aria-label="Nova conversa">
+                  <IconPlus className="w-4 h-4" />
+                </Button>
+              </Tooltip.Trigger>
+              <Tooltip.Content>Nova conversa</Tooltip.Content>
             </Tooltip>
           )}
         </div>
       </div>
 
-      {/* Scrolling conversation area */}
       <div ref={scrollerRef} className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
           <WelcomeScreen
@@ -259,44 +255,36 @@ export default function Playground() {
         )}
       </div>
 
-      {/* Sticky composer at bottom (Open WebUI / ChatGPT style) */}
-      <div className="shrink-0 bg-gradient-to-t from-default-50 via-default-50 to-transparent pt-6 pb-4 px-4">
+      <div className="shrink-0 bg-linear-to-t from-background via-background to-transparent pt-6 pb-4 px-4">
         <div className="mx-auto max-w-3xl">
-          <div className="bg-content1 border border-default-200 rounded-2xl shadow-md focus-within:border-primary/50 focus-within:shadow-lg transition-all">
-            <Textarea
+          <div className="bg-surface border border-border rounded-2xl shadow-md focus-within:border-accent/50 focus-within:shadow-lg transition-all">
+            <TextArea
               ref={textareaRef}
               value={input}
-              onValueChange={setInput}
+              onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
               placeholder={
                 selectedModel
                   ? "Mensagem"
                   : "Selecione um modelo ou combo acima para começar"
               }
-              isDisabled={!selectedModel}
-              minRows={1}
-              maxRows={12}
-              variant="flat"
-              classNames={{
-                base: "rounded-2xl",
-                inputWrapper:
-                  "bg-transparent shadow-none border-0 group-data-[focus-within=true]:border-0 px-4 py-3",
-                input: "text-[15px] resize-none py-1 leading-snug",
-              }}
+              disabled={!selectedModel}
+              rows={2}
               autoFocus
+              className="text-[15px] resize-none px-4 py-3 leading-snug bg-transparent border-0 shadow-none outline-none"
             />
             <div className="flex items-center justify-between px-2 pb-2">
-              <div className="text-[11px] text-default-400 pl-2">
+              <div className="text-[11px] text-muted pl-2">
                 Enter envia · Shift+Enter nova linha
               </div>
               <div className="flex items-center gap-1">
                 {streaming ? (
                   <Button
                     size="sm"
-                    color="danger"
-                    variant="flat"
+                    variant="danger-soft"
                     onPress={stop}
                     isIconOnly
+                    aria-label="Parar"
                     className="h-8 w-8 min-w-8"
                   >
                     <IconStop className="w-4 h-4" />
@@ -304,10 +292,11 @@ export default function Playground() {
                 ) : (
                   <Button
                     size="sm"
-                    color="primary"
+                    variant="primary"
                     isIconOnly
                     onPress={() => send()}
                     isDisabled={!input.trim() || !selectedModel}
+                    aria-label="Enviar"
                     className="h-8 w-8 min-w-8"
                   >
                     <IconArrowUp className="w-4 h-4" />
@@ -322,16 +311,15 @@ export default function Playground() {
   );
 }
 
-// ---- Welcome screen (centered, like ChatGPT empty state) ----
 function WelcomeScreen({ disabled, onPick }: { disabled: boolean; onPick: (text: string) => void }) {
   return (
     <div className="h-full flex items-center justify-center px-4">
       <div className="mx-auto max-w-2xl w-full text-center">
-        <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-primary/10 mb-5">
-          <IconSparkles className="w-6 h-6 text-primary" />
+        <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-accent/10 mb-5">
+          <IconSparkles className="w-6 h-6 text-accent" />
         </div>
         <h1 className="text-2xl font-semibold tracking-tight mb-1">Como posso ajudar hoje?</h1>
-        <p className="text-sm text-default-500 mb-7">
+        <p className="text-sm text-muted mb-7">
           Escolha um modelo ou combo no topo e comece a testar.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
@@ -341,9 +329,9 @@ function WelcomeScreen({ disabled, onPick }: { disabled: boolean; onPick: (text:
               type="button"
               disabled={disabled}
               onClick={() => onPick(s)}
-              className="text-sm text-left px-3 py-2.5 rounded-xl border border-default-200 bg-content1 hover:bg-content2 hover:border-default-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="text-sm text-left px-3 py-2.5 rounded-xl border border-border bg-surface hover:bg-surface-secondary hover:border-border-secondary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <IconSparkles className="w-3.5 h-3.5 inline-block text-default-400 mr-1.5 -mt-0.5" />
+              <IconSparkles className="w-3.5 h-3.5 inline-block text-muted mr-1.5 -mt-0.5" />
               {s}
             </button>
           ))}
@@ -353,7 +341,6 @@ function WelcomeScreen({ disabled, onPick }: { disabled: boolean; onPick: (text:
   );
 }
 
-// ---- Single conversation row ----
 function MessageRow({ msg }: { msg: PlaygroundMsg }) {
   const isUser = msg.role === "user";
   return (
@@ -361,11 +348,10 @@ function MessageRow({ msg }: { msg: PlaygroundMsg }) {
       <div
         className={`min-w-0 ${
           isUser
-            ? "max-w-[85%] bg-content2 border border-default-200/60 text-foreground rounded-2xl px-4 py-3 shadow-sm"
+            ? "max-w-[85%] bg-surface-secondary border border-border/60 text-foreground rounded-2xl px-4 py-3 shadow-sm"
             : "w-full text-foreground py-1"
         }`}
       >
-        {/* Body */}
         <div className="text-[15px] leading-relaxed whitespace-pre-wrap break-words text-foreground font-normal">
           {msg.error ? (
             <span className="text-danger font-medium">⚠ {msg.error}</span>
@@ -373,19 +359,18 @@ function MessageRow({ msg }: { msg: PlaygroundMsg }) {
             <>
               {msg.content || (msg.streaming ? "" : "")}
               {msg.streaming && !msg.error && (
-                <span className="inline-block w-1.5 h-4 bg-primary ml-0.5 animate-pulse rounded-sm align-middle" />
+                <span className="inline-block w-1.5 h-4 bg-accent ml-0.5 animate-pulse rounded-sm align-middle" />
               )}
               {msg.streaming === false && msg.content === "" && !msg.error && (
-                <span className="text-default-400 italic">vazio</span>
+                <span className="text-muted italic">vazio</span>
               )}
             </>
           )}
         </div>
 
-        {/* Metrics row (assistant, after stream) */}
         {!isUser && !msg.streaming && !msg.error && (
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-default-400 font-mono">
-            {msg.combo && <span className="text-secondary font-medium">combo: {msg.combo}</span>}
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted font-mono">
+            {msg.combo && <span className="text-muted font-medium">combo: {msg.combo}</span>}
             {msg.model && <span>{msg.model}</span>}
             {msg.ttftMs != null && msg.ttftMs > 0 && <span>ttft {formatLatency(msg.ttftMs)}</span>}
             {msg.latencyMs != null && <span>{formatLatency(msg.latencyMs)}</span>}
@@ -409,7 +394,6 @@ function formatLatency(ms: number): string {
   return `${(ms / 1000).toFixed(2)}s`;
 }
 
-// ---- Icons ----
 function IconStack() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3">
@@ -452,17 +436,6 @@ function IconArrowUp({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <line x1="12" y1="19" x2="12" y2="5" />
       <polyline points="5 12 12 5 19 12" />
-    </svg>
-  );
-}
-function IconBot({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="11" width="18" height="10" rx="2" />
-      <circle cx="12" cy="5" r="2" />
-      <line x1="12" y1="7" x2="12" y2="11" />
-      <circle cx="8" cy="16" r="1" />
-      <circle cx="16" cy="16" r="1" />
     </svg>
   );
 }

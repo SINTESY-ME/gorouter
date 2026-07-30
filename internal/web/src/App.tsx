@@ -59,8 +59,8 @@ export default function App() {
 
   if (authState === "loading") {
     return (
-      <div className="min-h-screen bg-default-50 flex items-center justify-center">
-        <p className="text-sm text-default-400">Carregando...</p>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-sm text-muted">Carregando...</p>
       </div>
     );
   }
@@ -74,13 +74,13 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
   const loc = useLocation();
   const title = titleMap[loc.pathname] ?? "gorouter";
   return (
-    <div className="h-screen bg-default-50 text-foreground flex overflow-hidden">
-      <aside className="w-60 bg-content1 border-r border-default-100 flex flex-col h-screen overflow-y-auto shrink-0">
-        <div className="px-5 py-5 flex items-center gap-3 border-b border-default-100">
+    <div className="h-screen bg-background text-foreground flex overflow-hidden">
+      <aside className="w-60 bg-surface border-r border-border flex flex-col h-screen overflow-y-auto shrink-0">
+        <div className="px-5 py-5 flex items-center gap-3 border-b border-border">
           <IconRoute className="w-5 h-5 text-white" />
           <div>
             <p className="font-semibold text-base leading-tight">gorouter</p>
-            <p className="text-xs text-default-500 leading-tight">LLM router</p>
+            <p className="text-xs text-muted leading-tight">LLM router</p>
           </div>
         </div>
         <nav className="p-3 space-y-1 flex-1">
@@ -92,8 +92,8 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
                   isActive
-                    ? "bg-primary/15 text-primary font-medium"
-                    : "text-default-600 hover:bg-default-100"
+                    ? "bg-accent/15 text-accent font-medium"
+                    : "text-foreground/80 hover:bg-default-soft"
                 }`
               }
             >
@@ -102,19 +102,19 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
             </NavLink>
           ))}
         </nav>
-        <div className="p-3 border-t border-default-100 space-y-2">
+        <div className="p-3 border-t border-border space-y-2">
           <button
             onClick={onLogout}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-default-600 hover:bg-default-100 transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-foreground/80 hover:bg-default-soft transition-colors"
           >
             <IconLogout className="w-4 h-4" />
             Sair
           </button>
-          <p className="text-xs text-default-400 px-3">v0.1 · port :20128</p>
+          <p className="text-xs text-muted px-3">v0.1 · port :20128</p>
         </div>
       </aside>
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="h-14 px-6 flex items-center border-b border-default-100 bg-content1/60 backdrop-blur shrink-0">
+        <header className="h-14 px-6 flex items-center border-b border-border bg-surface/60 backdrop-blur shrink-0">
           <h2 className="text-lg font-semibold">{title}</h2>
         </header>
         <main className="flex-1 overflow-auto">

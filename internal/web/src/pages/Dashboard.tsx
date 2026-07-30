@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import {
-  Spinner, Select, SelectItem, Popover, PopoverTrigger, PopoverContent,
-  Input, Button, Card, CardBody, CardHeader, Tabs, Tab,
-  Table, TableHeader, TableColumn, TableBody, TableRow, TableCell,
-  Progress, Divider,
+  Spinner, Select, ListBox, Popover, Input, Button, Card, Tabs,
+  Table, ProgressBar, Separator, TextField, Label,
 } from "@heroui/react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip,
@@ -97,9 +95,9 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, [period, bucket, customMode, fromDate, toDate, selectedKeyId]);
 
-  if (loading) return <div className="flex justify-center py-20"><Spinner label="Carregando..." /></div>;
+  if (loading) return <div className="flex justify-center py-20"><Spinner /></div>;
   if (!stats) return (
-    <div className="text-center py-20 text-default-500">
+    <div className="text-center py-20 text-muted">
       Não há dados de uso ainda. Crie um provider e faça uma requisição.
     </div>
   );
@@ -116,8 +114,6 @@ export default function Dashboard() {
   const totalTokens = stats.prompt_tokens + stats.completion_tokens;
   const errorPct = stats.error_rate * 100;
 
-  // Build per-model performance table rows: merge by_model (request counts)
-  // with modelStats (TTFT, TPS, latency).
   const perfRows = byModel.map((m) => {
     const ms = modelStats[m.name];
     const cost = stats.by_model_cost?.[m.name] || 0;
@@ -144,57 +140,75 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Header + filters */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Visão geral</h1>
-          <p className="text-sm text-default-500 mt-0.5">
+          <p className="text-sm text-muted mt-0.5">
             {stats.requests.toLocaleString("en-US")} requisições no período
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex bg-content1 rounded-lg p-0.5 border border-default-100">
+          <div className="flex bg-surface rounded-lg p-0.5 border border-border">
             {periods.map((p) => (
               <button
                 key={p.key}
                 onClick={() => { setPeriod(p.key); setCustomMode(false); }}
                 className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                  !customMode && period === p.key ? "bg-primary text-white" : "text-default-600 hover:bg-default-100"
+                  !customMode && period === p.key ? "bg-accent text-white" : "text-foreground/80 hover:bg-default-soft"
                 }`}
               >
                 {p.label}
               </button>
             ))}
           </div>
-          <Popover placement="bottom">
-            <PopoverTrigger>
-              <Button size="sm" variant={customMode ? "solid" : "flat"} color={customMode ? "primary" : "default"} onPress={() => setCustomMode(true)}>
+          <Popover>
+            <Popover.Trigger>
+              <Button size="sm" variant={customMode ? "primary" : "secondary"} onPress={() => setCustomMode(true)}>
                 <IconCalendar className="w-4 h-4" />
                 {customMode && fromDate ? formatRangeLabel(fromDate, toDate) : "Personalizado"}
               </Button>
-            </PopoverTrigger>
-            <PopoverContent className="p-3">
+            </Popover.Trigger>
+            <Popover.Content placement="bottom" className="p-3">
               <div className="space-y-3 w-64">
-                <Input type="datetime-local" label="De" value={fromDate} onValueChange={(v) => { setFromDate(v); setCustomMode(true); }} size="sm" classNames={{ inputWrapper: "h-9 min-h-9" }} />
-                <Input type="datetime-local" label="Até" value={toDate} onValueChange={setToDate} size="sm" placeholder="Agora" classNames={{ inputWrapper: "h-9 min-h-9" }} />
-                <Button size="sm" color="primary" className="w-full" onPress={() => setCustomMode(true)}>Aplicar</Button>
+                <TextField value={fromDate} onChange={(v) => { setFromDate(v); setCustomMode(true); }}>
+                  <Label>De</Label>
+                  <Input type="datetime-local" />
+                </TextField>
+                <TextField value={toDate} onChange={setToDate}>
+                  <Label>Até</Label>
+                  <Input type="datetime-local" placeholder="Agora" />
+                </TextField>
+                <Button size="sm" variant="primary" className="w-full" onPress={() => setCustomMode(true)}>Aplicar</Button>
                 {customMode && (
-                  <Button size="sm" variant="flat" className="w-full" onPress={() => { setCustomMode(false); setFromDate(""); setToDate(""); }}>
+                  <Button size="sm" variant="secondary" className="w-full" onPress={() => { setCustomMode(false); setFromDate(""); setToDate(""); }}>
                     Voltar para presets
                   </Button>
                 )}
               </div>
-            </PopoverContent>
+            </Popover.Content>
           </Popover>
           {apiKeys.length > 0 && (
-            <Select aria-label="Token" selectedKeys={selectedKeyId ? [selectedKeyId] : []} onChange={(e) => setSelectedKeyId(e.target.value)} size="sm" className="w-44" placeholder="Todos os tokens">
-              {apiKeys.map((k) => <SelectItem key={k.id}>{k.name}</SelectItem>)}
+            <Select
+              aria-label="Token"
+              selectedKey={selectedKeyId || null}
+              onSelectionChange={(k) => setSelectedKeyId((k as string) ?? "")}
+              className="w-44"
+            >
+              <Select.Trigger>
+                <Select.Value>{selectedKeyId ? apiKeys.find((k) => k.id === selectedKeyId)?.name ?? "Token" : "Todos os tokens"}</Select.Value>
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox>
+                  <ListBox.Item id="">Todos os tokens</ListBox.Item>
+                  {apiKeys.map((k) => <ListBox.Item key={k.id} id={k.id}>{k.name}</ListBox.Item>)}
+                </ListBox>
+              </Select.Popover>
             </Select>
           )}
         </div>
       </div>
 
-      {/* Top stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Requests" value={formatCompact(stats.requests)} sub="total no período" full={stats.requests.toLocaleString("en-US")} />
         <StatCard label="Tokens" value={formatCompact(totalTokens)} sub={`${formatCompact(stats.prompt_tokens)} in · ${formatCompact(stats.completion_tokens)} out`} full={totalTokens.toLocaleString("en-US")} />
@@ -202,23 +216,37 @@ export default function Dashboard() {
         <StatCard label="Economia" value={formatCost(stats.cost_saved)} sub={`${formatCompact(stats.tokens_saved)} tokens poupados`} full={`$${stats.cost_saved.toFixed(6)}`} />
       </div>
 
-      {/* Time series */}
-      <Card className="border border-default-100">
-        <CardHeader className="flex items-center justify-between gap-3 flex-wrap pb-0">
+      <Card className="border border-border">
+        <Card.Header className="flex items-center justify-between gap-3 flex-wrap pb-0">
           <div>
             <h3 className="font-semibold">Volume por {bucketLabel[activeBucket] || "período"}</h3>
-            <p className="text-xs text-default-500">Série temporal</p>
+            <p className="text-xs text-muted">Série temporal</p>
           </div>
           <div className="flex items-center gap-2">
-            <Select aria-label="Granularidade" selectedKeys={[bucket]} onChange={(e) => setBucket(e.target.value)} size="sm" className="w-32" disallowEmptySelection>
-              {buckets.map((b) => <SelectItem key={b.key}>{b.label}</SelectItem>)}
+            <Select
+              aria-label="Granularidade"
+              selectedKey={bucket}
+              onSelectionChange={(k) => setBucket((k as string) ?? "")}
+              className="w-32"
+            >
+              <Select.Trigger>
+                <Select.Value>{buckets.find((b) => b.key === bucket)?.label ?? "Auto"}</Select.Value>
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox>
+                  {buckets.map((b) => <ListBox.Item key={b.key} id={b.key}>{b.label}</ListBox.Item>)}
+                </ListBox>
+              </Select.Popover>
             </Select>
-            <Tabs size="sm" variant="underlined" selectedKey={chartMetric} onSelectionChange={(k) => setChartMetric(k as string)}>
-              {chartMetrics.map((m) => <Tab key={m.key} title={m.label} />)}
+            <Tabs selectedKey={chartMetric} onSelectionChange={(k) => setChartMetric(k as string)} aria-label="Métrica">
+              <Tabs.List>
+                {chartMetrics.map((m) => <Tabs.Tab key={m.key} id={m.key}>{m.label}</Tabs.Tab>)}
+              </Tabs.List>
             </Tabs>
           </div>
-        </CardHeader>
-        <CardBody>
+        </Card.Header>
+        <Card.Content>
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={daily} margin={{ left: -16, right: 8, top: 8 }}>
               <defs>
@@ -234,15 +262,14 @@ export default function Dashboard() {
               <Area type="monotone" dataKey={chartMetric} stroke={activeMetric.color} strokeWidth={2} fill="url(#gradChart)" />
             </AreaChart>
           </ResponsiveContainer>
-        </CardBody>
+        </Card.Content>
       </Card>
 
-      {/* Distribuição de requisições + Requisições por modelo */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {byProvider.length > 0 && (
-          <Card className="border border-default-100">
-            <CardHeader><div><h3 className="font-semibold">Distribuição de requisições</h3><p className="text-xs text-default-500">Por provider</p></div></CardHeader>
-            <CardBody>
+          <Card className="border border-border">
+            <Card.Header><div><h3 className="font-semibold">Distribuição de requisições</h3><p className="text-xs text-muted">Por provider</p></div></Card.Header>
+            <Card.Content>
               <ResponsiveContainer width="100%" height={260}>
                 <PieChart>
                   <Pie data={byProvider} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={2}
@@ -250,18 +277,18 @@ export default function Dashboard() {
                     labelLine={{ stroke: "#666" }}>
                     {byProvider.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="none" />)}
                   </Pie>
-                  <Legend formatter={(v) => <span className="text-xs text-default-600">{v}</span>} />
+                  <Legend formatter={(v) => <span className="text-xs text-foreground/80">{v}</span>} />
                   <RTooltip contentStyle={tooltipStyle} itemStyle={itemStyle} labelStyle={{ color: "#aaa" }} />
                 </PieChart>
               </ResponsiveContainer>
-            </CardBody>
+            </Card.Content>
           </Card>
         )}
 
         {byModel.length > 0 && (
-          <Card className="border border-default-100">
-            <CardHeader><div><h3 className="font-semibold">Requisições por modelo</h3><p className="text-xs text-default-500">Por modelo</p></div></CardHeader>
-            <CardBody>
+          <Card className="border border-border">
+            <Card.Header><div><h3 className="font-semibold">Requisições por modelo</h3><p className="text-xs text-muted">Por modelo</p></div></Card.Header>
+            <Card.Content>
               <ResponsiveContainer width="100%" height={Math.max(260, byModel.length * 26)}>
                 <BarChart data={byModel} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
@@ -271,21 +298,20 @@ export default function Dashboard() {
                   <Bar dataKey="value" fill="#4DA3FF" radius={[0, 4, 4, 0]} barSize={18} />
                 </BarChart>
               </ResponsiveContainer>
-            </CardBody>
+            </Card.Content>
           </Card>
         )}
       </div>
 
-      {/* Economia */}
       {savings && (
-        <Card className="border border-default-100">
-          <CardHeader>
+        <Card className="border border-border">
+          <Card.Header>
             <div>
               <h3 className="font-semibold">Economia</h3>
-              <p className="text-xs text-default-500">Tokens e custos economizados por Response Cache e RTK</p>
+              <p className="text-xs text-muted">Tokens e custos economizados por Response Cache e RTK</p>
             </div>
-          </CardHeader>
-          <CardBody className="space-y-5">
+          </Card.Header>
+          <Card.Content className="space-y-5">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <SavingsCard label="Cache hits" value={formatCompact(savings.cache_hits)} sub="respostas do cache" full={savings.cache_hits.toLocaleString("en-US")} dot="#00C2A8" />
               <SavingsCard label="Tokens (cache)" value={formatCompact(savings.cache_tokens_saved)} sub={formatCost(savings.cache_cost_saved)} full={savings.cache_tokens_saved.toLocaleString("en-US")} dot="#00C2A8" />
@@ -293,99 +319,100 @@ export default function Dashboard() {
               <SavingsCard label="Tokens (RTK)" value={formatCompact(savings.rtk_tokens_saved)} sub={formatCost(savings.rtk_cost_saved)} full={savings.rtk_tokens_saved.toLocaleString("en-US")} dot="#4DA3FF" />
             </div>
             {(savings.cache_cost_saved + savings.rtk_cost_saved) > 0 && (
-              <div className="flex items-baseline gap-8 pt-2 border-t border-default-100">
+              <div className="flex items-baseline gap-8 pt-2 border-t border-border">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-sm text-default-500">Total economizado</span>
+                  <span className="text-sm text-muted">Total economizado</span>
                   <span className="text-lg font-semibold tabular-nums">{formatCost(savings.cache_cost_saved + savings.rtk_cost_saved)}</span>
                 </div>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-sm text-default-500">Tokens</span>
+                  <span className="text-sm text-muted">Tokens</span>
                   <span className="text-lg font-semibold tabular-nums">{formatCompact(savings.cache_tokens_saved + savings.rtk_tokens_saved)}</span>
                 </div>
               </div>
             )}
-          </CardBody>
+          </Card.Content>
         </Card>
       )}
 
-      {/* Performance por modelo */}
       {perfRows.length > 0 && (
-        <Card className="border border-default-100">
-          <CardHeader>
+        <Card className="border border-border">
+          <Card.Header>
             <div>
               <h3 className="font-semibold">Performance por modelo</h3>
-              <p className="text-xs text-default-500">TTFT, TPS, latência e custo por request</p>
+              <p className="text-xs text-muted">TTFT, TPS, latência e custo por request</p>
             </div>
-          </CardHeader>
-          <CardBody>
-            <Table removeWrapper aria-label="performance por modelo" className="text-sm">
-              <TableHeader>
-                <TableColumn>MODELO</TableColumn>
-                <TableColumn align="end">REQUESTS</TableColumn>
-                <TableColumn align="end">TTFT</TableColumn>
-                <TableColumn align="end">TPS</TableColumn>
-                <TableColumn align="end">LATÊNCIA</TableColumn>
-                <TableColumn align="end">CUSTO/REQ</TableColumn>
-                <TableColumn align="end">CUSTO TOTAL</TableColumn>
-              </TableHeader>
-              <TableBody items={perfRows}>
-                {(r) => (
-                  <TableRow key={r.name}>
-                    <TableCell><code className="text-xs">{r.name}</code></TableCell>
-                    <TableCell className="text-right tabular-nums">{r.requests.toLocaleString("en-US")}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.ttft ? `${r.ttft}ms` : "—"}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.tps ? r.tps.toFixed(1) : "—"}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.latency ? `${r.latency}ms` : "—"}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.costPerReq > 0 ? formatCost(r.costPerReq) : "—"}</TableCell>
-                    <TableCell className="text-right tabular-nums">{r.cost > 0 ? formatCost(r.cost) : "—"}</TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
+          </Card.Header>
+          <Card.Content>
+            <Table>
+              <Table.ScrollContainer>
+                <Table.Content aria-label="performance por modelo" className="text-sm min-w-[640px]">
+                  <Table.Header>
+                    <Table.Column isRowHeader id="model">Modelo</Table.Column>
+                    <Table.Column id="requests" className="text-right">Requests</Table.Column>
+                    <Table.Column id="ttft" className="text-right">TTFT</Table.Column>
+                    <Table.Column id="tps" className="text-right">TPS</Table.Column>
+                    <Table.Column id="latency" className="text-right">Latência</Table.Column>
+                    <Table.Column id="costperreq" className="text-right">Custo/Req</Table.Column>
+                    <Table.Column id="costtotal" className="text-right">Custo Total</Table.Column>
+                  </Table.Header>
+                  <Table.Body items={perfRows}>
+                    {(r) => (
+                      <Table.Row key={r.name} id={r.name}>
+                        <Table.Cell><code className="text-xs">{r.name}</code></Table.Cell>
+                        <Table.Cell className="text-right tabular-nums">{r.requests.toLocaleString("en-US")}</Table.Cell>
+                        <Table.Cell className="text-right tabular-nums">{r.ttft ? `${r.ttft}ms` : "—"}</Table.Cell>
+                        <Table.Cell className="text-right tabular-nums">{r.tps ? r.tps.toFixed(1) : "—"}</Table.Cell>
+                        <Table.Cell className="text-right tabular-nums">{r.latency ? `${r.latency}ms` : "—"}</Table.Cell>
+                        <Table.Cell className="text-right tabular-nums">{r.costPerReq > 0 ? formatCost(r.costPerReq) : "—"}</Table.Cell>
+                        <Table.Cell className="text-right tabular-nums">{r.cost > 0 ? formatCost(r.cost) : "—"}</Table.Cell>
+                      </Table.Row>
+                    )}
+                  </Table.Body>
+                </Table.Content>
+              </Table.ScrollContainer>
             </Table>
-          </CardBody>
+          </Card.Content>
         </Card>
       )}
 
-      {/* Confiabilidade */}
-      <Card className="border border-default-100">
-        <CardBody className="py-4">
+      <Card className="border border-border">
+        <Card.Content className="py-4">
           <div className="flex items-center gap-6 flex-wrap">
             <div className="flex-1 min-w-[200px]">
               <div className="flex justify-between items-baseline mb-1.5">
-                <span className="text-sm text-default-500">Taxa de erro</span>
+                <span className="text-sm text-muted">Taxa de erro</span>
                 <span className="text-sm font-semibold tabular-nums">{errorPct.toFixed(1)}%</span>
               </div>
-              <Progress
+              <ProgressBar
                 aria-label="Taxa de erro"
                 size="sm"
                 color={errorPct > 5 ? "danger" : "success"}
                 value={Math.min(errorPct, 100)}
               />
-              <p className="text-[11px] text-default-400 mt-1">
+              <p className="text-[11px] text-muted mt-1">
                 {stats.error_requests.toLocaleString("en-US")} erros · {stats.successful_requests.toLocaleString("en-US")} ok
               </p>
             </div>
-            <Divider orientation="vertical" className="hidden md:block h-12" />
+            <Separator orientation="vertical" className="hidden md:block h-12" />
             <div className="flex gap-6">
               <div>
-                <p className="text-xs text-default-500">Combos</p>
+                <p className="text-xs text-muted">Combos</p>
                 <p className="text-lg font-semibold tabular-nums mt-0.5">{stats.combo_requests.toLocaleString("en-US")}</p>
               </div>
               <div>
-                <p className="text-xs text-default-500">Erro/Total</p>
+                <p className="text-xs text-muted">Erro/Total</p>
                 <p className="text-lg font-semibold tabular-nums mt-0.5">{stats.error_requests.toLocaleString("en-US")}/{stats.requests.toLocaleString("en-US")}</p>
               </div>
             </div>
           </div>
-        </CardBody>
+        </Card.Content>
       </Card>
 
-      {/* Resto das distribuições */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {byModelCost.length > 0 && (
-          <Card className="border border-default-100">
-            <CardHeader><div><h3 className="font-semibold">Gasto em USD</h3><p className="text-xs text-default-500">Custo por modelo</p></div></CardHeader>
-            <CardBody>
+          <Card className="border border-border">
+            <Card.Header><div><h3 className="font-semibold">Gasto em USD</h3><p className="text-xs text-muted">Custo por modelo</p></div></Card.Header>
+            <Card.Content>
               <ResponsiveContainer width="100%" height={Math.max(260, byModelCost.length * 26)}>
                 <BarChart data={byModelCost} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
@@ -395,14 +422,14 @@ export default function Dashboard() {
                   <Bar dataKey="value" fill="#FFB347" radius={[0, 4, 4, 0]} barSize={18} />
                 </BarChart>
               </ResponsiveContainer>
-            </CardBody>
+            </Card.Content>
           </Card>
         )}
 
         {byCombo.length > 0 && (
-          <Card className="border border-default-100">
-            <CardHeader><div><h3 className="font-semibold">Distribuição entre combos</h3><p className="text-xs text-default-500">Por combo</p></div></CardHeader>
-            <CardBody>
+          <Card className="border border-border">
+            <Card.Header><div><h3 className="font-semibold">Distribuição entre combos</h3><p className="text-xs text-muted">Por combo</p></div></Card.Header>
+            <Card.Content>
               <ResponsiveContainer width="100%" height={Math.max(260, byCombo.length * 26)}>
                 <BarChart data={byCombo} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
@@ -412,14 +439,14 @@ export default function Dashboard() {
                   <Bar dataKey="value" fill="#B266FF" radius={[0, 4, 4, 0]} barSize={18} />
                 </BarChart>
               </ResponsiveContainer>
-            </CardBody>
+            </Card.Content>
           </Card>
         )}
 
         {byComboTokens.length > 0 && (
-          <Card className="border border-default-100">
-            <CardHeader><div><h3 className="font-semibold">Tokens por combo</h3><p className="text-xs text-default-500">Prompt + completion</p></div></CardHeader>
-            <CardBody>
+          <Card className="border border-border">
+            <Card.Header><div><h3 className="font-semibold">Tokens por combo</h3><p className="text-xs text-muted">Prompt + completion</p></div></Card.Header>
+            <Card.Content>
               <ResponsiveContainer width="100%" height={Math.max(260, byComboTokens.length * 26)}>
                 <BarChart data={byComboTokens} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
@@ -429,14 +456,14 @@ export default function Dashboard() {
                   <Bar dataKey="value" fill="#4DA3FF" radius={[0, 4, 4, 0]} barSize={18} />
                 </BarChart>
               </ResponsiveContainer>
-            </CardBody>
+            </Card.Content>
           </Card>
         )}
 
         {byApiKey.length > 0 && (
-          <Card className="border border-default-100">
-            <CardHeader><div><h3 className="font-semibold">Requisições por API key</h3><p className="text-xs text-default-500">Por token</p></div></CardHeader>
-            <CardBody>
+          <Card className="border border-border">
+            <Card.Header><div><h3 className="font-semibold">Requisições por API key</h3><p className="text-xs text-muted">Por token</p></div></Card.Header>
+            <Card.Content>
               <ResponsiveContainer width="100%" height={Math.max(260, byApiKey.length * 26)}>
                 <BarChart data={byApiKey} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
@@ -446,12 +473,11 @@ export default function Dashboard() {
                   <Bar dataKey="value" fill="#6BCB77" radius={[0, 4, 4, 0]} barSize={18} />
                 </BarChart>
               </ResponsiveContainer>
-            </CardBody>
+            </Card.Content>
           </Card>
         )}
       </div>
 
-      {/* Sistema */}
       {status && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <SystemCard label="Combos" value={status.combos.total} sub="estratégias" />
@@ -477,45 +503,41 @@ export default function Dashboard() {
   );
 }
 
-// ---- Components ----
-
 function SystemCard({ label, value, sub, variant }: { label: string; value: number; sub: string; variant?: "danger" | "success" | "default" }) {
-  const borderClass = variant === "danger" ? "border-danger-200" : variant === "success" ? "border-default-100" : "border-default-100";
+  const borderClass = variant === "danger" ? "border-danger/30" : variant === "success" ? "border-border" : "border-border";
   return (
-    <div className={`bg-content1 rounded-2xl border ${borderClass} p-5`}>
-      <p className="text-xs text-default-500 uppercase tracking-wide font-medium">{label}</p>
+    <div className={`bg-surface rounded-2xl border ${borderClass} p-5`}>
+      <p className="text-xs text-muted uppercase tracking-wide font-medium">{label}</p>
       <p className="text-2xl font-bold mt-2 tabular-nums">{value}</p>
-      <p className="text-xs text-default-500 mt-1">{sub}</p>
+      <p className="text-xs text-muted mt-1">{sub}</p>
     </div>
   );
 }
 
 function StatCard({ label, value, sub, full }: { label: string; value: string | number; sub: string; full?: string }) {
   return (
-    <Card className="border border-default-100 hover:border-default-200 transition-colors">
-      <CardBody className="p-5">
-        <p className="text-xs text-default-500 uppercase tracking-wide font-medium">{label}</p>
+    <Card className="border border-border hover:border-border transition-colors">
+      <Card.Content className="p-5">
+        <p className="text-xs text-muted uppercase tracking-wide font-medium">{label}</p>
         <p className="text-3xl font-bold mt-2 tabular-nums" title={full}>{value}</p>
-        <p className="text-xs text-default-500 mt-1">{sub}</p>
-      </CardBody>
+        <p className="text-xs text-muted mt-1">{sub}</p>
+      </Card.Content>
     </Card>
   );
 }
 
 function SavingsCard({ label, value, sub, full, dot }: { label: string; value: string; sub: string; full?: string; dot: string }) {
   return (
-    <div className="rounded-xl border border-default-100 p-5">
+    <div className="rounded-xl border border-border p-5">
       <div className="flex items-center gap-2">
         <span className="w-2 h-2 rounded-full" style={{ backgroundColor: dot }} />
-        <p className="text-xs text-default-500 uppercase tracking-wide font-medium">{label}</p>
+        <p className="text-xs text-muted uppercase tracking-wide font-medium">{label}</p>
       </div>
       <p className="text-2xl font-bold mt-2 tabular-nums" title={full}>{value}</p>
-      <p className="text-xs text-default-500 mt-1">{sub}</p>
+      <p className="text-xs text-muted mt-1">{sub}</p>
     </div>
   );
 }
-
-// ---- helpers ----
 
 function formatRangeLabel(from: string, to: string): string {
   const fmt = (s: string) => s.slice(11, 16) || s.slice(0, 10);

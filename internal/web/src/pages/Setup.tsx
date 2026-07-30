@@ -29,19 +29,19 @@ export default function Setup({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <div className="min-h-screen bg-default-50 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-background flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-3 mb-8 justify-center">
-          <IconRoute className="w-6 h-6 text-primary" />
+          <IconRoute className="w-6 h-6 text-accent" />
           <div>
             <p className="font-bold text-lg leading-tight">gorouter</p>
-            <p className="text-xs text-default-500 leading-tight">LLM router</p>
+            <p className="text-xs text-muted leading-tight">LLM router</p>
           </div>
         </div>
-        <div className="bg-content1 rounded-xl border border-default-100 p-6 space-y-4">
+        <div className="bg-surface rounded-xl border border-border p-6 space-y-4">
           <div>
             <h2 className="text-lg font-semibold">Bem-vindo</h2>
-            <p className="text-sm text-default-500 mt-1">
+            <p className="text-sm text-muted mt-1">
               Defina uma senha para o dashboard. Ela será solicitada em
               cada acesso futuro.
             </p>
@@ -54,7 +54,7 @@ export default function Setup({ onDone }: { onDone: () => void }) {
               onChange={(e) => setPw(e.target.value)}
               autoFocus
               disabled={busy}
-              className="w-full rounded-lg border border-default-200 bg-default-50 px-3 py-2 text-sm outline-none focus:border-primary"
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
             />
             <input
               type="password"
@@ -62,13 +62,13 @@ export default function Setup({ onDone }: { onDone: () => void }) {
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               disabled={busy}
-              className="w-full rounded-lg border border-default-200 bg-default-50 px-3 py-2 text-sm outline-none focus:border-primary"
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
             />
             {err && <p className="text-sm text-danger">{err}</p>}
             <button
               type="submit"
               disabled={busy}
-              className="w-full rounded-lg bg-primary text-white py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50"
+              className="w-full rounded-lg bg-accent text-white py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50"
             >
               {busy ? "Definindo..." : "Definir senha"}
             </button>

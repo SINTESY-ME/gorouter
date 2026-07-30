@@ -1,6 +1,6 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "@heroui/react/styles";
+
+@custom-variant dark (&:is(.dark *));
 
 /* Remove native focus outline on inputs inside HeroUI components —
    the library draws its own focus ring; the browser's default square

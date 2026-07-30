@@ -1,26 +1,23 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import {
-  Input, Spinner, Chip, Button, Modal, ModalContent, ModalHeader,
-  ModalBody, ModalFooter, Select, SelectItem, useDisclosure,
+  Input, Spinner, Chip, Button, Modal, Select, ListBox, TextField, Label,
 } from "@heroui/react";
 import { api, type ModelEntry, type Provider, type ModelStat, type ModelPricing } from "../api";
 import { formatCompact } from "../format";
 
 const KINDS = ["llm", "embedding", "image", "tts", "stt", "rerank", "ocr", "video"];
 
-const kindColor = (k: string): "primary" | "success" | "warning" | "danger" | "secondary" | "default" => {
+const kindColor = (k: string): "accent" | "success" | "warning" | "danger" | "default" => {
   switch (k) {
-    case "llm": return "primary";
+    case "llm": return "accent";
     case "embedding": return "success";
     case "image": return "warning";
-    case "tts": return "secondary";
+    case "tts": return "default";
     case "stt": return "danger";
     default: return "default";
   }
 };
 
-// formatPrice converts a per-token price to $X.XX per 1M tokens.
-// Returns null when the price is 0/missing.
 const formatPricePer1M = (perToken: number | undefined): string | null => {
   if (!perToken || perToken <= 0) return null;
   const per1M = perToken * 1_000_000;
@@ -32,7 +29,6 @@ const formatPricePerImage = (perImage: number | undefined): string | null => {
   return `$${perImage.toFixed(4)}/img`;
 };
 
-// copyToClipboard copies text and shows a temporary "copied!" feedback.
 function useCopyToClipboard() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const copy = useCallback((text: string, id: string) => {
@@ -52,10 +48,10 @@ export default function Models() {
   const [query, setQuery] = useState("");
   const [syncing, setSyncing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { isOpen, onOpen, onClose } = useDisclosure();
+  const [addOpen, setAddOpen] = useState(false);
   const [addProviderId, setAddProviderId] = useState<string>("");
   const [addForm, setAddForm] = useState({ model_id: "", name: "", kind: "llm", context: 0 });
-  const { isOpen: pricingOpen, onOpen: onPricingOpen, onClose: onPricingClose } = useDisclosure();
+  const [pricingOpen, setPricingOpen] = useState(false);
   const [pricingModel, setPricingModel] = useState<ModelEntry | null>(null);
   const [pricingForm, setPricingForm] = useState({ inputPer1M: "", outputPer1M: "", perImage: "" });
   const { copiedId, copy } = useCopyToClipboard();
@@ -66,7 +62,6 @@ export default function Models() {
     api.providers.list().then((ps) => {
       if (cancelled) return;
       setProviders(ps);
-      // Fetch models for all providers (active state is now per-connection)
       return Promise.all(ps.map((p) => api.providers.models(p.id).catch(() => [] as ModelEntry[])))
         .then((results) => {
           if (cancelled) return;
@@ -104,7 +99,7 @@ export default function Models() {
   }, [filtered]);
 
   const sync = async (providerId: string) => {
-    const p = providers.find((x) => x.provider_id === providerId);
+    const p = providers.find((x) => x.id === providerId);
     if (!p) return;
     setSyncing(p.id);
     try {
@@ -136,11 +131,11 @@ export default function Models() {
   };
 
   const openAdd = (providerId: string) => {
-    const p = providers.find((x) => x.provider_id === providerId);
+    const p = providers.find((x) => x.id === providerId);
     if (!p) return;
     setAddProviderId(p.id);
     setAddForm({ model_id: "", name: "", kind: "llm", context: 0 });
-    onOpen();
+    setAddOpen(true);
   };
 
   const submitAdd = async () => {
@@ -152,19 +147,19 @@ export default function Models() {
         context: addForm.context || undefined,
       });
       setItems((prev) => [...prev, entry]);
-      onClose();
+      setAddOpen(false);
     } catch (e: any) { setError(e?.message); }
   };
 
   const openPricing = (m: ModelEntry) => {
     setPricingModel(m);
-    const p = m.pricing || {};
+    const p = (m.pricing || {}) as ModelPricing;
     setPricingForm({
       inputPer1M: p.input_cost_per_token ? String((p.input_cost_per_token * 1_000_000).toFixed(2)) : "",
       outputPer1M: p.output_cost_per_token ? String((p.output_cost_per_token * 1_000_000).toFixed(2)) : "",
       perImage: p.output_cost_per_image ? String(p.output_cost_per_image) : "",
     });
-    onPricingOpen();
+    setPricingOpen(true);
   };
 
   const submitPricing = async () => {
@@ -177,18 +172,17 @@ export default function Models() {
     try {
       const updated = await api.models.pricing(pricingModel.id, pricing);
       setItems((prev) => prev.map((x) => x.id === pricingModel.id ? { ...x, pricing: updated.pricing } : x));
-      onPricingClose();
+      setPricingOpen(false);
     } catch (e: any) { setError(e?.message); }
   };
 
-  // Extract bare model id for stats lookup (strip provider prefix)
   const statKey = (m: ModelEntry) => {
     const parts = m.id.split("/");
     return parts.length > 1 ? parts[1] : m.id;
   };
 
   if (loading) {
-    return <div className="flex justify-center py-20"><Spinner label="Carregando modelos..." /></div>;
+    return <div className="flex justify-center py-20"><Spinner /></div>;
   }
 
   return (
@@ -196,26 +190,27 @@ export default function Models() {
       <div className="flex justify-between items-end gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Models</h1>
-          <p className="text-sm text-default-500 mt-0.5">{items.length} modelos · {items.filter(m => m.is_active).length} ativos</p>
+          <p className="text-sm text-muted mt-0.5">{items.length} modelos · {items.filter(m => m.is_active).length} ativos</p>
         </div>
-        <Input
-          isClearable
-          value={query}
-          onValueChange={setQuery}
-          placeholder="Buscar modelo, provider, tipo..."
-          className="max-w-xs"
-          variant="bordered"
-          startContent={<IconSearch />}
-          aria-label="buscar modelos"
-        />
+        <div className="relative max-w-xs w-full">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><IconSearch /></span>
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar modelo, provider, tipo..."
+            className="pl-9"
+            variant="secondary"
+            aria-label="buscar modelos"
+          />
+        </div>
       </div>
 
       {error && (
-        <div className="bg-danger-50 border border-danger-200 text-danger-600 rounded-xl p-4 text-sm">{error}</div>
+        <div className="bg-danger-soft border border-danger/30 text-danger rounded-xl p-4 text-sm">{error}</div>
       )}
 
       {groups.length === 0 && (
-        <div className="text-center py-20 text-default-500 text-sm">
+        <div className="text-center py-20 text-muted text-sm">
           Nenhum modelo {query ? "corresponde à busca" : "disponível ainda"}. {!query && "Crie um provider e sincronize."}
         </div>
       )}
@@ -224,13 +219,13 @@ export default function Models() {
         {groups.map((g) => (
           <div key={g.providerId}>
             <div className="flex items-center gap-2 mb-3">
-              <Chip size="sm" variant="flat" color="default" className="font-mono">{g.providerId}</Chip>
-              <span className="text-xs text-default-400">{g.models.length} modelo{g.models.length === 1 ? "" : "s"}</span>
+              <Chip size="sm" variant="soft" color="default" className="font-mono">{g.providerId}</Chip>
+              <span className="text-xs text-muted">{g.models.length} modelo{g.models.length === 1 ? "" : "s"}</span>
               <div className="flex gap-1 ml-auto">
-                <Button size="sm" variant="flat" onPress={() => sync(g.providerId)} isLoading={syncing === providers.find(p => p.provider_id === g.providerId)?.id}>
+                <Button size="sm" variant="secondary" onPress={() => sync(g.providerId)} isDisabled={syncing === providers.find(p => p.id === g.providerId)?.id}>
                   Sincronizar
                 </Button>
-                <Button size="sm" variant="flat" color="primary" onPress={() => openAdd(g.providerId)}>+ Model</Button>
+                <Button size="sm" variant="outline" onPress={() => openAdd(g.providerId)}>+ Model</Button>
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
@@ -239,27 +234,27 @@ export default function Models() {
                 return (
                   <div
                     key={m.id}
-                    className="group relative bg-content1 border border-default-100 rounded-xl p-3 hover:border-default-200 transition-colors"
+                    className="group relative bg-surface border border-border rounded-xl p-3 hover:border-border transition-colors"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <code
-                        className="text-sm font-mono truncate flex-1 cursor-pointer hover:text-primary transition-colors"
+                        className="text-sm font-mono truncate flex-1 cursor-pointer hover:text-accent transition-colors"
                         title={`${m.id} — clique para copiar`}
                         onClick={() => copy(m.id, m.id)}
                       >
                         {copiedId === m.id ? "copiado!" : m.id}
                       </code>
                       <span
-                        className={`w-2 h-2 rounded-full shrink-0 mt-1 ${m.is_active ? "bg-success" : "bg-default-300"}`}
+                        className={`w-2 h-2 rounded-full shrink-0 mt-1 ${m.is_active ? "bg-success" : "bg-default-soft"}`}
                         title={m.is_active ? "ativo" : "inativo"}
                       />
                     </div>
                     <div className="flex items-center gap-1.5 mt-2">
-                      <Chip size="sm" variant="flat" color={kindColor(m.kind)} className="h-5 text-[10px]">{m.kind}</Chip>
-                      <span className="text-[10px] text-default-400">{m.source}</span>
+                      <Chip size="sm" variant="soft" color={kindColor(m.kind)} className="h-5 text-[10px]">{m.kind}</Chip>
+                      <span className="text-[10px] text-muted">{m.source}</span>
                     </div>
                     {st && st.requests > 0 && (
-                      <div className="flex items-center gap-3 mt-2 text-[10px] text-default-500">
+                      <div className="flex items-center gap-3 mt-2 text-[10px] text-muted">
                         <span className="tabular-nums">{st.avg_tps > 0 ? `${st.avg_tps.toFixed(1)} tok/s` : "—"}</span>
                         <span className="tabular-nums">{st.avg_ttft_ms && st.avg_ttft_ms > 0 ? `ttft ${Math.round(st.avg_ttft_ms)}ms` : ""}{st.avg_ttft_ms && st.avg_ttft_ms > 0 ? " · " : ""}{st.avg_latency_ms > 0 ? `${Math.round(st.avg_latency_ms)}ms` : "—"}</span>
                         <span className="tabular-nums">{st.requests > 999 ? formatCompact(st.requests) : `${st.requests}x`}</span>
@@ -274,37 +269,36 @@ export default function Models() {
                       if (!inPrice && !outPrice && !imgPrice) {
                         return (
                           <div className="flex items-center gap-1 mt-1.5 text-[10px]">
-                            <span className="tabular-nums text-default-400">Free</span>
+                            <span className="tabular-nums text-muted">Free</span>
                           </div>
                         );
                       }
                       return (
                         <div className="flex items-center gap-2 mt-1.5 text-[10px]">
-                          {inPrice && <span className="tabular-nums text-success-600">{inPrice}</span>}
-                          {outPrice && <span className="tabular-nums text-primary">{outPrice}</span>}
+                          {inPrice && <span className="tabular-nums text-success">{inPrice}</span>}
+                          {outPrice && <span className="tabular-nums text-accent">{outPrice}</span>}
                           {imgPrice && <span className="tabular-nums text-warning">{imgPrice}</span>}
                         </div>
                       );
                     })()}
-                    {/* Hover actions */}
                     <div className="absolute top-1.5 right-7 opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5">
                       <button
                         onClick={() => openPricing(m)}
-                        className="w-6 h-6 rounded-md bg-content1 border border-default-200 hover:bg-default-100 flex items-center justify-center shadow-sm"
+                        className="w-6 h-6 rounded-md bg-surface border border-border hover:bg-default-soft flex items-center justify-center shadow-sm"
                         title="Editar preço"
                       >
                         <IconDollar />
                       </button>
                       <button
                         onClick={() => toggleActive(m)}
-                        className="w-6 h-6 rounded-md bg-content1 border border-default-200 hover:bg-default-100 flex items-center justify-center shadow-sm"
+                        className="w-6 h-6 rounded-md bg-surface border border-border hover:bg-default-soft flex items-center justify-center shadow-sm"
                         title={m.is_active ? "Desativar" : "Ativar"}
                       >
                         <IconPower active={m.is_active} />
                       </button>
                       <button
                         onClick={() => removeModel(m)}
-                        className="w-6 h-6 rounded-md bg-content1 border border-default-200 hover:bg-danger-100 text-danger flex items-center justify-center shadow-sm"
+                        className="w-6 h-6 rounded-md bg-surface border border-border hover:bg-danger-soft text-danger flex items-center justify-center shadow-sm"
                         title="Excluir"
                       >
                         <IconTrash />
@@ -318,66 +312,77 @@ export default function Models() {
         ))}
       </div>
 
-      <Modal isOpen={pricingOpen} onClose={onPricingClose}>
-        <ModalContent>
-          <ModalHeader>Editar preço — {pricingModel?.id}</ModalHeader>
-          <ModalBody className="gap-4">
-            <Input
-              type="number"
-              label="Input ($ / 1M tokens)"
-              placeholder="ex: 2.50"
-              value={pricingForm.inputPer1M}
-              onValueChange={(v) => setPricingForm({ ...pricingForm, inputPer1M: v })}
-              step="0.01"
-            />
-            <Input
-              type="number"
-              label="Output ($ / 1M tokens)"
-              placeholder="ex: 10.00"
-              value={pricingForm.outputPer1M}
-              onValueChange={(v) => setPricingForm({ ...pricingForm, outputPer1M: v })}
-              step="0.01"
-            />
-            <Input
-              type="number"
-              label="Por imagem ($ — image gen only)"
-              placeholder="ex: 0.04"
-              value={pricingForm.perImage}
-              onValueChange={(v) => setPricingForm({ ...pricingForm, perImage: v })}
-              step="0.01"
-            />
-            <p className="text-xs text-default-500">
-              Preços em USD por 1 milhão de tokens. Deixe em branco para zerar.
-            </p>
-          </ModalBody>
-          <ModalFooter>
-            <Button color="primary" onPress={submitPricing}>Salvar preço</Button>
-          </ModalFooter>
-        </ModalContent>
+      <Modal isOpen={pricingOpen} onOpenChange={setPricingOpen}>
+        <Modal.Backdrop>
+          <Modal.Container>
+            <Modal.Dialog>
+              <Modal.Header><Modal.Heading>Editar preço — {pricingModel?.id}</Modal.Heading></Modal.Header>
+              <Modal.Body className="gap-4">
+                <TextField value={pricingForm.inputPer1M} onChange={(v) => setPricingForm({ ...pricingForm, inputPer1M: v })}>
+                  <Label>Input ($ / 1M tokens)</Label>
+                  <Input type="number" placeholder="ex: 2.50" step="0.01" />
+                </TextField>
+                <TextField value={pricingForm.outputPer1M} onChange={(v) => setPricingForm({ ...pricingForm, outputPer1M: v })}>
+                  <Label>Output ($ / 1M tokens)</Label>
+                  <Input type="number" placeholder="ex: 10.00" step="0.01" />
+                </TextField>
+                <TextField value={pricingForm.perImage} onChange={(v) => setPricingForm({ ...pricingForm, perImage: v })}>
+                  <Label>Por imagem ($ — image gen only)</Label>
+                  <Input type="number" placeholder="ex: 0.04" step="0.01" />
+                </TextField>
+                <p className="text-xs text-muted">
+                  Preços em USD por 1 milhão de tokens. Deixe em branco para zerar.
+                </p>
+              </Modal.Body>
+              <Modal.Footer>
+                <Button variant="primary" onPress={submitPricing}>Salvar preço</Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
       </Modal>
 
-      <Modal isOpen={isOpen} onClose={onClose}>
-        <ModalContent>
-          <ModalHeader>Adicionar modelo</ModalHeader>
-          <ModalBody className="gap-4">
-            <Input label="Model ID" placeholder="ex: gpt-4o, whisper-1" value={addForm.model_id} onValueChange={(v) => setAddForm({ ...addForm, model_id: v })} />
-            <Input label="Nome (opcional)" placeholder="nome display" value={addForm.name} onValueChange={(v) => setAddForm({ ...addForm, name: v })} />
-            <Select label="Tipo" selectedKeys={[addForm.kind]} onChange={(e) => setAddForm({ ...addForm, kind: e.target.value })}>
-              {KINDS.map((k) => <SelectItem key={k}>{k}</SelectItem>)}
-            </Select>
-            <Input type="number" label="Context (opcional)" value={String(addForm.context)} onValueChange={(v) => setAddForm({ ...addForm, context: parseInt(v) || 0 })} />
-          </ModalBody>
-          <ModalFooter>
-            <Button color="primary" onPress={submitAdd} isDisabled={!addForm.model_id}>Adicionar</Button>
-          </ModalFooter>
-        </ModalContent>
+      <Modal isOpen={addOpen} onOpenChange={setAddOpen}>
+        <Modal.Backdrop>
+          <Modal.Container>
+            <Modal.Dialog>
+              <Modal.Header><Modal.Heading>Adicionar modelo</Modal.Heading></Modal.Header>
+              <Modal.Body className="gap-4">
+                <TextField value={addForm.model_id} onChange={(v) => setAddForm({ ...addForm, model_id: v })}>
+                  <Label>Model ID</Label>
+                  <Input placeholder="ex: gpt-4o, whisper-1" />
+                </TextField>
+                <TextField value={addForm.name} onChange={(v) => setAddForm({ ...addForm, name: v })}>
+                  <Label>Nome (opcional)</Label>
+                  <Input placeholder="nome display" />
+                </TextField>
+                <div className="flex flex-col gap-1">
+                  <Label>Tipo</Label>
+                  <Select aria-label="Tipo" selectedKey={addForm.kind} onSelectionChange={(k) => setAddForm({ ...addForm, kind: (k as string) ?? "llm" })}>
+                    <Select.Trigger><Select.Value /></Select.Trigger>
+                    <Select.Popover>
+                      <ListBox>{KINDS.map((k) => <ListBox.Item key={k} id={k}>{k}</ListBox.Item>)}</ListBox>
+                    </Select.Popover>
+                  </Select>
+                </div>
+                <TextField value={String(addForm.context)} onChange={(v) => setAddForm({ ...addForm, context: parseInt(v) || 0 })}>
+                  <Label>Context (opcional)</Label>
+                  <Input type="number" />
+                </TextField>
+              </Modal.Body>
+              <Modal.Footer>
+                <Button variant="primary" onPress={submitAdd} isDisabled={!addForm.model_id}>Adicionar</Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
       </Modal>
     </div>
   );
 }
 
 function IconSearch() {
-  return <svg className="w-4 h-4 text-default-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>;
+  return <svg className="w-4 h-4 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>;
 }
 function IconTrash() {
   return <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1.5 14a2 2 0 0 1-2 2H8.5a2 2 0 0 1-2-2L5 6" /></svg>;

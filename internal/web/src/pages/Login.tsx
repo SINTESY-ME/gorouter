@@ -27,16 +27,16 @@ export default function Login({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <div className="min-h-screen bg-default-50 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-background flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-3 mb-8 justify-center">
-          <IconRoute className="w-6 h-6 text-primary" />
+          <IconRoute className="w-6 h-6 text-accent" />
           <div>
             <p className="font-bold text-lg leading-tight">gorouter</p>
-            <p className="text-xs text-default-500 leading-tight">LLM router</p>
+            <p className="text-xs text-muted leading-tight">LLM router</p>
           </div>
         </div>
-        <div className="bg-content1 rounded-xl border border-default-100 p-6 space-y-4">
+        <div className="bg-surface rounded-xl border border-border p-6 space-y-4">
           <h2 className="text-lg font-semibold">Entrar</h2>
           <form onSubmit={submit} className="space-y-3">
             <input
@@ -46,13 +46,13 @@ export default function Login({ onDone }: { onDone: () => void }) {
               onChange={(e) => setPw(e.target.value)}
               autoFocus
               disabled={busy}
-              className="w-full rounded-lg border border-default-200 bg-default-50 px-3 py-2 text-sm outline-none focus:border-primary"
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
             />
             {err && <p className="text-sm text-danger">{err}</p>}
             <button
               type="submit"
               disabled={busy}
-              className="w-full rounded-lg bg-primary text-white py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50"
+              className="w-full rounded-lg bg-accent text-white py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50"
             >
               {busy ? "Entrando..." : "Entrar"}
             </button>

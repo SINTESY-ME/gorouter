@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
+import type { Selection } from "@heroui/react";
 import {
-  Table, TableHeader, TableColumn, TableBody, TableRow, TableCell,
-  Chip, Pagination, Spinner, Input, Select, SelectItem, Button,
+  Table, Chip, Pagination, Spinner, Input, Select, ListBox, Button, cn,
 } from "@heroui/react";
+import { Icon } from "@iconify/react";
 import { api, type UsageEntry, type ApiKey } from "../api";
 import { formatCompact, formatCost } from "../format";
 
@@ -14,31 +15,63 @@ const statusColor = (s: number): "success" | "warning" | "danger" | "default" =>
 };
 
 const costColor = (cost: number): string => {
-  if (cost <= 0) return "text-default-400";
-  if (cost < 0.001) return "text-success-600";
-  if (cost < 0.01) return "text-default-600";
+  if (cost <= 0) return "text-muted";
+  if (cost < 0.001) return "text-success";
+  if (cost < 0.01) return "text-foreground/80";
   return "text-danger";
 };
 
-function maskKey(k: string): string {
-  if (!k) return "—";
-  if (k.length <= 12) return k.slice(0, 3) + "..." + k.slice(-2);
-  return k.slice(0, 6) + "..." + k.slice(-4);
+interface LogRow {
+  id: string;
+  label: string;
+  isCombo: boolean;
+  timestamp: string;
+  provider: string;
+  model: string;
+  tokens: number;
+  cost: number;
+  status: number;
+  latency: number;
+  ttft: number;
+  tps: string | null;
+  cacheHit: boolean;
+  error?: string;
+  children: LogRow[];
 }
 
-interface RequestGroup {
-  key: string;
-  entries: UsageEntry[];
-  primary: UsageEntry;
+function toRow(e: UsageEntry, key: string): LogRow {
+  const tokens = e.prompt_tokens + e.completion_tokens;
+  const lat = e.latency_ms || 0;
+  const ttft = e.ttft_ms || 0;
+  const genMs = ttft > 0 && lat > ttft ? lat - ttft : lat;
+  const tps = genMs > 0 && e.completion_tokens > 0 ? (e.completion_tokens * 1000 / genMs).toFixed(1) : null;
+  return {
+    id: `${key}-${e.id}`,
+    label: e.combo_chain?.length ? `${e.combo_chain.join(" → ")} → ${e.model || "?"}` : (e.model || "—"),
+    isCombo: !!e.combo_chain?.length,
+    timestamp: e.timestamp,
+    provider: e.provider || "—",
+    model: e.model || "—",
+    tokens,
+    cost: e.cost,
+    status: e.status,
+    latency: lat,
+    ttft,
+    tps,
+    cacheHit: !!e.cache_hit,
+    error: e.error,
+    children: [],
+  };
 }
+
+const PER_PAGE = 25;
 
 export default function Logs() {
   const [items, setItems] = useState<UsageEntry[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const perPage = 25;
+  const [expandedKeys, setExpandedKeys] = useState<Selection>(new Set());
 
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -70,191 +103,194 @@ export default function Logs() {
   }, []);
 
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
-  useEffect(() => { setPage(1); setExpanded(new Set()); }, [fromDate, toDate, modelFilter, comboFilter, keyFilter, search]);
+  useEffect(() => { setPage(1); setExpandedKeys(new Set()); }, [fromDate, toDate, modelFilter, comboFilter, keyFilter, search]);
 
   const clearFilters = () => {
     setFromDate(""); setToDate(""); setModelFilter("");
     setComboFilter(""); setKeyFilter(""); setSearch("");
   };
 
-  const hasFilters = fromDate || toDate || modelFilter || comboFilter || keyFilter || search;
+  const hasFilters = !!(fromDate || toDate || modelFilter || comboFilter || keyFilter || search);
 
-  const groups: RequestGroup[] = useMemo(() => {
+  const rows: LogRow[] = useMemo(() => {
     const map = new Map<string, UsageEntry[]>();
     for (const e of items) {
       const key = e.request_id || String(e.id);
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(e);
     }
-    const result: RequestGroup[] = [];
+    const groups: LogRow[] = [];
     for (const [key, entries] of map) {
       entries.sort((a, b) => (a.attempt ?? 0) - (b.attempt ?? 0));
-      result.push({ key, entries, primary: entries[entries.length - 1] });
+      const primary = entries[entries.length - 1];
+      const row = toRow(primary, key);
+      if (entries.length > 1) {
+        row.children = entries.slice(0, -1).map((e) => toRow(e, key));
+      }
+      groups.push(row);
     }
-    result.sort((a, b) => new Date(b.primary.timestamp).getTime() - new Date(a.primary.timestamp).getTime());
-    return result;
+    groups.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return groups;
   }, [items]);
 
-  const paged = groups.slice((page - 1) * perPage, page * perPage);
+  const totalPages = Math.ceil(rows.length / PER_PAGE);
+  const paged = useMemo(() => {
+    const start = (page - 1) * PER_PAGE;
+    return rows.slice(start, start + PER_PAGE);
+  }, [rows, page]);
 
-  const toggleExpand = (key: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
+  const start = rows.length === 0 ? 0 : (page - 1) * PER_PAGE + 1;
+  const end = Math.min(page * PER_PAGE, rows.length);
+  const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
+
+  const renderRow = (item: LogRow) => (
+    <Table.Row id={item.id} textValue={item.label}>
+      <Table.Cell textValue={item.label}>
+        {({ hasChildItems, isExpanded }: { hasChildItems?: boolean; isExpanded?: boolean }) => (
+          <span className="flex items-center gap-1.5">
+            {hasChildItems ? (
+              <Button isIconOnly aria-label="Alternar" size="sm" slot="chevron" variant="ghost" className="size-5 min-w-0">
+                <Icon
+                  aria-hidden
+                  icon="gravity-ui:chevron-right"
+                  className={cn("size-3.5 text-muted transition-transform duration-150", isExpanded ? "rotate-90" : "")}
+                />
+              </Button>
+            ) : (
+              <span className="inline-block w-5" />
+            )}
+            <code className="text-xs">{item.label}</code>
+          </span>
+        )}
+      </Table.Cell>
+      <Table.Cell><span className="text-xs text-muted">{new Date(item.timestamp).toLocaleString()}</span></Table.Cell>
+      <Table.Cell><span className="text-xs">{item.provider}</span></Table.Cell>
+      <Table.Cell className="tabular-nums" textValue={String(item.tokens)}>{formatCompact(item.tokens)}</Table.Cell>
+      <Table.Cell textValue={String(item.cost)}>
+        <span className={cn("tabular-nums text-xs", costColor(item.cost))} title={`$${item.cost.toFixed(6)}`}>
+          {item.cost > 0 ? formatCost(item.cost) : "—"}
+        </span>
+      </Table.Cell>
+      <Table.Cell textValue={String(item.status)}>
+        <span className="flex items-center gap-1.5">
+          <Chip size="sm" color={statusColor(item.status)} variant="soft">{item.status || "err"}</Chip>
+          {item.error && <span className="text-[11px] text-danger truncate max-w-[160px]" title={item.error}>{item.error}</span>}
+        </span>
+      </Table.Cell>
+      <Table.Cell><span className="tabular-nums text-xs">{item.latency > 0 ? `${item.latency}ms` : "—"}</span></Table.Cell>
+      <Table.Collection items={item.children}>{renderRow}</Table.Collection>
+    </Table.Row>
+  );
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Logs de uso</h1>
-        <p className="text-sm text-default-500 mt-0.5">
-          {groups.length} {hasFilters ? "registros filtrados" : "registros"}
+        <p className="text-sm text-muted mt-0.5">
+          {rows.length} {hasFilters ? "registros filtrados" : "registros"}
         </p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <Input type="date" label="De" size="sm" value={fromDate} onValueChange={setFromDate} />
-        <Input type="date" label="Até" size="sm" value={toDate} onValueChange={setToDate} />
-        <Select label="Modelo" size="sm" selectedKeys={modelFilter ? [modelFilter] : [""]} onChange={(e) => setModelFilter(e.target.value)} disallowEmptySelection>
-          {[<SelectItem key="">Todos</SelectItem>, ...modelOptions.map((m) => <SelectItem key={m}>{m}</SelectItem>)]}
+        <Input type="date" aria-label="De" value={fromDate} onChange={(e) => setFromDate(e.target.value)} variant="secondary" />
+        <Input type="date" aria-label="Até" value={toDate} onChange={(e) => setToDate(e.target.value)} variant="secondary" />
+        <FilterSelect label="Modelo" value={modelFilter} onChange={setModelFilter} options={modelOptions} />
+        <FilterSelect label="Combo" value={comboFilter} onChange={setComboFilter} options={comboOptions} />
+        <Select
+          aria-label="Token"
+          selectedKey={keyFilter || null}
+          onSelectionChange={(k) => setKeyFilter((k as string) ?? "")}
+        >
+          <Select.Trigger><Select.Value>{keyFilter ? apiKeys.find((k) => k.key === keyFilter)?.name ?? "Token" : "Todos"}</Select.Value><Select.Indicator /></Select.Trigger>
+          <Select.Popover>
+            <ListBox>
+              <ListBox.Item id="">Todos</ListBox.Item>
+              {apiKeys.map((k) => <ListBox.Item key={k.key} id={k.key}>{k.name}</ListBox.Item>)}
+            </ListBox>
+          </Select.Popover>
         </Select>
-        <Select label="Combo" size="sm" selectedKeys={comboFilter ? [comboFilter] : [""]} onChange={(e) => setComboFilter(e.target.value)} disallowEmptySelection>
-          {[<SelectItem key="">Todos</SelectItem>, ...comboOptions.map((c) => <SelectItem key={c}>{c}</SelectItem>)]}
-        </Select>
-        <Select label="Token" size="sm" selectedKeys={keyFilter ? [keyFilter] : [""]} onChange={(e) => setKeyFilter(e.target.value)} disallowEmptySelection>
-          {[<SelectItem key="">Todos</SelectItem>, ...apiKeys.map((k) => <SelectItem key={k.key}>{k.name}</SelectItem>)]}
-        </Select>
-        <Input label="Buscar" size="sm" placeholder="modelo, provider..." value={search} onValueChange={setSearch} isClearable />
+        <Input aria-label="Buscar" placeholder="modelo, provider..." value={search} onChange={(e) => setSearch(e.target.value)} variant="secondary" />
       </div>
 
       {hasFilters && (
-        <Button size="sm" variant="flat" onPress={clearFilters}>Limpar filtros</Button>
+        <Button size="sm" variant="secondary" onPress={clearFilters}>Limpar filtros</Button>
       )}
 
-      <div className="bg-content1 rounded-2xl border border-default-100 overflow-hidden">
-        {loading ? (
-          <div className="p-10 flex justify-center"><Spinner /></div>
-        ) : groups.length === 0 ? (
-          <div className="p-10 text-center text-default-500 text-sm">
-            {hasFilters ? "Nenhum registro encontrado." : "Nenhum log ainda."}
-          </div>
-        ) : (
-          <Table aria-label="logs" removeWrapper>
-            <TableHeader>
-              <TableColumn> </TableColumn>
-              <TableColumn>TIMESTAMP</TableColumn>
-              <TableColumn>COMBO</TableColumn>
-              <TableColumn>PROVIDER</TableColumn>
-              <TableColumn>MODELO</TableColumn>
-              <TableColumn>TOKENS</TableColumn>
-              <TableColumn>CUSTO</TableColumn>
-              <TableColumn>TPS</TableColumn>
-              <TableColumn>TTFT</TableColumn>
-              <TableColumn>LATÊNCIA</TableColumn>
-              <TableColumn>STATUS</TableColumn>
-              <TableColumn>CACHE</TableColumn>
-            </TableHeader>
-            <TableBody items={paged}>
-              {(g) => {
-                const e = g.primary;
-                const totalTokens = e.prompt_tokens + e.completion_tokens;
-                const lat = e.latency_ms || 0;
-                const ttft = e.ttft_ms || 0;
-                const genMs = ttft > 0 && lat > ttft ? lat - ttft : lat;
-                const tps = genMs > 0 && e.completion_tokens > 0
-                  ? (e.completion_tokens * 1000 / genMs).toFixed(1)
-                  : null;
-                const hasAttempts = g.entries.length > 1;
-                const isOpen = expanded.has(g.key);
-                return (
-                <TableRow key={g.key}>
-                  <TableCell>
-                    {hasAttempts ? (
-                      <button
-                        onClick={() => toggleExpand(g.key)}
-                        className="w-5 h-5 flex items-center justify-center rounded text-default-400 hover:text-default-600 hover:bg-default-100 transition-colors text-xs font-mono"
-                      >
-                        {isOpen ? "−" : "+"}
-                      </button>
-                    ) : null}
-                  </TableCell>
-                  <TableCell><span className="text-xs text-default-500">{new Date(e.timestamp).toLocaleString()}</span></TableCell>
-                  <TableCell>{e.combo_chain?.length ? <code className="text-xs">{e.combo_chain.join(" → ")}</code> : <span className="text-default-400">—</span>}</TableCell>
-                  <TableCell>{e.provider || <span className="text-default-400">—</span>}</TableCell>
-                  <TableCell><code className="text-xs">{e.model || "—"}</code></TableCell>
-                  <TableCell className="tabular-nums" title={totalTokens.toLocaleString("en-US")}>{formatCompact(totalTokens)}</TableCell>
-                  <TableCell><span className={`tabular-nums text-xs ${costColor(e.cost)}`} title={`$${e.cost.toFixed(6)}`}>{e.cost > 0 ? formatCost(e.cost) : "—"}</span></TableCell>
-                  <TableCell><span className="tabular-nums text-xs">{tps ? `${tps}` : "—"}</span></TableCell>
-                  <TableCell><span className="tabular-nums text-xs">{ttft > 0 ? `${ttft}ms` : "—"}</span></TableCell>
-                  <TableCell><span className="tabular-nums text-xs">{lat > 0 ? `${lat}ms` : "—"}</span></TableCell>
-                  <TableCell><Chip size="sm" color={statusColor(e.status)} variant="flat">{e.status || "err"}</Chip></TableCell>
-                  <TableCell>{e.cache_hit ? <Chip size="sm" color="success" variant="flat">hit</Chip> : <span className="text-default-400">—</span>}</TableCell>
-                </TableRow>
-                );
-              }}
-            </TableBody>
-          </Table>
+      <Table>
+        <Table.ScrollContainer>
+          <Table.Content
+            aria-label="Logs de uso"
+            className="min-w-[820px]"
+            expandedKeys={expandedKeys}
+            treeColumn="label"
+            onExpandedChange={setExpandedKeys}
+          >
+            <Table.Header>
+              <Table.Column isRowHeader id="label">Registro</Table.Column>
+              <Table.Column id="timestamp">Timestamp</Table.Column>
+              <Table.Column id="provider">Provider</Table.Column>
+              <Table.Column id="tokens">Tokens</Table.Column>
+              <Table.Column id="cost">Custo</Table.Column>
+              <Table.Column id="status">Status</Table.Column>
+              <Table.Column id="latency">Latência</Table.Column>
+            </Table.Header>
+            <Table.Body items={paged} renderEmptyState={() => (
+              <div className="p-10 text-center text-muted text-sm">
+                {hasFilters ? "Nenhum registro encontrado." : "Nenhum log ainda."}
+              </div>
+            )}>
+              {loading ? () => (
+                <Table.Row id="loading"><Table.Cell colSpan={7}><div className="p-10 flex justify-center"><Spinner /></div></Table.Cell></Table.Row>
+              ) : renderRow}
+            </Table.Body>
+          </Table.Content>
+        </Table.ScrollContainer>
+        {!loading && totalPages > 1 && (
+          <Table.Footer>
+            <Pagination size="sm">
+              <Pagination.Summary>{start} a {end} de {rows.length}</Pagination.Summary>
+              <Pagination.Content>
+                <Pagination.Item>
+                  <Pagination.Previous isDisabled={page === 1} onPress={() => setPage((p) => Math.max(1, p - 1))}>
+                    <Pagination.PreviousIcon />
+                  </Pagination.Previous>
+                </Pagination.Item>
+                {pages.map((p) => (
+                  <Pagination.Item key={p}>
+                    <Pagination.Link isActive={p === page} onPress={() => setPage(p)}>{p}</Pagination.Link>
+                  </Pagination.Item>
+                ))}
+                <Pagination.Item>
+                  <Pagination.Next isDisabled={page === totalPages} onPress={() => setPage((p) => Math.min(totalPages, p + 1))}>
+                    <Pagination.NextIcon />
+                  </Pagination.Next>
+                </Pagination.Item>
+              </Pagination.Content>
+            </Pagination>
+          </Table.Footer>
         )}
-      </div>
-
-      {!loading && paged.some((g) => expanded.has(g.key)) && (
-        <div className="space-y-3">
-          {paged.filter((g) => expanded.has(g.key)).map((g) => (
-            <AttemptTree key={g.key} group={g} />
-          ))}
-        </div>
-      )}
-
-      {!loading && groups.length > perPage && (
-        <div className="flex justify-center">
-          <Pagination total={Math.ceil(groups.length / perPage)} page={page} onChange={setPage} />
-        </div>
-      )}
+      </Table>
     </div>
   );
 }
 
-function AttemptTree({ group }: { group: RequestGroup }) {
-  const { entries, primary } = group;
+function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
   return (
-    <div className="bg-content1 rounded-2xl border border-default-100 p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <span className="text-xs font-medium text-default-500">
-          Tentativas — {new Date(primary.timestamp).toLocaleString()}
-        </span>
-        <Chip size="sm" variant="flat" color={statusColor(primary.status)}>{primary.status || "err"}</Chip>
-      </div>
-      <div className="space-y-1">
-        {entries.map((e, i) => {
-          const isLast = i === entries.length - 1;
-          const ok = e.status > 0 && e.status < 400;
-          const depth = (e.combo_chain?.length ?? 0);
-          return (
-            <div
-              key={e.id}
-              className="flex items-center gap-2 text-xs py-1 px-2 rounded-lg"
-              style={{ paddingLeft: `${8 + depth * 16}px`, background: isLast ? "var(--heroui-default-100)" : "transparent" }}
-            >
-              <span className="text-default-400 font-mono w-4 shrink-0">{i + 1}.</span>
-              {e.combo_chain?.length ? (
-                <code className="text-default-500 shrink-0">{e.combo_chain.join(" → ")}</code>
-              ) : null}
-              <span className="text-default-300">→</span>
-              <code className="font-medium shrink-0">{e.model || "combo"}</code>
-              {e.provider && <span className="text-default-400">({e.provider})</span>}
-              <Chip size="sm" variant="flat" color={statusColor(e.status)} className="shrink-0">
-                {e.status || "err"}
-              </Chip>
-              {e.latency_ms ? <span className="text-default-400 tabular-nums">{e.latency_ms}ms</span> : null}
-              {e.error && <span className="text-danger truncate max-w-[300px]" title={e.error}>{e.error}</span>}
-              {ok && <span className="text-success">✓</span>}
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <Select
+      aria-label={label}
+      selectedKey={value || null}
+      onSelectionChange={(k) => onChange((k as string) ?? "")}
+    >
+      <Select.Trigger>
+        <Select.Value>{value || "Todos"}</Select.Value>
+        <Select.Indicator />
+      </Select.Trigger>
+      <Select.Popover>
+        <ListBox>
+          <ListBox.Item id="">Todos</ListBox.Item>
+          {options.map((o) => <ListBox.Item key={o} id={o}>{o}</ListBox.Item>)}
+        </ListBox>
+      </Select.Popover>
+    </Select>
   );
 }
