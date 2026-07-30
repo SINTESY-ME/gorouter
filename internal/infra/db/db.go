@@ -68,6 +68,9 @@ func Open(ctx context.Context, driver, dsn string) (*gorm.DB, error) {
 	// Drop the old combo_name column from usage_entries. Combo membership
 	// is now tracked in the combo_executions table.
 	dropColumnIfExists(db, "usage_entries", "combo_name")
+	// Backfill request_id for entries created before the request_id column
+	// existed. Each old entry becomes its own request group.
+	db.Exec("UPDATE usage_entries SET request_id = CAST(id AS TEXT) WHERE request_id IS NULL OR request_id = ''")
 	// Backfill: create ProviderConfig rows for any provider_id that exists
 	// in connections but has no ProviderConfig row yet. This ensures
 	// existing deployments get the Provider entity without manual migration.

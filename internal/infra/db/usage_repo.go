@@ -76,14 +76,14 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 	}
 	if err := tx.Where("timestamp >= ? AND timestamp < ?", from, to).
 		Select(`
-			COUNT(*) as requests,
-			COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
-			COALESCE(SUM(completion_tokens), 0) as completion_tokens,
-			COALESCE(SUM(cost), 0) as cost,
-			COALESCE(SUM(CASE WHEN status < 400 THEN 1 ELSE 0 END), 0) as successful,
-			COALESCE(SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END), 0) as errors,
+			COUNT(DISTINCT request_id) as requests,
+			COALESCE(SUM(CASE WHEN status < 400 THEN prompt_tokens ELSE 0 END), 0) as prompt_tokens,
+			COALESCE(SUM(CASE WHEN status < 400 THEN completion_tokens ELSE 0 END), 0) as completion_tokens,
+			COALESCE(SUM(CASE WHEN status < 400 THEN cost ELSE 0 END), 0) as cost,
+			COUNT(DISTINCT CASE WHEN status < 400 THEN request_id END) as successful,
+			COUNT(DISTINCT request_id) - COUNT(DISTINCT CASE WHEN status < 400 THEN request_id END) as errors,
 			COALESCE(SUM(CASE WHEN cache_hit THEN 1 ELSE 0 END), 0) as cache_hits,
-			COALESCE(SUM(CASE WHEN id IN (SELECT DISTINCT usage_id FROM combo_executions) THEN 1 ELSE 0 END), 0) as combo_reqs,
+			COUNT(DISTINCT CASE WHEN id IN (SELECT DISTINCT usage_id FROM combo_executions) THEN request_id END) as combo_reqs,
 			COALESCE(SUM(cache_cost_saved + rtk_cost_saved), 0) as cost_saved,
 			COALESCE(SUM(cache_tokens_saved + rtk_tokens_saved), 0) as tokens_saved
 		`).
@@ -216,7 +216,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 	var comboRows []groupRow
 	comboTx := r.db.WithContext(ctx).Table("combo_executions").
 		Joins("JOIN usage_entries ON usage_entries.id = combo_executions.usage_id").
-		Where("usage_entries.timestamp >= ? AND usage_entries.timestamp < ?", from, to)
+		Where("usage_entries.timestamp >= ? AND usage_entries.timestamp < ? AND usage_entries.status < 400", from, to)
 	if q.ApiKey != "" {
 		comboTx = comboTx.Where("usage_entries.api_key = ?", q.ApiKey)
 	}
@@ -238,7 +238,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 	var comboTokenRows []comboTokenRow
 	comboTokenTx := r.db.WithContext(ctx).Table("combo_executions").
 		Joins("JOIN usage_entries ON usage_entries.id = combo_executions.usage_id").
-		Where("usage_entries.timestamp >= ? AND usage_entries.timestamp < ?", from, to)
+		Where("usage_entries.timestamp >= ? AND usage_entries.timestamp < ? AND usage_entries.status < 400", from, to)
 	if q.ApiKey != "" {
 		comboTokenTx = comboTokenTx.Where("usage_entries.api_key = ?", q.ApiKey)
 	}
@@ -260,7 +260,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 	var comboCostRows []comboCostRow
 	comboCostTx := r.db.WithContext(ctx).Table("combo_executions").
 		Joins("JOIN usage_entries ON usage_entries.id = combo_executions.usage_id").
-		Where("usage_entries.timestamp >= ? AND usage_entries.timestamp < ?", from, to)
+		Where("usage_entries.timestamp >= ? AND usage_entries.timestamp < ? AND usage_entries.status < 400", from, to)
 	if q.ApiKey != "" {
 		comboCostTx = comboCostTx.Where("usage_entries.api_key = ?", q.ApiKey)
 	}
@@ -416,13 +416,13 @@ func (r *UsageRepo) timeseries(ctx context.Context, from, to time.Time, bucket s
 	}
 	if err := tx.Where("timestamp >= ? AND timestamp < ?", from, to).
 		Select(dateExpr + ` as date,
-			COUNT(*) as requests,
-			COALESCE(SUM(prompt_tokens + completion_tokens), 0) as tokens,
-			COALESCE(SUM(cost), 0) as cost,
+			COUNT(DISTINCT request_id) as requests,
+			COALESCE(SUM(CASE WHEN status < 400 THEN prompt_tokens + completion_tokens ELSE 0 END), 0) as tokens,
+			COALESCE(SUM(CASE WHEN status < 400 THEN cost ELSE 0 END), 0) as cost,
 			COALESCE(SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END), 0) as errors,
-			COALESCE(AVG(CASE WHEN ttft_ms > 0 AND latency_ms > ttft_ms
+			COALESCE(AVG(CASE WHEN status < 400 AND ttft_ms > 0 AND latency_ms > ttft_ms
 				THEN completion_tokens * 1000.0 / (latency_ms - ttft_ms)
-				WHEN latency_ms > 0 AND completion_tokens > 0
+				WHEN status < 400 AND latency_ms > 0 AND completion_tokens > 0
 				THEN completion_tokens * 1000.0 / latency_ms
 				ELSE NULL END), 0) as avg_tps`).
 		Group(dateExpr).Order("date").
@@ -465,24 +465,41 @@ func (r *UsageRepo) History(ctx context.Context, q domain.HistoryQuery) ([]domai
 		like := "%" + q.Search + "%"
 		tx = tx.Where("model LIKE ? OR provider LIKE ? OR endpoint LIKE ?", like, like, like)
 	}
-	// Combo filter requires a subquery on combo_executions.
 	if q.Combo != "" {
 		tx = tx.Where("id IN (SELECT usage_id FROM combo_executions WHERE combo_name = ?)", q.Combo)
 	}
+	type reqRow struct {
+		RequestID string
+		Latest    time.Time
+	}
+	var reqRows []reqRow
+	if err := tx.Select("request_id, MAX(timestamp) as latest").
+		Group("request_id").
+		Order("latest DESC").
+		Limit(limit).
+		Scan(&reqRows).Error; err != nil {
+		return nil, err
+	}
+	if len(reqRows) == 0 {
+		return nil, nil
+	}
+	ids := make([]string, len(reqRows))
+	for i, rr := range reqRows {
+		ids[i] = rr.RequestID
+	}
 	var entries []domain.UsageEntry
-	if err := tx.Order("timestamp DESC").Limit(limit).Find(&entries).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("request_id IN ?", ids).Order("request_id, attempt").Find(&entries).Error; err != nil {
 		return nil, err
 	}
 	if len(entries) == 0 {
 		return entries, nil
 	}
-	// Batch-load combo chains for all entries in one query.
-	ids := make([]int64, len(entries))
+	entryIDs := make([]int64, len(entries))
 	for i := range entries {
-		ids[i] = entries[i].ID
+		entryIDs[i] = entries[i].ID
 	}
 	var execs []domain.ComboExecution
-	r.db.WithContext(ctx).Where("usage_id IN ?", ids).Order("usage_id, depth").Find(&execs)
+	r.db.WithContext(ctx).Where("usage_id IN ?", entryIDs).Order("usage_id, depth").Find(&execs)
 	byUsage := map[int64][]string{}
 	for _, ce := range execs {
 		byUsage[ce.UsageID] = append(byUsage[ce.UsageID], ce.ComboName)

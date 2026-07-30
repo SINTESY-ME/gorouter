@@ -148,6 +148,7 @@ export interface UsageEntry {
   cost: number; status: number; latency_ms?: number; ttft_ms?: number;
   cache_hit?: boolean; cache_tokens_saved?: number; cache_cost_saved?: number;
   rtk_compressed?: boolean; rtk_bytes_saved?: number; rtk_tokens_saved?: number; rtk_cost_saved?: number;
+  request_id?: string; attempt?: number; error?: string;
 }
 export interface ProviderDef {
   id: string;

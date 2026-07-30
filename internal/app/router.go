@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jhon/gorouter/internal/domain"
 )
 
@@ -183,7 +184,9 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 	}
 	modelID, ok := domain.SplitModelID(modelStr)
 	if ok {
-		return s.routeSingle(ctx, modelID, body, stream, apiKey, opts, "")
+		requestID := uuid.New().String()
+		attempt := 0
+		return s.routeSingle(ctx, modelID, body, stream, apiKey, opts, "", requestID, &attempt)
 	}
 	combo, err := s.Combos.GetByName(ctx, modelStr)
 	if err == domain.ErrNotFound {
@@ -192,7 +195,9 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 	if err != nil {
 		return nil, err
 	}
-	return s.routeCombo(ctx, combo, body, stream, apiKey, opts, "", 0, nil)
+	requestID := uuid.New().String()
+	attempt := 0
+	return s.routeCombo(ctx, combo, body, stream, apiKey, opts, "", 0, nil, requestID, &attempt)
 }
 
 // RoutePassthrough routes a non-chat endpoint (embeddings, images) to a
@@ -203,7 +208,9 @@ func (s *RouterService) RoutePassthrough(ctx context.Context, body []byte, model
 	opts := RouteOptions{InputFormat: domain.FormatOpenAI, Endpoint: endpoint, ContentType: contentType}
 	modelID, ok := domain.SplitModelID(modelStr)
 	if ok {
-		return s.routeSingle(ctx, modelID, body, false, apiKey, opts, endpoint, contentType)
+		requestID := uuid.New().String()
+		attempt := 0
+		return s.routeSingle(ctx, modelID, body, false, apiKey, opts, endpoint, requestID, &attempt, contentType)
 	}
 	combo, err := s.Combos.GetByName(ctx, modelStr)
 	if err == domain.ErrNotFound {
@@ -212,7 +219,9 @@ func (s *RouterService) RoutePassthrough(ctx context.Context, body []byte, model
 	if err != nil {
 		return nil, err
 	}
-	return s.routeCombo(ctx, combo, body, false, apiKey, opts, endpoint, 0, nil, contentType)
+	requestID := uuid.New().String()
+	attempt := 0
+	return s.routeCombo(ctx, combo, body, false, apiKey, opts, endpoint, 0, nil, requestID, &attempt, contentType)
 }
 
 // RouterResponse is what the HTTP handler receives. It is either a buffered
@@ -239,7 +248,7 @@ type RouterResponse struct {
 	RTKCostSaved   float64
 }
 
-func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, opts RouteOptions, endpoint string, contentType ...string) (*RouterResponse, error) {
+func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, opts RouteOptions, endpoint string, requestID string, attempt *int, contentType ...string) (*RouterResponse, error) {
 	start := time.Now()
 	ct := ""
 	if len(contentType) > 0 {
@@ -268,8 +277,11 @@ func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body 
 			}
 			continue
 		}
+		connStart := time.Now()
 		res, err := s.executeOne(ctx, m, conn, body, stream, opts, ct)
 		if err != nil {
+			s.recordFailedUsage(m, conn, apiKey, endpoint, 0, err.Error(), connStart, nil, requestID, *attempt)
+			*attempt++
 			s.Health.MarkUnhealthy("", modelStr, conn.ID)
 			if s.Prober != nil && s.Health.TryStartProbe("", modelStr, conn.ID) {
 				go s.Prober.RunProbe("", modelStr, m, conn.ID)
@@ -277,6 +289,8 @@ func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body 
 			continue
 		}
 		if endpoint == "" && res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
+			s.recordFailedUsage(m, conn, apiKey, endpoint, res.StatusCode, fmt.Sprintf("upstream %d", res.StatusCode), connStart, nil, requestID, *attempt)
+			*attempt++
 			s.Health.MarkUnhealthy("", modelStr, conn.ID)
 			s.markRateLimited(ctx, conn, res)
 			if s.Prober != nil && s.Health.TryStartProbe("", modelStr, conn.ID) {
@@ -288,7 +302,8 @@ func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body 
 			continue
 		}
 		s.Health.MarkHealthy("", modelStr, conn.ID)
-		s.wrapUsageTracking(ctx, res, m, conn, apiKey, endpoint, nil, start)
+		s.wrapUsageTracking(ctx, res, m, conn, apiKey, endpoint, nil, start, requestID, *attempt)
+		*attempt++
 		res.Provider = m.Provider
 		res.Model = m.Model
 		res.ConnectionID = conn.ID
@@ -460,7 +475,7 @@ func (s *RouterService) measureModelTPSStreaming(ctx context.Context, modelStr s
 	return accumulated.String(), completionTokens, ttftMs, nil
 }
 
-func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, body []byte, stream bool, apiKey string, opts RouteOptions, endpoint string, depth int, comboChain []string, contentType ...string) (*RouterResponse, error) {
+func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, body []byte, stream bool, apiKey string, opts RouteOptions, endpoint string, depth int, comboChain []string, requestID string, attempt *int, contentType ...string) (*RouterResponse, error) {
 	start := time.Now()
 	ct := ""
 	if len(contentType) > 0 {
@@ -473,8 +488,6 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 		if err != nil {
 			slog.Warn("combo strategy failed; using configured order", "combo", combo.Name, "strategy", combo.Strategy, "err", err)
 		} else if len(ordered) > 0 {
-			// Log when the strategy reorders models (intelligence classifier
-			// chose a different first model than the configured order).
 			if ordered[0] != combo.Models[0] && combo.Strategy == StrategyIntelligence {
 				slog.Info("intelligence classifier chose different model", "combo", combo.Name, "configured_first", combo.Models[0], "chosen_first", ordered[0])
 			}
@@ -482,12 +495,10 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 		}
 	}
 	var lastErr error
-	var skipped []skipEntry // models where all connections are unhealthy
+	var skipped []skipEntry
 	for _, modelStr := range models {
 		m, ok := domain.SplitModelID(modelStr)
 		if !ok {
-			// No "/" → treat as a nested combo. Resolved here so the
-			// nested combo's own strategy is applied transparently.
 			if depth >= maxComboDepth {
 				lastErr = fmt.Errorf("combo nesting depth limit reached at %q", combo.Name)
 				slog.Warn("combo nesting depth limit reached", "combo", combo.Name, "depth", depth)
@@ -499,23 +510,25 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 				continue
 			}
 			nestedChain := append(append([]string{}, comboChain...), combo.Name)
-			res, err := s.routeCombo(ctx, nested, body, stream, apiKey, opts, endpoint, depth+1, nestedChain, ct)
+			nestedStart := time.Now()
+			res, err := s.routeCombo(ctx, nested, body, stream, apiKey, opts, endpoint, depth+1, nestedChain, requestID, attempt, ct)
 			if err != nil {
 				slog.Warn("combo fallback: nested combo failed, trying next", "parent_combo", combo.Name, "failed_combo", modelStr, "err", err)
+				s.recordFailedUsage(domain.ModelID{}, nil, apiKey, endpoint, 0, err.Error(), nestedStart, nestedChain, requestID, *attempt)
+				*attempt++
 				lastErr = err
 				continue
 			}
 			if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
 				slog.Warn("combo fallback: nested combo returned error status, trying next", "parent_combo", combo.Name, "failed_combo", modelStr, "status", res.StatusCode)
+				s.recordFailedUsage(domain.ModelID{}, nil, apiKey, endpoint, res.StatusCode, fmt.Sprintf("upstream %d", res.StatusCode), nestedStart, nestedChain, requestID, *attempt)
+				*attempt++
 				lastErr = fmt.Errorf("upstream %d", res.StatusCode)
 				if res.Body != nil {
 					res.Body.Close()
 				}
 				continue
 			}
-			// No wrapUsageTracking here — the nested combo's routeCombo
-			// already recorded usage with the full chain. The parent combo
-			// gets credit via the combo_executions table.
 			return res, nil
 		}
 		conns, err := s.Connections.ListByProvider(ctx, m.Provider)
@@ -523,9 +536,6 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 			lastErr = err
 			continue
 		}
-		// Check if ALL connections for this model are unhealthy. If so,
-		// skip and launch background probes. tryModel handles the
-		// per-connection health tracking internally.
 		if s.allConnectionsUnhealthy(combo.Name, modelStr, conns) {
 			if s.Prober != nil {
 				s.Prober.LaunchProbes(combo.Name, modelStr, m, conns)
@@ -534,7 +544,7 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 			continue
 		}
 		childChain := append(append([]string{}, comboChain...), combo.Name)
-		res, err := s.tryModelWithConns(ctx, m, conns, body, stream, apiKey, opts, childChain, start, true, ct)
+		res, err := s.tryModelWithConns(ctx, m, conns, body, stream, apiKey, opts, childChain, start, true, requestID, attempt, ct)
 		if err != nil {
 			slog.Warn("combo fallback: model failed, trying next", "combo", combo.Name, "failed_model", modelStr, "err", err)
 			lastErr = err
@@ -550,12 +560,9 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 		}
 		return res, nil
 	}
-	// Last resort: every model's connections are all unhealthy (or no
-	// healthy model worked). Retry the skipped models inline — a real
-	// request can succeed where the probe hasn't run yet.
 	for _, sk := range skipped {
 		skippedChain := append(append([]string{}, comboChain...), combo.Name)
-		res, err := s.tryModelWithConns(ctx, sk.m, sk.conns, body, stream, apiKey, opts, skippedChain, start, false, ct)
+		res, err := s.tryModelWithConns(ctx, sk.m, sk.conns, body, stream, apiKey, opts, skippedChain, start, false, requestID, attempt, ct)
 		if err != nil {
 			lastErr = err
 			continue
@@ -602,30 +609,23 @@ func (s *RouterService) allConnectionsUnhealthy(comboName, modelStr string, conn
 	return true
 }
 
-func (s *RouterService) tryModel(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, opts RouteOptions, comboChain []string, start time.Time, contentType ...string) (*RouterResponse, error) {
+func (s *RouterService) tryModel(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, opts RouteOptions, comboChain []string, start time.Time, requestID string, attempt *int, contentType ...string) (*RouterResponse, error) {
 	conns, err := s.Connections.ListByProvider(ctx, m.Provider)
 	if err != nil {
 		return nil, err
 	}
-	return s.tryModelWithConns(ctx, m, conns, body, stream, apiKey, opts, comboChain, start, true, contentType...)
+	return s.tryModelWithConns(ctx, m, conns, body, stream, apiKey, opts, comboChain, start, true, requestID, attempt, contentType...)
 }
 
-// tryModelForceTries iterates connections without skipping unhealthy ones.
-// Used in the last-resort pass: a real request can succeed where a probe
-// hasn't run yet (e.g. transient failure already resolved).
-func (s *RouterService) tryModelForceTries(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, opts RouteOptions, comboChain []string, start time.Time, contentType ...string) (*RouterResponse, error) {
+func (s *RouterService) tryModelForceTries(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, opts RouteOptions, comboChain []string, start time.Time, requestID string, attempt *int, contentType ...string) (*RouterResponse, error) {
 	conns, err := s.Connections.ListByProvider(ctx, m.Provider)
 	if err != nil {
 		return nil, err
 	}
-	return s.tryModelWithConns(ctx, m, conns, body, stream, apiKey, opts, comboChain, start, false, contentType...)
+	return s.tryModelWithConns(ctx, m, conns, body, stream, apiKey, opts, comboChain, start, false, requestID, attempt, contentType...)
 }
 
-// tryModelWithConns is the shared connection iteration logic. When skipUnhealthy
-// is true, connections marked unhealthy are skipped and a background probe is
-// launched. When false (last-resort), all active connections are tried inline
-// regardless of health state.
-func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID, conns []domain.Connection, body []byte, stream bool, apiKey string, opts RouteOptions, comboChain []string, start time.Time, skipUnhealthy bool, contentType ...string) (*RouterResponse, error) {
+func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID, conns []domain.Connection, body []byte, stream bool, apiKey string, opts RouteOptions, comboChain []string, start time.Time, skipUnhealthy bool, requestID string, attempt *int, contentType ...string) (*RouterResponse, error) {
 	if len(conns) == 0 {
 		return nil, fmt.Errorf("%w: provider %q", domain.ErrNoConnection, m.Provider)
 	}
@@ -634,8 +634,6 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 		ct = contentType[0]
 	}
 	modelStr := m.Provider + "/" + m.Model
-	// comboName for health tracking is the leaf combo (immediate parent
-	// of the model). Empty for single-model requests.
 	comboName := ""
 	if len(comboChain) > 0 {
 		comboName = comboChain[len(comboChain)-1]
@@ -655,8 +653,11 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 			}
 			continue
 		}
+		connStart := time.Now()
 		res, err := s.executeOne(ctx, m, conn, body, stream, opts, ct)
 		if err != nil {
+			s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, 0, err.Error(), connStart, comboChain, requestID, *attempt)
+			*attempt++
 			s.Health.MarkUnhealthy(comboName, modelStr, conn.ID)
 			if skipUnhealthy && s.Prober != nil {
 				if s.Health.TryStartProbe(comboName, modelStr, conn.ID) {
@@ -666,6 +667,8 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 			continue
 		}
 		if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
+			s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, res.StatusCode, fmt.Sprintf("upstream %d", res.StatusCode), connStart, comboChain, requestID, *attempt)
+			*attempt++
 			s.Health.MarkUnhealthy(comboName, modelStr, conn.ID)
 			s.markRateLimited(ctx, conn, res)
 			if skipUnhealthy && s.Prober != nil {
@@ -679,7 +682,8 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 			continue
 		}
 		s.Health.MarkHealthy(comboName, modelStr, conn.ID)
-		s.wrapUsageTracking(ctx, res, m, conn, apiKey, opts.Endpoint, comboChain, start)
+		s.wrapUsageTracking(ctx, res, m, conn, apiKey, opts.Endpoint, comboChain, start, requestID, *attempt)
+		*attempt++
 		res.Provider = m.Provider
 		res.Model = m.Model
 		res.ConnectionID = conn.ID
@@ -867,7 +871,7 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 // the client) untouched while still capturing usage asynchronously.
 // When a cache key is present in the context, the buffered response is also
 // stored in the response cache.
-func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterResponse, m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, comboChain []string, start time.Time) {
+func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterResponse, m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, comboChain []string, start time.Time, requestID string, attempt int) {
 	cacheEnabled := s.Cache != nil && s.Cache.Enabled()
 	_, hasCacheKey := cacheKeyFromCtx(ctx)
 	bufLimit := maxUsageBuf
@@ -879,7 +883,7 @@ func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterRespon
 		limit: bufLimit,
 		start: start,
 		onClose: func(buf []byte, ttftMs int64) {
-			s.recordUsage(m, conn, apiKey, endpoint, res.StatusCode, res.Stream, buf, comboChain, start, ttftMs, res.RTKBytesSaved, res.RTKTokensSaved, res.RTKCostSaved)
+			s.recordUsage(m, conn, apiKey, endpoint, res.StatusCode, res.Stream, buf, comboChain, start, ttftMs, res.RTKBytesSaved, res.RTKTokensSaved, res.RTKCostSaved, requestID, attempt)
 			if cacheEnabled && hasCacheKey && res.StatusCode < 400 {
 				if key, ok := cacheKeyFromCtx(ctx); ok {
 					if res.Stream {
@@ -901,7 +905,7 @@ func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterRespon
 // comboChain is the list of combo names from root to leaf (e.g.
 // ["coding", "medium"]). After inserting the usage entry, combo_executions
 // rows are inserted so every combo in the chain gets credit.
-func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, status int, stream bool, buf []byte, comboChain []string, start time.Time, ttftMs int64, rtkBytes int, rtkTokens int, rtkCost float64) {
+func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, status int, stream bool, buf []byte, comboChain []string, start time.Time, ttftMs int64, rtkBytes int, rtkTokens int, rtkCost float64, requestID string, attempt int) {
 	prompt, completion, cacheRead, cacheCreation := 0, 0, 0, 0
 	if endpoint == "" {
 		endpoint = "chat/completions"
@@ -941,6 +945,8 @@ func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, a
 		RTKTokensSaved:   rtkTokens,
 		RTKCostSaved:     rtkCost,
 		ComboChain:       comboChain,
+		RequestID:        requestID,
+		Attempt:          attempt,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -963,6 +969,34 @@ func (s *RouterService) recordCacheHitUsage(m domain.ModelID, modelStr string, a
 		CacheTokensSaved: prompt + completion,
 		CacheCostSaved:   costSaved,
 		Status:           200,
+		RequestID:        uuid.New().String(),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = s.Usage.Record(ctx, &entry)
+}
+
+func (s *RouterService) recordFailedUsage(m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, status int, errMsg string, start time.Time, comboChain []string, requestID string, attempt int) {
+	if endpoint == "" {
+		endpoint = "chat/completions"
+	}
+	var connID string
+	if conn != nil {
+		connID = conn.ID
+	}
+	entry := domain.UsageEntry{
+		Timestamp:    time.Now(),
+		Provider:     m.Provider,
+		Model:        m.Model,
+		ConnectionID: connID,
+		ApiKey:       apiKey,
+		Endpoint:     endpoint,
+		LatencyMs:    time.Since(start).Milliseconds(),
+		Status:       status,
+		Error:        errMsg,
+		ComboChain:   comboChain,
+		RequestID:    requestID,
+		Attempt:      attempt,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
