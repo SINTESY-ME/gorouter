@@ -122,10 +122,14 @@ export default function Logs() {
     const groups: LogRow[] = [];
     for (const [key, entries] of map) {
       entries.sort((a, b) => (a.attempt ?? 0) - (b.attempt ?? 0));
+      // Linha principal = última tentativa (o resultado do request).
+      // A árvore lista as tentativas anteriores em ordem decrescente
+      // (mais recente logo abaixo do pai, mais antiga no fundo), lendo
+      // de cima pra baixo como um histórico reverso.
       const primary = entries[entries.length - 1];
       const row = toRow(primary, key);
       if (entries.length > 1) {
-        row.children = entries.slice(0, -1).map((e) => toRow(e, key));
+        row.children = entries.slice(0, -1).reverse().map((e) => toRow(e, key));
       }
       groups.push(row);
     }
