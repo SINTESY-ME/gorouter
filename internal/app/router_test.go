@@ -22,14 +22,15 @@ import (
 // default status. `called` records the sequence of UpstreamModel values per
 // Execute call, in order, so tests can assert which models were attempted.
 type mockExecutor struct {
-	mu         sync.Mutex
-	calls      int
+	mu          sync.Mutex
+	calls       int
 	status      int
-	body       string
-	stream     bool
+	body        string
+	stream      bool
 	headers     http.Header
-	failModels map[string]int // model -> HTTP status (overrides default)
-	called     []string       // sequence of UpstreamModel per Execute call
+	failModels  map[string]int // model -> HTTP status (overrides default)
+	called      []string       // sequence of UpstreamModel per Execute call
+	calledConns []string       // sequence of Connection.ID per non-probe Execute call
 }
 
 func (m *mockExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) (*domain.ExecuteResult, error) {
@@ -46,6 +47,9 @@ func (m *mockExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) (
 	// checks, not real request routing decisions.
 	if !IsProbeCall(ctx) {
 		m.called = append(m.called, model)
+		if req.Connection != nil {
+			m.calledConns = append(m.calledConns, req.Connection.ID)
+		}
 	}
 	m.mu.Unlock()
 	hdr := m.headers
@@ -123,7 +127,7 @@ func (r *mockComboRepo) GetByName(ctx context.Context, name string) (*domain.Com
 }
 func (r *mockComboRepo) Create(ctx context.Context, c *domain.Combo) error { return nil }
 func (r *mockComboRepo) Update(ctx context.Context, c *domain.Combo) error { return nil }
-func (r *mockComboRepo) Delete(ctx context.Context, id string) error        { return nil }
+func (r *mockComboRepo) Delete(ctx context.Context, id string) error       { return nil }
 
 // mockConnectionRepo implements domain.ConnectionRepo for testing.
 type mockConnectionRepo struct {
@@ -150,10 +154,10 @@ func (r *mockConnectionRepo) Get(ctx context.Context, id string) (*domain.Connec
 	}
 	return nil, domain.ErrNotFound
 }
-func (r *mockConnectionRepo) Create(ctx context.Context, c *domain.Connection) error    { return nil }
-func (r *mockConnectionRepo) Update(ctx context.Context, c *domain.Connection) error    { return nil }
-func (r *mockConnectionRepo) Delete(ctx context.Context, id string) error               { return nil }
-func (r *mockConnectionRepo) Reorder(ctx context.Context, orderedIDs []string) error    { return nil }
+func (r *mockConnectionRepo) Create(ctx context.Context, c *domain.Connection) error { return nil }
+func (r *mockConnectionRepo) Update(ctx context.Context, c *domain.Connection) error { return nil }
+func (r *mockConnectionRepo) Delete(ctx context.Context, id string) error            { return nil }
+func (r *mockConnectionRepo) Reorder(ctx context.Context, orderedIDs []string) error { return nil }
 func (r *mockConnectionRepo) SetRateLimited(ctx context.Context, id string, until time.Time) error {
 	return nil
 }
@@ -222,9 +226,8 @@ func TestRouteSingle_NonStreaming_UsageRecorded(t *testing.T) {
 			ID:         "c1",
 			ProviderID: "openai",
 			Name:       "test",
-			
-			
-			IsActive:   true,
+
+			IsActive: true,
 		}},
 	}
 	srv := NewRouterService(&mockComboRepo{}, connRepo, exec, &mockTranslator{}, usage)
@@ -287,9 +290,8 @@ func TestRouteCombo_OrderedFallback(t *testing.T) {
 			ID:         "c1",
 			ProviderID: "openai",
 			Name:       "test",
-			
-			
-			IsActive:   true,
+
+			IsActive: true,
 		}},
 	}
 	srv := NewRouterService(comboRepo, connRepo, exec, &mockTranslator{}, usage)
@@ -326,9 +328,8 @@ func TestRoutePassthrough_Embeddings_UsageRecorded(t *testing.T) {
 			ID:         "c1",
 			ProviderID: "openai",
 			Name:       "test",
-			
-			
-			IsActive:   true,
+
+			IsActive: true,
 		}},
 	}
 	srv := NewRouterService(&mockComboRepo{}, connRepo, exec, &mockTranslator{}, usage)
@@ -376,9 +377,8 @@ func TestRoutePassthrough_Images(t *testing.T) {
 			ID:         "c1",
 			ProviderID: "openai",
 			Name:       "test",
-			
-			
-			IsActive:   true,
+
+			IsActive: true,
 		}},
 	}
 	srv := NewRouterService(&mockComboRepo{}, connRepo, exec, &mockTranslator{}, usage)
@@ -420,9 +420,8 @@ func TestRoutePassthrough_AudioSpeech(t *testing.T) {
 			ID:         "c1",
 			ProviderID: "openai",
 			Name:       "test",
-			
-			
-			IsActive:   true,
+
+			IsActive: true,
 		}},
 	}
 	srv := NewRouterService(&mockComboRepo{}, connRepo, exec, &mockTranslator{}, usage)
@@ -478,9 +477,8 @@ func TestRoutePassthrough_AudioTranscriptions_Multipart(t *testing.T) {
 			ID:         "c1",
 			ProviderID: "openai",
 			Name:       "test",
-			
-			
-			IsActive:   true,
+
+			IsActive: true,
 		}},
 	}
 	srv := NewRouterService(&mockComboRepo{}, connRepo, exec, &mockTranslator{}, usage)
@@ -523,17 +521,15 @@ func twoProviderConnRepo() *mockConnectionRepo {
 				ID:         "c-openai",
 				ProviderID: "openai",
 				Name:       "primary",
-				
-				
-				IsActive:   true,
+
+				IsActive: true,
 			},
 			{
 				ID:         "c-anthropic",
 				ProviderID: "anthropic",
 				Name:       "primary",
-				
-				
-				IsActive:   true,
+
+				IsActive: true,
 			},
 		},
 	}
@@ -546,6 +542,29 @@ func calledSnapshot(m *mockExecutor) []string {
 	out := make([]string, len(m.called))
 	copy(out, m.called)
 	return out
+}
+
+// calledConnsSnapshot returns a copy of m.calledConns under the mutex.
+func calledConnsSnapshot(m *mockExecutor) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.calledConns))
+	copy(out, m.calledConns)
+	return out
+}
+
+// fourKeyConnRepo builds a connection repo with two active connections per
+// provider: the first key of each provider is the "unhealthy" one, the second
+// the "healthy" one, in the ordering used by two-phase tests.
+func fourKeyConnRepo() *mockConnectionRepo {
+	return &mockConnectionRepo{
+		conns: []domain.Connection{
+			{ID: "c-openai-1", ProviderID: "openai", Name: "k1", IsActive: true},
+			{ID: "c-openai-2", ProviderID: "openai", Name: "k2", IsActive: true},
+			{ID: "c-anthropic-1", ProviderID: "anthropic", Name: "k1", IsActive: true},
+			{ID: "c-anthropic-2", ProviderID: "anthropic", Name: "k2", IsActive: true},
+		},
+	}
 }
 
 // TestRouteCombo_OrderedFallback_SkipUnhealthyAndProbe verifies the full
@@ -739,7 +758,7 @@ func TestRouteCombo_AllUnhealthy_AllFail(t *testing.T) {
 		status: 200,
 		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
 		failModels: map[string]int{
-			"gpt-4":     500,
+			"gpt-4":    500,
 			"claude-3": 500,
 		},
 	}
@@ -764,6 +783,91 @@ func TestRouteCombo_AllUnhealthy_AllFail(t *testing.T) {
 	_, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
 	if err == nil {
 		t.Fatalf("expected ErrAllModelsFailed, got nil")
+	}
+}
+
+// TestRouteCombo_TwoPhase_KeyOrder verifies the two-phase key routing: when
+// every key fails, the healthy keys are tried first in model order and the
+// keys that were already unhealthy at request start are only retried in the
+// second pass, in the same model order.
+func TestRouteCombo_TwoPhase_KeyOrder(t *testing.T) {
+	exec := &mockExecutor{
+		status: 500,
+		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
+	}
+	usage := &mockUsageRepo{}
+	comboRepo := &mockComboRepo{
+		combos: map[string]*domain.Combo{
+			"cb1": {
+				ID:       "cb1",
+				Name:     "twophase",
+				Models:   []string{"openai/gpt-4", "anthropic/claude-3"},
+				Strategy: "ordered_fallback",
+			},
+		},
+	}
+	srv := NewRouterService(comboRepo, fourKeyConnRepo(), exec, &mockTranslator{}, usage)
+
+	// Pre-seed the first key of each model as unhealthy.
+	srv.Health.MarkUnhealthy("twophase", "openai/gpt-4", "c-openai-1")
+	srv.Health.MarkUnhealthy("twophase", "anthropic/claude-3", "c-anthropic-1")
+
+	body := []byte(`{"model":"twophase","messages":[{"role":"user","content":"hi"}]}`)
+	_, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
+	if err == nil {
+		t.Fatalf("expected ErrAllModelsFailed, got nil")
+	}
+
+	want := []string{"c-openai-2", "c-anthropic-2", "c-openai-1", "c-anthropic-1"}
+	if got := calledConnsSnapshot(exec); !equalSeq(t, got, want) {
+		t.Fatalf("phase order: got %v, want %v", got, want)
+	}
+	wantModels := []string{"gpt-4", "claude-3", "gpt-4", "claude-3"}
+	if got := calledSnapshot(exec); !equalSeq(t, got, wantModels) {
+		t.Fatalf("phase model order: got %v, want %v", got, wantModels)
+	}
+}
+
+// TestRouteCombo_TwoPhase_HealthySucceeds_SkipsUnhealthy verifies that keys
+// which were unhealthy at request start are not retried when a healthy key
+// succeeds — each key is tried at most once per request.
+func TestRouteCombo_TwoPhase_HealthySucceeds_SkipsUnhealthy(t *testing.T) {
+	exec := &mockExecutor{
+		status: 200,
+		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
+		failModels: map[string]int{
+			"gpt-4": 500, // healthy key of A still fails
+		},
+	}
+	usage := &mockUsageRepo{}
+	comboRepo := &mockComboRepo{
+		combos: map[string]*domain.Combo{
+			"cb1": {
+				ID:       "cb1",
+				Name:     "twophase2",
+				Models:   []string{"openai/gpt-4", "anthropic/claude-3"},
+				Strategy: "ordered_fallback",
+			},
+		},
+	}
+	srv := NewRouterService(comboRepo, fourKeyConnRepo(), exec, &mockTranslator{}, usage)
+
+	// Pre-seed the first key of each model as unhealthy.
+	srv.Health.MarkUnhealthy("twophase2", "openai/gpt-4", "c-openai-1")
+	srv.Health.MarkUnhealthy("twophase2", "anthropic/claude-3", "c-anthropic-1")
+
+	body := []byte(`{"model":"twophase2","messages":[{"role":"user","content":"hi"}]}`)
+	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	res.Body.Close()
+
+	// A's healthy key fails, B's healthy key succeeds: the unhealthy keys
+	// must NOT be retried, so only the two healthy keys are called.
+	want := []string{"c-openai-2", "c-anthropic-2"}
+	if got := calledConnsSnapshot(exec); !equalSeq(t, got, want) {
+		t.Fatalf("healthy-only calls: got %v, want %v", got, want)
 	}
 }
 

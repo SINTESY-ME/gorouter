@@ -33,22 +33,6 @@ func NewHealthProber(health *HealthTracker, conns domain.ConnectionRepo, exec do
 	}
 }
 
-// LaunchProbes starts background probes for all unhealthy connections that
-// don't already have a probe in flight.
-func (h *HealthProber) LaunchProbes(comboName, modelStr string, m domain.ModelID, conns []domain.Connection) {
-	for i := range conns {
-		conn := &conns[i]
-		if !conn.IsActive {
-			continue
-		}
-		if h.Health.IsUnhealthy(comboName, modelStr, conn.ID) {
-			if h.Health.TryStartProbe(comboName, modelStr, conn.ID) {
-				go h.RunProbe(comboName, modelStr, m, conn.ID)
-			}
-		}
-	}
-}
-
 // RunProbe sends a minimal chat request to an unhealthy triple to check if
 // the key has recovered. On 2xx it marks healthy; otherwise it clears the
 // probe-in-flight flag so the next request can launch a new probe. Does

@@ -266,48 +266,50 @@ func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body 
 	if s.Selector != nil {
 		startIdx = s.Selector.StartIndex(conns)
 	}
-	for i := 0; i < len(conns); i++ {
-		conn := &conns[(startIdx+i)%len(conns)]
-		if !conn.IsActive {
-			continue
-		}
-		if s.Health.IsUnhealthy("", modelStr, conn.ID) {
-			if s.Prober != nil && s.Health.TryStartProbe("", modelStr, conn.ID) {
-				go s.Prober.RunProbe("", modelStr, m, conn.ID)
+	// Snapshot which keys were already failing before this request so phase
+	// 2 (unhealthy keys) only retries them — keys that fail during phase 1
+	// are not retried, each key is tried at most once per request.
+	unhealthy := s.unhealthySnapshot("", modelStr, conns)
+	for _, phaseHealthy := range []bool{true, false} {
+		for i := 0; i < len(conns); i++ {
+			conn := &conns[(startIdx+i)%len(conns)]
+			if !conn.IsActive {
+				continue
 			}
-			continue
-		}
-		connStart := time.Now()
-		res, err := s.executeOne(ctx, m, conn, body, stream, opts, ct)
-		if err != nil {
-			s.recordFailedUsage(m, conn, apiKey, endpoint, 0, err.Error(), connStart, nil, requestID, *attempt)
+			if unhealthy[conn.ID] == phaseHealthy {
+				if phaseHealthy {
+					s.maybeProbe("", modelStr, m, conn.ID)
+				}
+				continue
+			}
+			connStart := time.Now()
+			res, err := s.executeOne(ctx, m, conn, body, stream, opts, ct)
+			if err != nil {
+				s.recordFailedUsage(m, conn, apiKey, endpoint, 0, err.Error(), connStart, nil, requestID, *attempt)
+				*attempt++
+				s.Health.MarkUnhealthy("", modelStr, conn.ID)
+				s.maybeProbe("", modelStr, m, conn.ID)
+				continue
+			}
+			if endpoint == "" && res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
+				s.recordFailedUsage(m, conn, apiKey, endpoint, res.StatusCode, fmt.Sprintf("upstream %d", res.StatusCode), connStart, nil, requestID, *attempt)
+				*attempt++
+				s.Health.MarkUnhealthy("", modelStr, conn.ID)
+				s.markRateLimited(ctx, conn, res)
+				s.maybeProbe("", modelStr, m, conn.ID)
+				if res.Body != nil {
+					res.Body.Close()
+				}
+				continue
+			}
+			s.Health.MarkHealthy("", modelStr, conn.ID)
+			s.wrapUsageTracking(ctx, res, m, conn, apiKey, endpoint, nil, start, requestID, *attempt)
 			*attempt++
-			s.Health.MarkUnhealthy("", modelStr, conn.ID)
-			if s.Prober != nil && s.Health.TryStartProbe("", modelStr, conn.ID) {
-				go s.Prober.RunProbe("", modelStr, m, conn.ID)
-			}
-			continue
+			res.Provider = m.Provider
+			res.Model = m.Model
+			res.ConnectionID = conn.ID
+			return res, nil
 		}
-		if endpoint == "" && res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
-			s.recordFailedUsage(m, conn, apiKey, endpoint, res.StatusCode, fmt.Sprintf("upstream %d", res.StatusCode), connStart, nil, requestID, *attempt)
-			*attempt++
-			s.Health.MarkUnhealthy("", modelStr, conn.ID)
-			s.markRateLimited(ctx, conn, res)
-			if s.Prober != nil && s.Health.TryStartProbe("", modelStr, conn.ID) {
-				go s.Prober.RunProbe("", modelStr, m, conn.ID)
-			}
-			if res.Body != nil {
-				res.Body.Close()
-			}
-			continue
-		}
-		s.Health.MarkHealthy("", modelStr, conn.ID)
-		s.wrapUsageTracking(ctx, res, m, conn, apiKey, endpoint, nil, start, requestID, *attempt)
-		*attempt++
-		res.Provider = m.Provider
-		res.Model = m.Model
-		res.ConnectionID = conn.ID
-		return res, nil
 	}
 	return nil, fmt.Errorf("%w: provider %q", domain.ErrNoConnection, m.Provider)
 }
@@ -408,12 +410,12 @@ func (s *RouterService) measureModelTPS(ctx context.Context, modelStr string, ap
 // by high prefill latency. Returns (text, completionTokens, ttftMs, err).
 func (s *RouterService) measureModelTPSStreaming(ctx context.Context, modelStr string, apiKey string) (text string, completionTokens int, ttftMs int64, err error) {
 	reqBody, err := json.Marshal(map[string]any{
-		"model":           modelStr,
-		"messages":        tpsProbeMessages,
-		"max_tokens":      tpsProbeMaxTokens,
-		"temperature":     0.0,
-		"stream":          true,
-		"stream_options":  map[string]any{"include_usage": true},
+		"model":          modelStr,
+		"messages":       tpsProbeMessages,
+		"max_tokens":     tpsProbeMaxTokens,
+		"temperature":    0.0,
+		"stream":         true,
+		"stream_options": map[string]any{"include_usage": true},
 	})
 	if err != nil {
 		return "", 0, 0, err
@@ -495,7 +497,11 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 		}
 	}
 	var lastErr error
-	var skipped []skipEntry
+	attempts := make([]modelAttempt, 0, len(models))
+
+	// Phase 1: try the keys that were healthy when the request started,
+	// walking the models in strategy order. Keys already marked unhealthy
+	// are skipped here and watched by background probes.
 	for _, modelStr := range models {
 		m, ok := domain.SplitModelID(modelStr)
 		if !ok {
@@ -536,15 +542,19 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 			lastErr = err
 			continue
 		}
-		if s.allConnectionsUnhealthy(combo.Name, modelStr, conns) {
-			if s.Prober != nil {
-				s.Prober.LaunchProbes(combo.Name, modelStr, m, conns)
-			}
-			skipped = append(skipped, skipEntry{modelStr: modelStr, m: m, conns: conns})
-			continue
+		startIdx := 0
+		if s.Selector != nil {
+			startIdx = s.Selector.StartIndex(conns)
 		}
 		childChain := append(append([]string{}, comboChain...), combo.Name)
-		res, err := s.tryModelWithConns(ctx, m, conns, body, stream, apiKey, opts, childChain, start, true, requestID, attempt, ct)
+		p := modelAttempt{
+			m:         m,
+			conns:     conns,
+			startIdx:  startIdx,
+			unhealthy: s.unhealthySnapshot(combo.Name, modelStr, conns),
+		}
+		attempts = append(attempts, p)
+		res, err := s.tryModelWithConns(ctx, m, conns, body, stream, apiKey, opts, childChain, start, true, p.unhealthy, startIdx, requestID, attempt, ct)
 		if err != nil {
 			slog.Warn("combo fallback: model failed, trying next", "combo", combo.Name, "failed_model", modelStr, "err", err)
 			lastErr = err
@@ -560,9 +570,15 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 		}
 		return res, nil
 	}
-	for _, sk := range skipped {
-		skippedChain := append(append([]string{}, comboChain...), combo.Name)
-		res, err := s.tryModelWithConns(ctx, sk.m, sk.conns, body, stream, apiKey, opts, skippedChain, start, false, requestID, attempt, ct)
+
+	// Phase 2: no healthy key worked anywhere — retry the keys that were
+	// already unhealthy when the request started, in the same model order
+	// and from the same rotation point as phase 1. Keys that failed during
+	// phase 1 are not retried: each key is tried at most once per request.
+	for i := range attempts {
+		p := &attempts[i]
+		childChain := append(append([]string{}, comboChain...), combo.Name)
+		res, err := s.tryModelWithConns(ctx, p.m, p.conns, body, stream, apiKey, opts, childChain, start, false, p.unhealthy, p.startIdx, requestID, attempt, ct)
 		if err != nil {
 			lastErr = err
 			continue
@@ -582,50 +598,44 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 	return nil, domain.ErrAllModelsFailed
 }
 
-// skipEntry bundles the data needed for the last-resort retry pass so we
-// don't re-resolve connections for each skipped model.
-type skipEntry struct {
-	modelStr string
-	m        domain.ModelID
-	conns    []domain.Connection
+// modelAttempt carries the per-model data shared by the two combo phases so
+// phase 2 (unhealthy keys) reuses the same connection order and the same
+// health snapshot taken before phase 1.
+type modelAttempt struct {
+	m         domain.ModelID
+	conns     []domain.Connection
+	startIdx  int
+	unhealthy map[string]bool
 }
 
-// allConnectionsUnhealthy checks whether every active connection for the
-// given model is currently marked unhealthy for this (combo, model). If at
-// least one connection is healthy (or not yet tried), returns false.
-func (s *RouterService) allConnectionsUnhealthy(comboName, modelStr string, conns []domain.Connection) bool {
-	if len(conns) == 0 {
-		return true
-	}
+// unhealthySnapshot returns the set of connection IDs currently marked
+// unhealthy for (comboName, modelStr). It is taken once per request so keys
+// that fail during phase 1 are not retried in phase 2.
+func (s *RouterService) unhealthySnapshot(comboName, modelStr string, conns []domain.Connection) map[string]bool {
+	snap := make(map[string]bool, len(conns))
 	for i := range conns {
-		conn := &conns[i]
-		if !conn.IsActive {
-			continue
-		}
-		if !s.Health.IsUnhealthy(comboName, modelStr, conn.ID) {
-			return false
+		if s.Health.IsUnhealthy(comboName, modelStr, conns[i].ID) {
+			snap[conns[i].ID] = true
 		}
 	}
-	return true
+	return snap
 }
 
-func (s *RouterService) tryModel(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, opts RouteOptions, comboChain []string, start time.Time, requestID string, attempt *int, contentType ...string) (*RouterResponse, error) {
-	conns, err := s.Connections.ListByProvider(ctx, m.Provider)
-	if err != nil {
-		return nil, err
+// maybeProbe launches a background health probe for a (combo, model, conn)
+// triple when it is unhealthy and no probe is already in flight.
+func (s *RouterService) maybeProbe(comboName, modelStr string, m domain.ModelID, connID string) {
+	if s.Prober != nil && s.Health.TryStartProbe(comboName, modelStr, connID) {
+		go s.Prober.RunProbe(comboName, modelStr, m, connID)
 	}
-	return s.tryModelWithConns(ctx, m, conns, body, stream, apiKey, opts, comboChain, start, true, requestID, attempt, contentType...)
 }
 
-func (s *RouterService) tryModelForceTries(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, opts RouteOptions, comboChain []string, start time.Time, requestID string, attempt *int, contentType ...string) (*RouterResponse, error) {
-	conns, err := s.Connections.ListByProvider(ctx, m.Provider)
-	if err != nil {
-		return nil, err
-	}
-	return s.tryModelWithConns(ctx, m, conns, body, stream, apiKey, opts, comboChain, start, false, requestID, attempt, contentType...)
-}
-
-func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID, conns []domain.Connection, body []byte, stream bool, apiKey string, opts RouteOptions, comboChain []string, start time.Time, skipUnhealthy bool, requestID string, attempt *int, contentType ...string) (*RouterResponse, error) {
+// tryModelWithConns tries the model's connections, walking them from startIdx.
+// phaseHealthy selects which connections participate: true tries only the keys
+// that were healthy when the request started, false tries only the keys that
+// were unhealthy (the snapshot taken before phase 1). Keys that failed in the
+// first pass are not retried in the second — each key is tried at most once
+// per request.
+func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID, conns []domain.Connection, body []byte, stream bool, apiKey string, opts RouteOptions, comboChain []string, start time.Time, phaseHealthy bool, unhealthy map[string]bool, startIdx int, requestID string, attempt *int, contentType ...string) (*RouterResponse, error) {
 	if len(conns) == 0 {
 		return nil, fmt.Errorf("%w: provider %q", domain.ErrNoConnection, m.Provider)
 	}
@@ -638,18 +648,14 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 	if len(comboChain) > 0 {
 		comboName = comboChain[len(comboChain)-1]
 	}
-	startIdx := 0
-	if s.Selector != nil {
-		startIdx = s.Selector.StartIndex(conns)
-	}
 	for i := 0; i < len(conns); i++ {
 		conn := &conns[(startIdx+i)%len(conns)]
 		if !conn.IsActive {
 			continue
 		}
-		if skipUnhealthy && s.Health.IsUnhealthy(comboName, modelStr, conn.ID) {
-			if s.Prober != nil && s.Health.TryStartProbe(comboName, modelStr, conn.ID) {
-				go s.Prober.RunProbe(comboName, modelStr, m, conn.ID)
+		if unhealthy[conn.ID] == phaseHealthy {
+			if phaseHealthy {
+				s.maybeProbe(comboName, modelStr, m, conn.ID)
 			}
 			continue
 		}
@@ -659,11 +665,7 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 			s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, 0, err.Error(), connStart, comboChain, requestID, *attempt)
 			*attempt++
 			s.Health.MarkUnhealthy(comboName, modelStr, conn.ID)
-			if skipUnhealthy && s.Prober != nil {
-				if s.Health.TryStartProbe(comboName, modelStr, conn.ID) {
-					go s.Prober.RunProbe(comboName, modelStr, m, conn.ID)
-				}
-			}
+			s.maybeProbe(comboName, modelStr, m, conn.ID)
 			continue
 		}
 		if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
@@ -671,11 +673,7 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 			*attempt++
 			s.Health.MarkUnhealthy(comboName, modelStr, conn.ID)
 			s.markRateLimited(ctx, conn, res)
-			if skipUnhealthy && s.Prober != nil {
-				if s.Health.TryStartProbe(comboName, modelStr, conn.ID) {
-					go s.Prober.RunProbe(comboName, modelStr, m, conn.ID)
-				}
-			}
+			s.maybeProbe(comboName, modelStr, m, conn.ID)
 			if res.Body != nil {
 				res.Body.Close()
 			}
@@ -758,12 +756,12 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 			}
 		}
 		execReq := domain.ExecuteRequest{
-			ProviderID:   m.Provider,
-			Connection:   conn,
-			Config:       cfg,
+			ProviderID:    m.Provider,
+			Connection:    conn,
+			Config:        cfg,
 			UpstreamModel: m.Model,
-			Body:         io.NopCloser(bytes.NewReader(translated)),
-			Stream:       stream,
+			Body:          io.NopCloser(bytes.NewReader(translated)),
+			Stream:        stream,
 		}
 		slog.Info("executing upstream request", "provider", m.Provider, "model", m.Model, "payload", string(translated))
 		res, err := s.Executor.Execute(ctx, execReq)
@@ -816,15 +814,15 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 				respBody = io.NopCloser(bytes.NewReader(t))
 			}
 		}
-	return &RouterResponse{
-		StatusCode:     res.StatusCode,
-		Headers:        res.Headers,
-		Body:           respBody,
-		Stream:         res.Stream,
-		RTKBytesSaved:  rtkBytesSaved,
-		RTKTokensSaved: rtkTokensSaved,
-		RTKCostSaved:   rtkCostSaved,
-	}, nil
+		return &RouterResponse{
+			StatusCode:     res.StatusCode,
+			Headers:        res.Headers,
+			Body:           respBody,
+			Stream:         res.Stream,
+			RTKBytesSaved:  rtkBytesSaved,
+			RTKTokensSaved: rtkTokensSaved,
+			RTKCostSaved:   rtkCostSaved,
+		}, nil
 	}
 	// Passthrough (endpoint != ""). For JSON bodies (embeddings, images,
 	// audio/speech) we rewrite the model field via the OpenAI->OpenAI
@@ -841,13 +839,13 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 		translated = rewriteMultipartModel(translated, m.Model)
 	}
 	execReq := domain.ExecuteRequest{
-		ProviderID:   m.Provider,
-		Connection:   conn,
-		Config:       cfg,
+		ProviderID:    m.Provider,
+		Connection:    conn,
+		Config:        cfg,
 		UpstreamModel: m.Model,
-		Body:         io.NopCloser(bytes.NewReader(translated)),
-		Stream:       false,
-		Endpoint:     opts.Endpoint,
+		Body:          io.NopCloser(bytes.NewReader(translated)),
+		Stream:        false,
+		Endpoint:      opts.Endpoint,
 	}
 	if contentType != "" {
 		execReq.Headers = map[string]string{"Content-Type": contentType}
@@ -879,7 +877,7 @@ func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterRespon
 		bufLimit = maxCacheBuf
 	}
 	tee := &teeReadCloser{
-		r:    res.Body,
+		r:     res.Body,
 		limit: bufLimit,
 		start: start,
 		onClose: func(buf []byte, ttftMs int64) {
@@ -937,7 +935,7 @@ func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, a
 		LatencyMs:        time.Since(start).Milliseconds(),
 		TTFTMs:           ttftMs,
 		PromptTokens:     prompt,
-		CompletionTokens:  completion,
+		CompletionTokens: completion,
 		Cost:             cost,
 		Status:           status,
 		RTKCompressed:    rtkBytes > 0,
@@ -1011,8 +1009,8 @@ type teeReadCloser struct {
 	buf         bytes.Buffer
 	limit       int
 	closed      bool
-	start       time.Time    // request start, for TTFT and total latency
-	firstByteAt time.Time   // zero until the first non-empty Read
+	start       time.Time // request start, for TTFT and total latency
+	firstByteAt time.Time // zero until the first non-empty Read
 	onClose     func(buf []byte, ttftMs int64)
 }
 
