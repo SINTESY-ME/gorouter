@@ -76,9 +76,9 @@ func (h *HealthProber) RunProbe(comboName, modelStr string, m domain.ModelID, co
 		slog.Debug("health probe: connection not found", "combo", comboName, "model", modelStr, "conn", connID)
 		return
 	}
-	if !conn.IsActive || conn.RateLimitedUntil.After(time.Now()) {
+	if !conn.IsActive {
 		h.Health.ProbeFailed(comboName, modelStr, connID)
-		slog.Debug("health probe: connection inactive or rate-limited", "combo", comboName, "model", modelStr, "conn", connID)
+		slog.Debug("health probe: connection inactive", "combo", comboName, "model", modelStr, "conn", connID)
 		return
 	}
 

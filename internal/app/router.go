@@ -268,7 +268,7 @@ func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body 
 	}
 	for i := 0; i < len(conns); i++ {
 		conn := &conns[(startIdx+i)%len(conns)]
-		if !conn.IsActive || conn.RateLimitedUntil.After(time.Now()) {
+		if !conn.IsActive {
 			continue
 		}
 		if s.Health.IsUnhealthy("", modelStr, conn.ID) {
@@ -599,7 +599,7 @@ func (s *RouterService) allConnectionsUnhealthy(comboName, modelStr string, conn
 	}
 	for i := range conns {
 		conn := &conns[i]
-		if !conn.IsActive || conn.RateLimitedUntil.After(time.Now()) {
+		if !conn.IsActive {
 			continue
 		}
 		if !s.Health.IsUnhealthy(comboName, modelStr, conn.ID) {
@@ -644,7 +644,7 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 	}
 	for i := 0; i < len(conns); i++ {
 		conn := &conns[(startIdx+i)%len(conns)]
-		if !conn.IsActive || conn.RateLimitedUntil.After(time.Now()) {
+		if !conn.IsActive {
 			continue
 		}
 		if skipUnhealthy && s.Health.IsUnhealthy(comboName, modelStr, conn.ID) {
