@@ -506,9 +506,15 @@ function ModelSelector({
                         <Header>Combos</Header>
                         {availableCombos.map((opt) => (
                           <ListBox.Item key={opt.id} id={opt.id} textValue={opt.id}>
-                            <div className="flex flex-col min-w-0">
-                              <span className="font-mono text-xs truncate">{opt.id}</span>
-                              <Description className="text-[11px]">combo · {opt.entry.strategy || "router"}</Description>
+                            <div className="flex items-center justify-between w-full gap-2 min-w-0">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <IconStack />
+                                <div className="flex flex-col min-w-0">
+                                  <span className="font-mono text-xs truncate">{opt.id}</span>
+                                  <Description className="text-[11px]">{opt.entry.strategy || "router"}</Description>
+                                </div>
+                              </div>
+                              <Chip size="sm" variant="soft" color="default" className="text-[10px] shrink-0">combo</Chip>
                             </div>
                             <ListBox.ItemIndicator />
                           </ListBox.Item>
@@ -524,13 +530,24 @@ function ModelSelector({
                         const m = opt.entry;
                         return (
                           <ListBox.Item key={opt.id} id={opt.id} textValue={opt.id}>
-                            <div className="flex flex-col min-w-0">
-                              <span className="font-mono text-xs truncate">{opt.id}</span>
-                              <Description className="text-[11px]">
-                                {m.name}
-                                {!m.is_active ? " · inativo" : ""}
-                                {m.kind && m.kind !== "llm" ? ` · ${m.kind}` : ""}
-                              </Description>
+                            <div className="flex items-center justify-between w-full gap-2 min-w-0">
+                              <div className="flex flex-col min-w-0">
+                                <span className="font-mono text-xs truncate">{opt.id}</span>
+                                <Description className="text-[11px]">{m.name}</Description>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {!m.is_active && (
+                                  <Chip size="sm" variant="soft" color="warning" className="text-[10px]">inativo</Chip>
+                                )}
+                                <Chip
+                                  size="sm"
+                                  variant="soft"
+                                  color={KIND_COLORS[m.kind] ?? "default"}
+                                  className="text-[10px]"
+                                >
+                                  {m.kind}
+                                </Chip>
+                              </div>
                             </div>
                             <ListBox.ItemIndicator />
                           </ListBox.Item>

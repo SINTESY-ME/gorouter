@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  Button, ComboBox, Input, ListBox, Description, Header, Separator, TextArea, Tooltip,
+  Button, ComboBox, Input, ListBox, Description, Header, Separator, Chip, TextArea, Tooltip,
 } from "@heroui/react";
 import {
   api, streamChat, type ChatMessage, type ModelEntry, type Combo, type Provider,
@@ -19,6 +19,11 @@ interface PlaygroundMsg {
   streaming?: boolean;
   error?: string;
 }
+
+const KIND_COLORS: Record<string, "accent" | "success" | "warning" | "default" | "danger"> = {
+  llm: "accent", embedding: "success", image: "warning", tts: "default", stt: "danger",
+  rerank: "default", ocr: "default", video: "default",
+};
 
 const SUGGESTIONS = [
   "Explique como funciona recursão em programação",
@@ -207,9 +212,15 @@ export default function Playground() {
                       <Header>Combos</Header>
                       {combos.map((c) => (
                         <ListBox.Item key={c.name} id={c.name} textValue={c.name}>
-                          <div className="flex flex-col min-w-0">
-                            <span className="font-mono text-xs truncate">{c.name}</span>
-                            <Description className="text-[11px]">combo · {c.strategy || "router"}</Description>
+                          <div className="flex items-center justify-between w-full gap-2 min-w-0">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <IconStack />
+                              <div className="flex flex-col min-w-0">
+                                <span className="font-mono text-xs truncate">{c.name}</span>
+                                <Description className="text-[11px]">{c.strategy || "router"}</Description>
+                              </div>
+                            </div>
+                            <Chip size="sm" variant="soft" color="default" className="text-[10px] shrink-0">combo</Chip>
                           </div>
                           <ListBox.ItemIndicator />
                         </ListBox.Item>
@@ -223,13 +234,22 @@ export default function Playground() {
                     <Header>{g.provider.name}</Header>
                     {g.models.map((m) => (
                       <ListBox.Item key={m.id} id={m.id} textValue={m.id}>
-                        <div className="flex flex-col min-w-0">
-                          <span className="font-mono text-xs truncate">{m.id}</span>
-                          <Description className="text-[11px]">
-                            {m.name}
-                            {m.kind && m.kind !== "llm" ? ` · ${m.kind}` : ""}
-                            {m.context > 0 ? ` · ${m.context}K ctx` : ""}
-                          </Description>
+                        <div className="flex items-center justify-between w-full gap-2 min-w-0">
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-mono text-xs truncate">{m.id}</span>
+                            <Description className="text-[11px]">
+                              {m.name}
+                              {m.context > 0 ? ` · ${m.context}K ctx` : ""}
+                            </Description>
+                          </div>
+                          <Chip
+                            size="sm"
+                            variant="soft"
+                            color={KIND_COLORS[m.kind] ?? "default"}
+                            className="text-[10px] shrink-0"
+                          >
+                            {m.kind}
+                          </Chip>
                         </div>
                         <ListBox.ItemIndicator />
                       </ListBox.Item>
@@ -411,6 +431,15 @@ function formatLatency(ms: number): string {
   return `${(ms / 1000).toFixed(2)}s`;
 }
 
+function IconStack() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 shrink-0 text-muted">
+      <polygon points="12 2 2 7 12 12 22 7 12 2" />
+      <polyline points="2 17 12 22 12 17" />
+      <polyline points="2 12 12 17 22 12" />
+    </svg>
+  );
+}
 function IconChat({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
