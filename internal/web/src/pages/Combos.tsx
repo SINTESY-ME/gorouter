@@ -1,13 +1,18 @@
 import { useEffect, useState } from "react";
 import {
   Table, Button, Modal, Input, Chip, Select, ListBox, Spinner, TextArea, TextField, Label,
-  ComboBox, Description, Header, Separator,
+  ComboBox, Header, Separator, Collection,
 } from "@heroui/react";
 import { api, type Combo, type ModelEntry, type ComboModelMeta, type Provider } from "../api";
 
 const KIND_COLORS: Record<string, "accent" | "success" | "warning" | "default" | "danger"> = {
   llm: "accent", embedding: "success", image: "warning", tts: "default", stt: "danger",
   rerank: "default", ocr: "default", video: "default",
+};
+
+const KIND_TEXT: Record<string, string> = {
+  llm: "text-accent", embedding: "text-success", image: "text-warning", tts: "text-muted", stt: "text-danger",
+  rerank: "text-muted", ocr: "text-muted", video: "text-muted",
 };
 
 const STRATEGY_COLORS: Record<string, "accent" | "success" | "warning" | "default" | "danger"> = {
@@ -439,6 +444,13 @@ function ModelSelector({
     }))
     .filter((s) => s.options.length > 0);
 
+  const comboItems = availableCombos.map((opt) => ({ id: opt.id }));
+  const modelSectionItems = modelSections.map((s) => ({
+    id: s.provider.id,
+    title: s.provider.name,
+    items: s.options.map((opt) => ({ id: opt.id, kind: opt.entry.kind, isActive: opt.entry.is_active })),
+  }));
+
   const toggleModel = (id: string) => {
     if (selected.includes(id)) {
       onChange(selected.filter((m) => m !== id));
@@ -500,59 +512,49 @@ function ModelSelector({
               <ComboBox.Value placeholder="Nenhum modelo selecionado" />
               <ComboBox.Popover>
                 <ListBox>
-                  {availableCombos.length > 0 && (
+                  {comboItems.length > 0 && (
                     <>
                       <ListBox.Section>
                         <Header>Combos</Header>
-                        {availableCombos.map((opt) => (
-                          <ListBox.Item key={opt.id} id={opt.id} textValue={opt.id}>
-                            <div className="flex items-center justify-between w-full gap-2 min-w-0">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <IconStack />
-                                <div className="flex flex-col min-w-0">
-                                  <span className="font-mono text-xs truncate">{opt.id}</span>
-                                  <Description className="text-[11px]">{opt.entry.strategy || "router"}</Description>
+                        <Collection items={comboItems}>
+                          {(item) => (
+                            <ListBox.Item id={item.id} textValue={item.id}>
+                              <div className="flex items-center justify-between w-full gap-2 min-w-0">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <IconStack />
+                                  <span className="font-mono text-xs truncate">{item.id}</span>
                                 </div>
+                                <span className="shrink-0 rounded-full bg-surface-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted">combo</span>
                               </div>
-                              <Chip size="sm" variant="soft" color="default" className="text-[10px] shrink-0">combo</Chip>
-                            </div>
-                            <ListBox.ItemIndicator />
-                          </ListBox.Item>
-                        ))}
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                          )}
+                        </Collection>
                       </ListBox.Section>
                       <Separator />
                     </>
                   )}
-                  {modelSections.map((s) => (
-                    <ListBox.Section key={s.provider.id}>
-                      <Header>{s.provider.name}</Header>
-                      {s.options.map((opt) => {
-                        const m = opt.entry;
-                        return (
-                          <ListBox.Item key={opt.id} id={opt.id} textValue={opt.id}>
+                  {modelSectionItems.map((s) => (
+                    <ListBox.Section key={s.id}>
+                      <Header>{s.title}</Header>
+                      <Collection items={s.items}>
+                        {(item) => (
+                          <ListBox.Item id={item.id} textValue={item.id}>
                             <div className="flex items-center justify-between w-full gap-2 min-w-0">
-                              <div className="flex flex-col min-w-0">
-                                <span className="font-mono text-xs truncate">{opt.id}</span>
-                                <Description className="text-[11px]">{m.name}</Description>
-                              </div>
+                              <span className="font-mono text-xs truncate">{item.id}</span>
                               <div className="flex items-center gap-1 shrink-0">
-                                {!m.is_active && (
-                                  <Chip size="sm" variant="soft" color="warning" className="text-[10px]">inativo</Chip>
+                                {!item.isActive && (
+                                  <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">inativo</span>
                                 )}
-                                <Chip
-                                  size="sm"
-                                  variant="soft"
-                                  color={KIND_COLORS[m.kind] ?? "default"}
-                                  className="text-[10px]"
-                                >
-                                  {m.kind}
-                                </Chip>
+                                <span className={`rounded-full bg-surface-secondary px-1.5 py-0.5 text-[10px] font-medium ${KIND_TEXT[item.kind] ?? "text-muted"}`}>
+                                  {item.kind}
+                                </span>
                               </div>
                             </div>
                             <ListBox.ItemIndicator />
                           </ListBox.Item>
-                        );
-                      })}
+                        )}
+                      </Collection>
                     </ListBox.Section>
                   ))}
                 </ListBox>
