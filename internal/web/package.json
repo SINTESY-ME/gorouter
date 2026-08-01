@@ -9,8 +9,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@heroui/react": "^3.2.2",
+    "@heroui/react": "^3.2.3",
     "@iconify/react": "^6.0.0",
+    "@internationalized/date": "^3.12.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.0",

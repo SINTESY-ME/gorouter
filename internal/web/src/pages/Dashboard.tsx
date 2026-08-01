@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import {
-  Spinner, Select, ListBox, Popover, Input, Button, Card, Tabs,
-  Table, ProgressBar, Separator, TextField, Label,
+  Spinner, Select, ListBox, Popover, Button, Card, Tabs,
+  Table, ProgressBar, Separator,
+  DateRangePicker, DateField, RangeCalendar,
 } from "@heroui/react";
+import type { CalendarDateTime } from "@internationalized/date";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip,
   CartesianGrid, BarChart, Bar, PieChart, Pie, Cell, Legend,
@@ -63,8 +65,7 @@ export default function Dashboard() {
   const [period, setPeriod] = useState("24h");
   const [bucket, setBucket] = useState("");
   const [customMode, setCustomMode] = useState(false);
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [dateRange, setDateRange] = useState<{ start: CalendarDateTime; end: CalendarDateTime } | null>(null);
   const [loading, setLoading] = useState(true);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [selectedKeyId, setSelectedKeyId] = useState<string>("");
@@ -75,9 +76,9 @@ export default function Dashboard() {
   useEffect(() => {
     setLoading(true);
     const params: { period?: string; from?: string; to?: string; bucket?: string; api_key_id?: string } = {};
-    if (customMode && fromDate) {
-      params.from = new Date(fromDate).toISOString();
-      if (toDate) params.to = new Date(toDate).toISOString();
+    if (customMode && dateRange) {
+      params.from = new Date(dateRange.start.toString()).toISOString();
+      params.to = new Date(dateRange.end.toString()).toISOString();
       if (bucket) params.bucket = bucket;
     } else {
       params.period = period;
@@ -86,14 +87,14 @@ export default function Dashboard() {
     if (selectedKeyId) params.api_key_id = selectedKeyId;
     Promise.all([
       api.usage.stats(params),
-      api.savings.stats(customMode && fromDate ? "60d" : period, selectedKeyId).catch(() => null),
+      api.savings.stats(customMode && dateRange ? "60d" : period, selectedKeyId).catch(() => null),
       api.status().catch(() => null),
       api.models.stats().catch(() => ({})),
     ])
       .then(([s, sv, st, ms]) => { setStats(s); setSavings(sv); setStatus(st); setModelStats(ms); })
       .catch(() => setStats(null))
       .finally(() => setLoading(false));
-  }, [period, bucket, customMode, fromDate, toDate, selectedKeyId]);
+  }, [period, bucket, customMode, dateRange, selectedKeyId]);
 
   if (loading) return <div className="flex justify-center py-20"><Spinner /></div>;
   if (!stats) return (
@@ -165,22 +166,62 @@ export default function Dashboard() {
             <Popover.Trigger>
               <Button size="sm" variant={customMode ? "primary" : "secondary"} onPress={() => setCustomMode(true)}>
                 <IconCalendar className="w-4 h-4" />
-                {customMode && fromDate ? formatRangeLabel(fromDate, toDate) : "Personalizado"}
+                {formatDateRangeLabel(customMode ? dateRange : null)}
               </Button>
             </Popover.Trigger>
             <Popover.Content placement="bottom" className="p-3">
-              <div className="space-y-3 w-64">
-                <TextField value={fromDate} onChange={(v) => { setFromDate(v); setCustomMode(true); }}>
-                  <Label>De</Label>
-                  <Input type="datetime-local" />
-                </TextField>
-                <TextField value={toDate} onChange={setToDate}>
-                  <Label>Até</Label>
-                  <Input type="datetime-local" placeholder="Agora" />
-                </TextField>
+              <div className="space-y-3 w-80">
+                <DateRangePicker
+                  aria-label="Período personalizado"
+                  className="w-full"
+                  startName="startDate"
+                  endName="endDate"
+                  value={dateRange}
+                  onChange={(v) => { setDateRange(v); setCustomMode(true); }}
+                >
+                  <DateField.Group fullWidth>
+                    <DateField.Input slot="start">
+                      {(segment) => <DateField.Segment segment={segment} />}
+                    </DateField.Input>
+                    <DateRangePicker.RangeSeparator />
+                    <DateField.Input slot="end">
+                      {(segment) => <DateField.Segment segment={segment} />}
+                    </DateField.Input>
+                    <DateField.Suffix>
+                      <DateRangePicker.Trigger>
+                        <DateRangePicker.TriggerIndicator />
+                      </DateRangePicker.Trigger>
+                    </DateField.Suffix>
+                  </DateField.Group>
+                  <DateRangePicker.Popover>
+                    <RangeCalendar aria-label="Período personalizado">
+                      <RangeCalendar.Header>
+                        <RangeCalendar.YearPickerTrigger>
+                          <RangeCalendar.YearPickerTriggerHeading />
+                          <RangeCalendar.YearPickerTriggerIndicator />
+                        </RangeCalendar.YearPickerTrigger>
+                        <RangeCalendar.NavButton slot="previous" />
+                        <RangeCalendar.NavButton slot="next" />
+                      </RangeCalendar.Header>
+                      <RangeCalendar.Grid>
+                        <RangeCalendar.GridHeader>
+                          {(day) => <RangeCalendar.HeaderCell>{day}</RangeCalendar.HeaderCell>}
+                        </RangeCalendar.GridHeader>
+                        <RangeCalendar.GridBody>
+                          {(date) => <RangeCalendar.Cell date={date} />}
+                        </RangeCalendar.GridBody>
+                      </RangeCalendar.Grid>
+                      <RangeCalendar.YearPickerGrid>
+                        <RangeCalendar.YearPickerGridBody>
+                          {({year}) => <RangeCalendar.YearPickerCell year={year} />}
+                        </RangeCalendar.YearPickerGridBody>
+                      </RangeCalendar.YearPickerGrid>
+                    </RangeCalendar>
+                  </DateRangePicker.Popover>
+                </DateRangePicker>
                 <Button size="sm" variant="primary" className="w-full" onPress={() => setCustomMode(true)}>Aplicar</Button>
                 {customMode && (
-                  <Button size="sm" variant="secondary" className="w-full" onPress={() => { setCustomMode(false); setFromDate(""); setToDate(""); }}>
+                  <Button size="sm" variant="secondary" className="w-full" onPress={() => { setCustomMode(false); setDateRange(null); }}>
                     Voltar para presets
                   </Button>
                 )}
@@ -539,11 +580,10 @@ function SavingsCard({ label, value, sub, full, dot }: { label: string; value: s
   );
 }
 
-function formatRangeLabel(from: string, to: string): string {
+function formatDateRangeLabel(range: { start: { toString(): string }; end: { toString(): string } } | null): string {
+  if (!range) return "Personalizado";
   const fmt = (s: string) => s.slice(11, 16) || s.slice(0, 10);
-  const f = from ? fmt(from) : "?";
-  const t = to ? fmt(to) : "agora";
-  return `${f} → ${t}`;
+  return `${fmt(range.start.toString())} → ${fmt(range.end.toString())}`;
 }
 
 function IconCalendar({ className }: { className?: string }) {

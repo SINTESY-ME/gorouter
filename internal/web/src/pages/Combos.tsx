@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import {
   Table, Button, Modal, Input, Chip, Select, ListBox, Spinner, TextArea, TextField, Label,
+  ComboBox, Description, Header, Separator,
 } from "@heroui/react";
-import { api, type Combo, type ModelEntry, type ComboModelMeta } from "../api";
+import { api, type Combo, type ModelEntry, type ComboModelMeta, type Provider } from "../api";
 
 const KIND_COLORS: Record<string, "accent" | "success" | "warning" | "default" | "danger"> = {
   llm: "accent", embedding: "success", image: "warning", tts: "default", stt: "danger",
@@ -367,6 +368,7 @@ function ModelSelector({
 }) {
   const [allModels, setAllModels] = useState<ModelEntry[]>([]);
   const [allCombos, setAllCombos] = useState<Combo[]>([]);
+  const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchValue, setSearchValue] = useState("");
@@ -388,6 +390,7 @@ function ModelSelector({
         });
         setAllModels(models);
         setAllCombos(combosList);
+        setProviders(ps);
       } catch (e: any) {
         if (!cancelled) setError(e?.message ?? "erro");
       } finally {
@@ -427,8 +430,14 @@ function ModelSelector({
     available.push({ kind: "combo", id: c.name, entry: c });
   }
 
-  const q = searchValue.trim().toLowerCase();
-  const filtered = q ? available.filter((o) => o.id.toLowerCase().includes(q)) : available;
+  const availableCombos = available.filter((o): o is { kind: "combo"; id: string; entry: Combo } => o.kind === "combo");
+  const modelSections = providers
+    .map((p) => ({
+      provider: p,
+      options: available.filter((o): o is { kind: "model"; id: string; entry: ModelEntry } =>
+        o.kind === "model" && o.entry.provider_id === p.id),
+    }))
+    .filter((s) => s.options.length > 0);
 
   const toggleModel = (id: string) => {
     if (selected.includes(id)) {
@@ -474,45 +483,69 @@ function ModelSelector({
           <div className="text-sm text-danger py-2">Erro: {error}</div>
         ) : (
           <div className="space-y-2">
-            <Input
-              value={searchValue}
-              onChange={(e) => setSearchValue(e.target.value)}
-              placeholder="Buscar model ou combo..."
-              variant="secondary"
-              aria-label="Buscar modelos e combos"
-            />
-            <div className="max-h-56 overflow-y-auto rounded-lg border border-border divide-y divide-border">
-              {filtered.length === 0 ? (
-                <div className="text-sm text-muted px-3 py-3">
-                  {fixedKind ? `Nenhuma opção do tipo ${fixedKind}.` : "Nenhuma opção disponível."}
-                </div>
-              ) : (
-                filtered.map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => toggleModel(opt.id)}
-                    className="w-full flex items-center justify-between gap-2 px-3 py-2 hover:bg-surface-secondary transition-colors text-left"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      {opt.kind === "combo" && <IconStack />}
-                      <span className="font-mono text-xs truncate">{opt.id}</span>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      {opt.kind === "model" && !(opt.entry as ModelEntry).is_active && (
-                        <Chip size="sm" variant="soft" color="warning" className="text-[10px]">inativo</Chip>
-                      )}
-                      {opt.kind === "combo" && (
-                        <Chip size="sm" variant="soft" color="default" className="text-[10px]">combo</Chip>
-                      )}
-                      <Chip size="sm" variant="soft" color={KIND_COLORS[opt.kind === "model" ? (opt.entry as ModelEntry).kind : ((opt.entry as Combo).kind || "llm")] ?? "default"} className="text-[10px]">
-                        {opt.kind === "model" ? (opt.entry as ModelEntry).kind : ((opt.entry as Combo).kind || "llm")}
-                      </Chip>
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
+            <ComboBox
+              className="w-full"
+              aria-label="Modelos"
+              selectionMode="multiple"
+              value={selected}
+              onChange={(keys) => onChange(keys.map(String))}
+              inputValue={searchValue}
+              onInputChange={setSearchValue}
+              isDisabled={loading}
+            >
+              <ComboBox.InputGroup>
+                <Input placeholder="Buscar model ou combo..." variant="secondary" />
+                <ComboBox.Trigger />
+              </ComboBox.InputGroup>
+              <ComboBox.Value placeholder="Nenhum modelo selecionado" />
+              <ComboBox.Popover>
+                <ListBox>
+                  {availableCombos.length > 0 && (
+                    <>
+                      <ListBox.Section>
+                        <Header>Combos</Header>
+                        {availableCombos.map((opt) => (
+                          <ListBox.Item key={opt.id} id={opt.id} textValue={opt.id}>
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-mono text-xs truncate">{opt.id}</span>
+                              <Description className="text-[11px]">combo · {opt.entry.strategy || "router"}</Description>
+                            </div>
+                            <ListBox.ItemIndicator />
+                          </ListBox.Item>
+                        ))}
+                      </ListBox.Section>
+                      <Separator />
+                    </>
+                  )}
+                  {modelSections.map((s) => (
+                    <ListBox.Section key={s.provider.id}>
+                      <Header>{s.provider.name}</Header>
+                      {s.options.map((opt) => {
+                        const m = opt.entry;
+                        return (
+                          <ListBox.Item key={opt.id} id={opt.id} textValue={opt.id}>
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-mono text-xs truncate">{opt.id}</span>
+                              <Description className="text-[11px]">
+                                {m.name}
+                                {!m.is_active ? " · inativo" : ""}
+                                {m.kind && m.kind !== "llm" ? ` · ${m.kind}` : ""}
+                              </Description>
+                            </div>
+                            <ListBox.ItemIndicator />
+                          </ListBox.Item>
+                        );
+                      })}
+                    </ListBox.Section>
+                  ))}
+                </ListBox>
+              </ComboBox.Popover>
+            </ComboBox>
+            {available.length === 0 && !loading && (
+              <div className="text-sm text-muted px-1 py-1">
+                {fixedKind ? `Nenhuma opção do tipo ${fixedKind}.` : "Nenhuma opção disponível."}
+              </div>
+            )}
             {searchValue.trim() && !available.some((opt) => opt.id === searchValue.trim()) && (
               <Button
                 size="sm"

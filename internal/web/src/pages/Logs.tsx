@@ -2,7 +2,9 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import type { Selection } from "@heroui/react";
 import {
   Table, Chip, Pagination, Spinner, Input, Select, ListBox, Button, cn,
+  DateRangePicker, DateField, RangeCalendar,
 } from "@heroui/react";
+import type { CalendarDate } from "@internationalized/date";
 import { Icon } from "@iconify/react";
 import { api, type UsageEntry, type ApiKey } from "../api";
 import { formatCompact, formatCost } from "../format";
@@ -73,8 +75,8 @@ export default function Logs() {
   const [page, setPage] = useState(1);
   const [expandedKeys, setExpandedKeys] = useState<Selection>(new Set());
 
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  type DateRangeValue = { start: CalendarDate; end: CalendarDate } | null;
+  const [dateRange, setDateRange] = useState<DateRangeValue>(null);
   const [modelFilter, setModelFilter] = useState("");
   const [comboFilter, setComboFilter] = useState("");
   const [keyFilter, setKeyFilter] = useState("");
@@ -86,8 +88,10 @@ export default function Logs() {
   const fetchLogs = useCallback(() => {
     setLoading(true);
     const params: Record<string, string | number> = { limit: 500 };
-    if (fromDate) params.from = new Date(fromDate).toISOString();
-    if (toDate) params.to = new Date(toDate).toISOString();
+    if (dateRange) {
+      params.from = new Date(dateRange.start.toString()).toISOString();
+      params.to = new Date(dateRange.end.toString()).toISOString();
+    }
     if (modelFilter) params.model = modelFilter;
     if (comboFilter) params.combo = comboFilter;
     if (keyFilter) params.api_key = keyFilter;
@@ -96,21 +100,21 @@ export default function Logs() {
       .then(setItems)
       .catch(() => setItems([]))
       .finally(() => setLoading(false));
-  }, [fromDate, toDate, modelFilter, comboFilter, keyFilter, search]);
+  }, [dateRange, modelFilter, comboFilter, keyFilter, search]);
 
   useEffect(() => {
     api.keys.list().then(setApiKeys).catch(() => {});
   }, []);
 
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
-  useEffect(() => { setPage(1); setExpandedKeys(new Set()); }, [fromDate, toDate, modelFilter, comboFilter, keyFilter, search]);
+  useEffect(() => { setPage(1); setExpandedKeys(new Set()); }, [dateRange, modelFilter, comboFilter, keyFilter, search]);
 
   const clearFilters = () => {
-    setFromDate(""); setToDate(""); setModelFilter("");
+    setDateRange(null); setModelFilter("");
     setComboFilter(""); setKeyFilter(""); setSearch("");
   };
 
-  const hasFilters = !!(fromDate || toDate || modelFilter || comboFilter || keyFilter || search);
+  const hasFilters = !!(dateRange || modelFilter || comboFilter || keyFilter || search);
 
   const rows: LogRow[] = useMemo(() => {
     const map = new Map<string, UsageEntry[]>();
@@ -196,8 +200,54 @@ export default function Logs() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <Input type="date" aria-label="De" value={fromDate} onChange={(e) => setFromDate(e.target.value)} variant="secondary" />
-        <Input type="date" aria-label="Até" value={toDate} onChange={(e) => setToDate(e.target.value)} variant="secondary" />
+        <DateRangePicker
+          aria-label="Filtrar por data"
+          className="w-full lg:col-span-2"
+          startName="startDate"
+          endName="endDate"
+          value={dateRange}
+          onChange={setDateRange}
+        >
+          <DateField.Group fullWidth>
+            <DateField.Input slot="start">
+              {(segment) => <DateField.Segment segment={segment} />}
+            </DateField.Input>
+            <DateRangePicker.RangeSeparator />
+            <DateField.Input slot="end">
+              {(segment) => <DateField.Segment segment={segment} />}
+            </DateField.Input>
+            <DateField.Suffix>
+              <DateRangePicker.Trigger>
+                <DateRangePicker.TriggerIndicator />
+              </DateRangePicker.Trigger>
+            </DateField.Suffix>
+          </DateField.Group>
+          <DateRangePicker.Popover>
+            <RangeCalendar aria-label="Filtrar por data">
+              <RangeCalendar.Header>
+                <RangeCalendar.YearPickerTrigger>
+                  <RangeCalendar.YearPickerTriggerHeading />
+                  <RangeCalendar.YearPickerTriggerIndicator />
+                </RangeCalendar.YearPickerTrigger>
+                <RangeCalendar.NavButton slot="previous" />
+                <RangeCalendar.NavButton slot="next" />
+              </RangeCalendar.Header>
+              <RangeCalendar.Grid>
+                <RangeCalendar.GridHeader>
+                  {(day) => <RangeCalendar.HeaderCell>{day}</RangeCalendar.HeaderCell>}
+                </RangeCalendar.GridHeader>
+                <RangeCalendar.GridBody>
+                  {(date) => <RangeCalendar.Cell date={date} />}
+                </RangeCalendar.GridBody>
+              </RangeCalendar.Grid>
+              <RangeCalendar.YearPickerGrid>
+                <RangeCalendar.YearPickerGridBody>
+                  {({year}) => <RangeCalendar.YearPickerCell year={year} />}
+                </RangeCalendar.YearPickerGridBody>
+              </RangeCalendar.YearPickerGrid>
+            </RangeCalendar>
+          </DateRangePicker.Popover>
+        </DateRangePicker>
         <FilterSelect label="Modelo" value={modelFilter} onChange={setModelFilter} options={modelOptions} />
         <FilterSelect label="Combo" value={comboFilter} onChange={setComboFilter} options={comboOptions} />
         <Select

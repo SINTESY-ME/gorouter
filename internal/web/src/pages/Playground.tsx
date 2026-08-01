@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  Button, Chip, Autocomplete, ListBox, TextArea, Tooltip,
+  Button, ComboBox, Input, ListBox, Description, Header, Separator, TextArea, Tooltip,
 } from "@heroui/react";
 import {
-  api, streamChat, type ChatMessage, type ModelEntry, type Combo,
+  api, streamChat, type ChatMessage, type ModelEntry, type Combo, type Provider,
 } from "../api";
 
 interface PlaygroundMsg {
@@ -20,11 +20,6 @@ interface PlaygroundMsg {
   error?: string;
 }
 
-const KIND_COLORS: Record<string, "accent" | "success" | "warning" | "default" | "danger"> = {
-  llm: "accent", embedding: "success", image: "warning", tts: "default", stt: "danger",
-  rerank: "default", ocr: "default", video: "default",
-};
-
 const SUGGESTIONS = [
   "Explique como funciona recursão em programação",
   "Escreva um poema sobre observabilidade",
@@ -32,8 +27,13 @@ const SUGGESTIONS = [
   "Crie uma função SQL que calcule retenção semanal",
 ];
 
+interface ModelGroup {
+  provider: Provider;
+  models: ModelEntry[];
+}
+
 export default function Playground() {
-  const [models, setModels] = useState<ModelEntry[]>([]);
+  const [modelGroups, setModelGroups] = useState<ModelGroup[]>([]);
   const [combos, setCombos] = useState<Combo[]>([]);
   const [loadingOpts, setLoadingOpts] = useState(true);
   const [selectedModel, setSelectedModel] = useState("");
@@ -55,11 +55,14 @@ export default function Playground() {
           api.combos.list().catch(() => []),
         ]);
         if (cancelled) return;
-        const allModels: ModelEntry[] = [];
-        providerModels.forEach((r) => {
-          if (r.status === "fulfilled") r.value.forEach((m) => allModels.push(m));
+        const groups: ModelGroup[] = [];
+        ps.forEach((p, i) => {
+          const r = providerModels[i];
+          if (r.status !== "fulfilled") return;
+          const models = r.value.filter((m) => m.kind === "llm" || !m.kind);
+          if (models.length > 0) groups.push({ provider: p, models });
         });
-        setModels(allModels.filter((m) => m.kind === "llm" || !m.kind));
+        setModelGroups(groups);
         setCombos(combosList.filter((c) => !c.kind || c.kind === "llm"));
       } finally {
         if (!cancelled) setLoadingOpts(false);
@@ -175,11 +178,6 @@ export default function Playground() {
     }
   };
 
-  const options: { id: string; label: string; kind: string; isCombo: boolean }[] = [
-    ...combos.map((c) => ({ id: c.name, label: c.name, kind: c.kind || "llm", isCombo: true })),
-    ...models.map((m) => ({ id: m.id, label: m.id, kind: m.kind || "llm", isCombo: false })),
-  ];
-
   return (
     <div className="flex flex-col h-full bg-background">
       <div className="shrink-0 h-12 border-b border-border bg-surface/80 backdrop-blur flex items-center justify-between px-4 gap-4">
@@ -187,41 +185,60 @@ export default function Playground() {
           <IconChat className="w-4 h-4 text-accent shrink-0" />
           <span className="font-semibold text-sm shrink-0">Playground</span>
           <span className="text-muted/70 shrink-0">/</span>
-          <Autocomplete
+          <ComboBox
             aria-label="Modelo"
             selectedKey={selectedModel || null}
             onSelectionChange={(key) => setSelectedModel((key as string) ?? "")}
             isDisabled={loadingOpts}
-            placeholder={loadingOpts ? "Carregando..." : "Selecione um modelo ou combo..."}
             className="w-72"
           >
-            <Autocomplete.Trigger className="h-8 min-h-8 bg-surface-secondary/60 text-sm">
-              <Autocomplete.Value />
-              <Autocomplete.Indicator />
-            </Autocomplete.Trigger>
-            <Autocomplete.Popover>
+            <ComboBox.InputGroup className="h-8 min-h-8 bg-surface-secondary/60">
+              <Input
+                placeholder={loadingOpts ? "Carregando..." : "Selecione um modelo ou combo..."}
+                className="h-8 min-h-8 text-sm"
+              />
+              <ComboBox.Trigger />
+            </ComboBox.InputGroup>
+            <ComboBox.Popover>
               <ListBox>
-                {options.map((opt) => (
-                  <ListBox.Item key={opt.id} id={opt.id} textValue={opt.id}>
-                    <div className="flex items-center justify-between w-full gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        {opt.isCombo && <IconStack />}
-                        <span className="font-mono text-xs truncate">{opt.label}</span>
-                      </div>
-                      <Chip
-                        size="sm"
-                        variant="soft"
-                        color={opt.isCombo ? "default" : KIND_COLORS[opt.kind] ?? "default"}
-                        className="text-[10px] shrink-0"
-                      >
-                        {opt.isCombo ? "combo" : opt.kind}
-                      </Chip>
-                    </div>
-                  </ListBox.Item>
+                {combos.length > 0 && (
+                  <>
+                    <ListBox.Section>
+                      <Header>Combos</Header>
+                      {combos.map((c) => (
+                        <ListBox.Item key={c.name} id={c.name} textValue={c.name}>
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-mono text-xs truncate">{c.name}</span>
+                            <Description className="text-[11px]">combo · {c.strategy || "router"}</Description>
+                          </div>
+                          <ListBox.ItemIndicator />
+                        </ListBox.Item>
+                      ))}
+                    </ListBox.Section>
+                    <Separator />
+                  </>
+                )}
+                {modelGroups.map((g) => (
+                  <ListBox.Section key={g.provider.id}>
+                    <Header>{g.provider.name}</Header>
+                    {g.models.map((m) => (
+                      <ListBox.Item key={m.id} id={m.id} textValue={m.id}>
+                        <div className="flex flex-col min-w-0">
+                          <span className="font-mono text-xs truncate">{m.id}</span>
+                          <Description className="text-[11px]">
+                            {m.name}
+                            {m.kind && m.kind !== "llm" ? ` · ${m.kind}` : ""}
+                            {m.context > 0 ? ` · ${m.context}K ctx` : ""}
+                          </Description>
+                        </div>
+                        <ListBox.ItemIndicator />
+                      </ListBox.Item>
+                    ))}
+                  </ListBox.Section>
                 ))}
               </ListBox>
-            </Autocomplete.Popover>
-          </Autocomplete>
+            </ComboBox.Popover>
+          </ComboBox>
         </div>
         <div className="flex items-center gap-1">
           {messages.length > 0 && (
@@ -394,15 +411,6 @@ function formatLatency(ms: number): string {
   return `${(ms / 1000).toFixed(2)}s`;
 }
 
-function IconStack() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3">
-      <polygon points="12 2 2 7 12 12 22 7 12 2" />
-      <polyline points="2 17 12 22 22 17" />
-      <polyline points="2 12 12 17 22 12" />
-    </svg>
-  );
-}
 function IconChat({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
