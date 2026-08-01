@@ -93,8 +93,13 @@ export default function Performance() {
             onChange={toggleRtk}
             isDisabled={rtkLoading}
             size="lg"
-            aria-label="RTK token compression"
-          />
+          >
+            <Switch.Content aria-label="RTK token compression">
+              <Switch.Control>
+                <Switch.Thumb />
+              </Switch.Control>
+            </Switch.Content>
+          </Switch>
         </div>
       </div>
 
@@ -115,8 +120,13 @@ export default function Performance() {
             onChange={toggleCache}
             isDisabled={cacheLoading}
             size="lg"
-            aria-label="Response cache"
-          />
+          >
+            <Switch.Content aria-label="Response cache">
+              <Switch.Control>
+                <Switch.Thumb />
+              </Switch.Control>
+            </Switch.Content>
+          </Switch>
         </div>
 
         {/* Cache stats */}
