@@ -1,18 +1,13 @@
 import { useEffect, useState } from "react";
 import {
   Table, Button, Modal, Input, Chip, Select, ListBox, Spinner, TextArea, TextField, Label,
-  ComboBox, ListLayout, Virtualizer,
 } from "@heroui/react";
+import { ModelComboBox, type ModelComboBoxItem } from "../components/ModelComboBox";
 import { api, type Combo, type ModelEntry, type ComboModelMeta, type Provider } from "../api";
 
 const KIND_COLORS: Record<string, "accent" | "success" | "warning" | "default" | "danger"> = {
   llm: "accent", embedding: "success", image: "warning", tts: "default", stt: "danger",
   rerank: "default", ocr: "default", video: "default",
-};
-
-const KIND_TEXT: Record<string, string> = {
-  llm: "text-accent", embedding: "text-success", image: "text-warning", tts: "text-muted", stt: "text-danger",
-  rerank: "text-muted", ocr: "text-muted", video: "text-muted",
 };
 
 const STRATEGY_COLORS: Record<string, "accent" | "success" | "warning" | "default" | "danger"> = {
@@ -435,7 +430,7 @@ function ModelSelector({
     available.push({ kind: "combo", id: c.name, entry: c });
   }
 
-  const listItems = available.map((opt) => ({
+  const listItems: ModelComboBoxItem[] = available.map((opt) => ({
     id: opt.id,
     itemType: opt.kind,
     kind: opt.kind === "model" ? opt.entry.kind : opt.entry.kind || "llm",
@@ -486,47 +481,20 @@ function ModelSelector({
           <div className="text-sm text-danger py-2">Erro: {error}</div>
         ) : (
           <div className="space-y-2">
-            <ComboBox
-              className="w-full"
-              aria-label="Modelos"
-              selectionMode="multiple"
-              value={selected}
-              onChange={(keys) => onChange(keys.map(String))}
-              inputValue={searchValue}
-              onInputChange={setSearchValue}
-              isDisabled={loading}
-            >
-              <ComboBox.InputGroup>
-                <Input placeholder="Buscar model ou combo..." variant="secondary" />
-                <ComboBox.Trigger />
-              </ComboBox.InputGroup>
-              <ComboBox.Value placeholder="Nenhum modelo selecionado" />
-              <ComboBox.Popover>
-                <Virtualizer layout={ListLayout} layoutOptions={{ rowSize: 32, gap: 0 }}>
-                  <ListBox items={listItems} className="max-h-80 overflow-y-auto">
-                    {(item) => (
-                      <ListBox.Item id={item.id} textValue={item.id}>
-                        <div className="flex items-center justify-between w-full gap-2 min-w-0">
-                          <div className="flex items-center gap-2 min-w-0">
-                            {item.itemType === "combo" && <IconStack />}
-                            <span className="font-mono text-xs truncate">{item.id}</span>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            {item.itemType === "model" && !item.isActive && (
-                              <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">inativo</span>
-                            )}
-                            <span className={`rounded-full bg-surface-secondary px-1.5 py-0.5 text-[10px] font-medium ${item.itemType === "combo" ? "text-muted" : (KIND_TEXT[item.kind] ?? "text-muted")}`}>
-                              {item.itemType === "combo" ? "combo" : item.kind}
-                            </span>
-                          </div>
-                        </div>
-                        <ListBox.ItemIndicator />
-                      </ListBox.Item>
-                    )}
-                  </ListBox>
-                </Virtualizer>
-              </ComboBox.Popover>
-            </ComboBox>
+              <ModelComboBox
+                ariaLabel="Modelos"
+                selectionMode="multiple"
+                selectedKeys={selected}
+                onSelectedKeysChange={onChange}
+                inputValue={searchValue}
+                onInputChange={setSearchValue}
+                items={listItems}
+                inputPlaceholder="Buscar model ou combo..."
+                inputVariant="secondary"
+                valuePlaceholder="Nenhum modelo selecionado"
+                isDisabled={loading}
+                className="w-full"
+              />
             {available.length === 0 && !loading && (
               <div className="text-sm text-muted px-1 py-1">
                 {fixedKind ? `Nenhuma opção do tipo ${fixedKind}.` : "Nenhuma opção disponível."}

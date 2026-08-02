@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  Button, ComboBox, Input, ListBox, TextArea, Tooltip, ListLayout, Virtualizer,
+  Button, TextArea, Tooltip,
 } from "@heroui/react";
+import { ModelComboBox, type ModelComboBoxItem } from "../components/ModelComboBox";
 import {
   api, streamChat, type ChatMessage, type ModelEntry, type Combo, type Provider,
 } from "../api";
@@ -19,11 +20,6 @@ interface PlaygroundMsg {
   streaming?: boolean;
   error?: string;
 }
-
-const KIND_COLORS: Record<string, string> = {
-  llm: "text-accent", embedding: "text-success", image: "text-warning", tts: "text-muted", stt: "text-danger",
-  rerank: "text-muted", ocr: "text-muted", video: "text-muted",
-};
 
 const SUGGESTIONS = [
   "Explique como funciona recursão em programação",
@@ -181,12 +177,13 @@ export default function Playground() {
     }
   };
 
-  const listItems = [
-    ...combos.map((c) => ({ id: c.name, itemType: "combo" as const })),
+  const listItems: ModelComboBoxItem[] = [
+    ...combos.map((c) => ({ id: c.name, itemType: "combo" as const, kind: c.kind || "llm", isActive: true })),
     ...modelGroups.flatMap((g) => g.models.map((m) => ({
       id: m.id,
       itemType: "model" as const,
       kind: m.kind || "llm",
+      isActive: true,
     }))),
   ];
 
@@ -197,41 +194,17 @@ export default function Playground() {
           <IconChat className="w-4 h-4 text-accent shrink-0" />
           <span className="font-semibold text-sm shrink-0">Playground</span>
           <span className="text-muted/70 shrink-0">/</span>
-          <ComboBox
-            aria-label="Modelo"
+          <ModelComboBox
+            ariaLabel="Modelo"
             selectedKey={selectedModel || null}
-            onSelectionChange={(key) => setSelectedModel((key as string) ?? "")}
+            onSelectionChange={setSelectedModel}
+            items={listItems}
             isDisabled={loadingOpts && combos.length === 0}
             className="w-72"
-          >
-            <ComboBox.InputGroup className="h-8 min-h-8 bg-surface-secondary/60">
-              <Input
-                placeholder={loadingOpts ? "Carregando..." : "Selecione um modelo ou combo..."}
-                className="h-8 min-h-8 text-sm"
-              />
-              <ComboBox.Trigger />
-            </ComboBox.InputGroup>
-            <ComboBox.Popover>
-              <Virtualizer layout={ListLayout} layoutOptions={{ rowSize: 32, gap: 0 }}>
-                <ListBox items={listItems} className="max-h-80 overflow-y-auto">
-                  {(item) => (
-                    <ListBox.Item id={item.id} textValue={item.id}>
-                      <div className="flex items-center justify-between w-full gap-2 min-w-0">
-                        <div className="flex items-center gap-2 min-w-0">
-                          {item.itemType === "combo" && <IconStack />}
-                          <span className="font-mono text-xs truncate">{item.id}</span>
-                        </div>
-                        <span className={`shrink-0 rounded-full bg-surface-secondary px-1.5 py-0.5 text-[10px] font-medium ${item.itemType === "combo" ? "text-muted" : (KIND_COLORS[item.kind] ?? "text-muted")}`}>
-                          {item.itemType === "combo" ? "combo" : item.kind}
-                        </span>
-                      </div>
-                      <ListBox.ItemIndicator />
-                    </ListBox.Item>
-                  )}
-                </ListBox>
-              </Virtualizer>
-            </ComboBox.Popover>
-          </ComboBox>
+            inputPlaceholder={loadingOpts ? "Carregando..." : "Selecione um modelo ou combo..."}
+            inputGroupClassName="h-8 min-h-8 bg-surface-secondary/60"
+            inputClassName="h-8 min-h-8 text-sm"
+          />
         </div>
         <div className="flex items-center gap-1">
           {messages.length > 0 && (
@@ -404,15 +377,6 @@ function formatLatency(ms: number): string {
   return `${(ms / 1000).toFixed(2)}s`;
 }
 
-function IconStack() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 shrink-0 text-muted">
-      <polygon points="12 2 2 7 12 12 22 7 12 2" />
-      <polyline points="2 17 12 22 12 17" />
-      <polyline points="2 12 12 17 22 12" />
-    </svg>
-  );
-}
 function IconChat({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
