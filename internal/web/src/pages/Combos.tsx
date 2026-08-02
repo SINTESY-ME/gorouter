@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Table, Button, Modal, Input, Chip, Select, ListBox, Spinner, TextArea, TextField, Label,
-  ComboBox, Header, Separator, Collection,
+  ComboBox, Header, Separator, Collection, ListLayout, Virtualizer,
 } from "@heroui/react";
 import { api, type Combo, type ModelEntry, type ComboModelMeta, type Provider } from "../api";
 
@@ -511,7 +511,8 @@ function ModelSelector({
               </ComboBox.InputGroup>
               <ComboBox.Value placeholder="Nenhum modelo selecionado" />
               <ComboBox.Popover>
-                <ListBox>
+                <Virtualizer layout={ListLayout} layoutOptions={{ rowSize: 32, headingSize: 28, gap: 0 }}>
+                  <ListBox className="max-h-80 overflow-y-auto">
                   {comboItems.length > 0 && (
                     <>
                       <ListBox.Section>
@@ -558,6 +559,7 @@ function ModelSelector({
                     </ListBox.Section>
                   ))}
                 </ListBox>
+                </Virtualizer>
               </ComboBox.Popover>
             </ComboBox>
             {available.length === 0 && !loading && (

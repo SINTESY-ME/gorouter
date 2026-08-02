@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  Button, ComboBox, Input, ListBox, Header, Separator, TextArea, Tooltip, Collection,
+  Button, ComboBox, Input, ListBox, Header, Separator, TextArea, Tooltip, Collection, ListLayout, Virtualizer,
 } from "@heroui/react";
 import {
   api, streamChat, type ChatMessage, type ModelEntry, type Combo, type Provider,
@@ -210,7 +210,8 @@ export default function Playground() {
               <ComboBox.Trigger />
             </ComboBox.InputGroup>
             <ComboBox.Popover>
-              <ListBox>
+              <Virtualizer layout={ListLayout} layoutOptions={{ rowSize: 32, headingSize: 28, gap: 0 }}>
+                <ListBox className="max-h-80 overflow-y-auto">
                 {combos.length > 0 && (
                   <>
                     <ListBox.Section>
@@ -252,6 +253,7 @@ export default function Playground() {
                   </ListBox.Section>
                 ))}
               </ListBox>
+              </Virtualizer>
             </ComboBox.Popover>
           </ComboBox>
         </div>
