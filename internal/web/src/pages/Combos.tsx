@@ -430,12 +430,14 @@ function ModelSelector({
     available.push({ kind: "combo", id: c.name, entry: c });
   }
 
-  const listItems: ModelComboBoxItem[] = available.map((opt) => ({
-    id: opt.id,
-    itemType: opt.kind,
-    kind: opt.kind === "model" ? opt.entry.kind : opt.entry.kind || "llm",
-    isActive: opt.kind === "model" ? opt.entry.is_active : true,
-  }));
+  const listItems: ModelComboBoxItem[] = [...available]
+    .sort((a, b) => Number(b.kind === "combo") - Number(a.kind === "combo"))
+    .map((opt) => ({
+      id: opt.id,
+      itemType: opt.kind,
+      kind: opt.kind === "model" ? opt.entry.kind : opt.entry.kind || "llm",
+      isActive: opt.kind === "model" ? opt.entry.is_active : true,
+    }));
 
   const toggleModel = (id: string) => {
     if (selected.includes(id)) {
