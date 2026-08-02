@@ -510,7 +510,7 @@ function ModelSelector({
                 <ComboBox.Trigger />
               </ComboBox.InputGroup>
               <ComboBox.Value placeholder="Nenhum modelo selecionado" />
-              <ComboBox.Popover>
+              <ComboBox.Popover className="w-[--trigger-width] max-w-[calc(100vw-1rem)]">
                 <Virtualizer layout={ListLayout} layoutOptions={{ rowSize: 32, headingSize: 28, gap: 0 }}>
                   <ListBox className="max-h-80 overflow-y-auto">
                   {comboItems.length > 0 && (

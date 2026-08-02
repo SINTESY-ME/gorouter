@@ -209,7 +209,7 @@ export default function Playground() {
               />
               <ComboBox.Trigger />
             </ComboBox.InputGroup>
-            <ComboBox.Popover>
+            <ComboBox.Popover className="w-[--trigger-width] max-w-[calc(100vw-1rem)]">
               <Virtualizer layout={ListLayout} layoutOptions={{ rowSize: 32, headingSize: 28, gap: 0 }}>
                 <ListBox className="max-h-80 overflow-y-auto">
                 {combos.length > 0 && (
