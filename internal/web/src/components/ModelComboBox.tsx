@@ -1,4 +1,4 @@
-import { ComboBox, Input, ListBox } from "@heroui/react";
+import { ComboBox, Input, ListBox, ListLayout, Virtualizer } from "@heroui/react";
 
 export interface ModelComboBoxItem {
   id: string;
@@ -76,7 +76,8 @@ export function ModelComboBox({
       </ComboBox.InputGroup>
       {valuePlaceholder && <ComboBox.Value placeholder={valuePlaceholder} />}
       <ComboBox.Popover>
-        <ListBox items={items} className="max-h-80 overflow-y-auto">
+        <Virtualizer layout={ListLayout} layoutOptions={{ rowSize: 32 }}>
+          <ListBox items={items} className="h-80 max-h-80 w-(--trigger-width) max-w-[calc(100vw-1rem)] overflow-y-auto">
           {(item) => (
             <ListBox.Item id={item.id} textValue={item.id}>
               <div className="flex items-center justify-between w-full gap-2 min-w-0">
@@ -96,7 +97,8 @@ export function ModelComboBox({
               <ListBox.ItemIndicator />
             </ListBox.Item>
           )}
-        </ListBox>
+          </ListBox>
+        </Virtualizer>
       </ComboBox.Popover>
     </ComboBox>
   );
