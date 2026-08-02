@@ -202,7 +202,7 @@ export default function Playground() {
             isDisabled={loadingOpts && combos.length === 0}
             className="w-72"
             inputPlaceholder={loadingOpts ? "Carregando..." : "Selecione um modelo ou combo..."}
-            inputGroupClassName="h-8 min-h-8 bg-surface-secondary/60"
+            inputGroupClassName="h-8 min-h-8"
             inputClassName="h-8 min-h-8 text-sm"
           />
         </div>
