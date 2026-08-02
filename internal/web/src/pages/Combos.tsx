@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Table, Button, Modal, Input, Chip, Select, ListBox, Spinner, TextArea, TextField, Label,
-  ComboBox, Header, Separator, Collection, ListLayout, Virtualizer,
+  ComboBox, ListLayout, Virtualizer,
 } from "@heroui/react";
 import { api, type Combo, type ModelEntry, type ComboModelMeta, type Provider } from "../api";
 
@@ -435,20 +435,11 @@ function ModelSelector({
     available.push({ kind: "combo", id: c.name, entry: c });
   }
 
-  const availableCombos = available.filter((o): o is { kind: "combo"; id: string; entry: Combo } => o.kind === "combo");
-  const modelSections = providers
-    .map((p) => ({
-      provider: p,
-      options: available.filter((o): o is { kind: "model"; id: string; entry: ModelEntry } =>
-        o.kind === "model" && o.entry.provider_id === p.id),
-    }))
-    .filter((s) => s.options.length > 0);
-
-  const comboItems = availableCombos.map((opt) => ({ id: opt.id }));
-  const modelSectionItems = modelSections.map((s) => ({
-    id: s.provider.id,
-    title: s.provider.name,
-    items: s.options.map((opt) => ({ id: opt.id, kind: opt.entry.kind, isActive: opt.entry.is_active })),
+  const listItems = available.map((opt) => ({
+    id: opt.id,
+    itemType: opt.kind,
+    kind: opt.kind === "model" ? opt.entry.kind : opt.entry.kind || "llm",
+    isActive: opt.kind === "model" ? opt.entry.is_active : true,
   }));
 
   const toggleModel = (id: string) => {
@@ -510,55 +501,29 @@ function ModelSelector({
                 <ComboBox.Trigger />
               </ComboBox.InputGroup>
               <ComboBox.Value placeholder="Nenhum modelo selecionado" />
-              <ComboBox.Popover className="w-[--trigger-width] max-w-[calc(100vw-1rem)]">
-                <Virtualizer layout={ListLayout} layoutOptions={{ rowSize: 32, headingSize: 28, gap: 0 }}>
-                  <ListBox className="max-h-80 overflow-y-auto">
-                  {comboItems.length > 0 && (
-                    <>
-                      <ListBox.Section>
-                        <Header>Combos</Header>
-                        <Collection items={comboItems}>
-                          {(item) => (
-                            <ListBox.Item id={item.id} textValue={item.id}>
-                              <div className="flex items-center justify-between w-full gap-2 min-w-0">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <IconStack />
-                                  <span className="font-mono text-xs truncate">{item.id}</span>
-                                </div>
-                                <span className="shrink-0 rounded-full bg-surface-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted">combo</span>
-                              </div>
-                              <ListBox.ItemIndicator />
-                            </ListBox.Item>
-                          )}
-                        </Collection>
-                      </ListBox.Section>
-                      <Separator />
-                    </>
-                  )}
-                  {modelSectionItems.map((s) => (
-                    <ListBox.Section key={s.id}>
-                      <Header>{s.title}</Header>
-                      <Collection items={s.items}>
-                        {(item) => (
-                          <ListBox.Item id={item.id} textValue={item.id}>
-                            <div className="flex items-center justify-between w-full gap-2 min-w-0">
-                              <span className="font-mono text-xs truncate">{item.id}</span>
-                              <div className="flex items-center gap-1 shrink-0">
-                                {!item.isActive && (
-                                  <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">inativo</span>
-                                )}
-                                <span className={`rounded-full bg-surface-secondary px-1.5 py-0.5 text-[10px] font-medium ${KIND_TEXT[item.kind] ?? "text-muted"}`}>
-                                  {item.kind}
-                                </span>
-                              </div>
-                            </div>
-                            <ListBox.ItemIndicator />
-                          </ListBox.Item>
-                        )}
-                      </Collection>
-                    </ListBox.Section>
-                  ))}
-                </ListBox>
+              <ComboBox.Popover>
+                <Virtualizer layout={ListLayout} layoutOptions={{ rowSize: 32, gap: 0 }}>
+                  <ListBox items={listItems} className="max-h-80 overflow-y-auto">
+                    {(item) => (
+                      <ListBox.Item id={item.id} textValue={item.id}>
+                        <div className="flex items-center justify-between w-full gap-2 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {item.itemType === "combo" && <IconStack />}
+                            <span className="font-mono text-xs truncate">{item.id}</span>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {item.itemType === "model" && !item.isActive && (
+                              <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">inativo</span>
+                            )}
+                            <span className={`rounded-full bg-surface-secondary px-1.5 py-0.5 text-[10px] font-medium ${item.itemType === "combo" ? "text-muted" : (KIND_TEXT[item.kind] ?? "text-muted")}`}>
+                              {item.itemType === "combo" ? "combo" : item.kind}
+                            </span>
+                          </div>
+                        </div>
+                        <ListBox.ItemIndicator />
+                      </ListBox.Item>
+                    )}
+                  </ListBox>
                 </Virtualizer>
               </ComboBox.Popover>
             </ComboBox>

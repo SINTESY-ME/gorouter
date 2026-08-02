@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  Button, ComboBox, Input, ListBox, Header, Separator, TextArea, Tooltip, Collection, ListLayout, Virtualizer,
+  Button, ComboBox, Input, ListBox, TextArea, Tooltip, ListLayout, Virtualizer,
 } from "@heroui/react";
 import {
   api, streamChat, type ChatMessage, type ModelEntry, type Combo, type Provider,
@@ -181,12 +181,14 @@ export default function Playground() {
     }
   };
 
-  const comboItems = combos.map((c) => ({ id: c.name }));
-  const modelSectionItems = modelGroups.map((g) => ({
-    id: g.provider.id,
-    title: g.provider.name,
-    items: g.models.map((m) => ({ id: m.id, kind: m.kind || "llm" })),
-  }));
+  const listItems = [
+    ...combos.map((c) => ({ id: c.name, itemType: "combo" as const })),
+    ...modelGroups.flatMap((g) => g.models.map((m) => ({
+      id: m.id,
+      itemType: "model" as const,
+      kind: m.kind || "llm",
+    }))),
+  ];
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -209,50 +211,24 @@ export default function Playground() {
               />
               <ComboBox.Trigger />
             </ComboBox.InputGroup>
-            <ComboBox.Popover className="w-[--trigger-width] max-w-[calc(100vw-1rem)]">
-              <Virtualizer layout={ListLayout} layoutOptions={{ rowSize: 32, headingSize: 28, gap: 0 }}>
-                <ListBox className="max-h-80 overflow-y-auto">
-                {combos.length > 0 && (
-                  <>
-                    <ListBox.Section>
-                      <Header>Combos</Header>
-                      <Collection items={comboItems}>
-                        {(item) => (
-                          <ListBox.Item id={item.id} textValue={item.id}>
-                            <div className="flex items-center justify-between w-full gap-2 min-w-0">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <IconStack />
-                                <span className="font-mono text-xs truncate">{item.id}</span>
-                              </div>
-                              <span className="shrink-0 rounded-full bg-surface-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted">combo</span>
-                            </div>
-                            <ListBox.ItemIndicator />
-                          </ListBox.Item>
-                        )}
-                      </Collection>
-                    </ListBox.Section>
-                    <Separator />
-                  </>
-                )}
-                {modelSectionItems.map((s) => (
-                  <ListBox.Section key={s.id}>
-                    <Header>{s.title}</Header>
-                    <Collection items={s.items}>
-                      {(item) => (
-                        <ListBox.Item id={item.id} textValue={item.id}>
-                          <div className="flex items-center justify-between w-full gap-2 min-w-0">
-                            <span className="font-mono text-xs truncate">{item.id}</span>
-                            <span className={`shrink-0 rounded-full bg-surface-secondary px-1.5 py-0.5 text-[10px] font-medium ${KIND_COLORS[item.kind] ?? "text-muted"}`}>
-                              {item.kind}
-                            </span>
-                          </div>
-                          <ListBox.ItemIndicator />
-                        </ListBox.Item>
-                      )}
-                    </Collection>
-                  </ListBox.Section>
-                ))}
-              </ListBox>
+            <ComboBox.Popover>
+              <Virtualizer layout={ListLayout} layoutOptions={{ rowSize: 32, gap: 0 }}>
+                <ListBox items={listItems} className="max-h-80 overflow-y-auto">
+                  {(item) => (
+                    <ListBox.Item id={item.id} textValue={item.id}>
+                      <div className="flex items-center justify-between w-full gap-2 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {item.itemType === "combo" && <IconStack />}
+                          <span className="font-mono text-xs truncate">{item.id}</span>
+                        </div>
+                        <span className={`shrink-0 rounded-full bg-surface-secondary px-1.5 py-0.5 text-[10px] font-medium ${item.itemType === "combo" ? "text-muted" : (KIND_COLORS[item.kind] ?? "text-muted")}`}>
+                          {item.itemType === "combo" ? "combo" : item.kind}
+                        </span>
+                      </div>
+                      <ListBox.ItemIndicator />
+                    </ListBox.Item>
+                  )}
+                </ListBox>
               </Virtualizer>
             </ComboBox.Popover>
           </ComboBox>
