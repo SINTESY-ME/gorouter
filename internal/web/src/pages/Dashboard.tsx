@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Spinner, Select, ListBox, Popover, Button, ButtonGroup, Card, Tabs,
-  Table, ProgressBar, Separator,
+  Table, ProgressBar,
   DateRangePicker, DateField, RangeCalendar,
 } from "@heroui/react";
 import type { CalendarDateTime } from "@internationalized/date";
@@ -411,38 +411,6 @@ export default function Dashboard() {
           </Card.Content>
         </Card>
       )}
-
-      <Card>
-        <Card.Content className="grid gap-5 py-4 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center">
-          <div className="min-w-0">
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <span className="text-sm text-muted">Taxa de erro</span>
-              <span className="tabular-nums text-lg font-semibold">{errorPct.toFixed(1)}%</span>
-            </div>
-            <ProgressBar
-              aria-label="Taxa de erro"
-              size="sm"
-              color={errorPct > 5 ? "danger" : "success"}
-              value={Math.min(errorPct, 100)}
-            />
-            <p className="mt-2 text-xs text-muted">
-              {stats.error_requests.toLocaleString("en-US")} erros · {stats.successful_requests.toLocaleString("en-US")} sucesso
-            </p>
-          </div>
-          <Separator orientation="vertical" className="hidden h-12 md:block" />
-          <div className="grid grid-cols-2 gap-8 md:gap-6">
-            <div>
-              <p className="text-xs text-muted">Requests</p>
-              <p className="mt-1 tabular-nums text-xl font-semibold">{stats.requests.toLocaleString("en-US")}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted">Combos</p>
-              <p className="mt-1 tabular-nums text-xl font-semibold">{stats.combo_requests.toLocaleString("en-US")}</p>
-            </div>
-          </div>
-        </Card.Content>
-      </Card>
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {byModelCost.length > 0 && (
           <Card className="border border-border">
@@ -534,6 +502,42 @@ export default function Dashboard() {
           />
         </div>
       )}
+
+      <Card className="border border-border">
+        <Card.Header>
+          <div>
+            <h3 className="font-semibold">Taxa de erro</h3>
+            <p className="text-xs text-muted">Erros vs. sucessos no período</p>
+          </div>
+        </Card.Header>
+        <Card.Content>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:items-center">
+            <div className="min-w-0">
+              <div className="flex items-baseline justify-between gap-3 mb-2">
+                <span className="text-sm text-muted">Taxa de erro</span>
+                <span className="text-2xl font-bold tabular-nums">{errorPct.toFixed(1)}%</span>
+              </div>
+              <ProgressBar
+                aria-label="Taxa de erro"
+                size="sm"
+                color={errorPct > 5 ? "danger" : "success"}
+                value={Math.min(errorPct, 100)}
+              />
+              <p className="mt-2 text-xs text-muted">
+                {stats.error_requests.toLocaleString("en-US")} erros · {stats.successful_requests.toLocaleString("en-US")} sucesso
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted uppercase tracking-wide font-medium">Requests</p>
+              <p className="text-2xl font-bold mt-2 tabular-nums">{stats.requests.toLocaleString("en-US")}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted uppercase tracking-wide font-medium">Combos</p>
+              <p className="text-2xl font-bold mt-2 tabular-nums">{stats.combo_requests.toLocaleString("en-US")}</p>
+            </div>
+          </div>
+        </Card.Content>
+      </Card>
     </div>
   );
 }
