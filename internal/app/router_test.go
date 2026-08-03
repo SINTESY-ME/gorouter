@@ -29,6 +29,7 @@ type mockExecutor struct {
 	stream      bool
 	headers     http.Header
 	failModels  map[string]int // model -> HTTP status (overrides default)
+	failFirst   map[string]int // model -> how many initial calls return 503 before succeeding
 	called      []string       // sequence of UpstreamModel per Execute call
 	calledConns []string       // sequence of Connection.ID per non-probe Execute call
 }
@@ -41,6 +42,12 @@ func (m *mockExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) (
 	if m.failModels != nil {
 		if s, ok := m.failModels[model]; ok {
 			status = s
+		}
+	}
+	if m.failFirst != nil {
+		if n, ok := m.failFirst[model]; ok && n > 0 {
+			m.failFirst[model] = n - 1
+			status = http.StatusServiceUnavailable
 		}
 	}
 	// Don't record probe calls in `called` — they're background health
@@ -577,7 +584,7 @@ func TestRouteCombo_OrderedFallback_SkipUnhealthyAndProbe(t *testing.T) {
 		status: 200,
 		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
 		failModels: map[string]int{
-			"gpt-4": 500, // A is broken at first
+			"gpt-4": 404, // A is broken at first
 		},
 	}
 	usage := &mockUsageRepo{}
@@ -672,7 +679,7 @@ func TestRouteCombo_OrderedFallback_LastResort(t *testing.T) {
 		status: 200,
 		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
 		failModels: map[string]int{
-			"gpt-4": 500, // A stays broken; B will succeed
+			"gpt-4": 404, // A stays broken; B will succeed
 		},
 	}
 	usage := &mockUsageRepo{}
@@ -759,7 +766,7 @@ func TestRouteCombo_AllUnhealthy_AllFail(t *testing.T) {
 		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
 		failModels: map[string]int{
 			"gpt-4":    500,
-			"claude-3": 500,
+			"claude-3": 404,
 		},
 	}
 	usage := &mockUsageRepo{}
@@ -792,7 +799,7 @@ func TestRouteCombo_AllUnhealthy_AllFail(t *testing.T) {
 // second pass, in the same model order.
 func TestRouteCombo_TwoPhase_KeyOrder(t *testing.T) {
 	exec := &mockExecutor{
-		status: 500,
+		status: 404,
 		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
 	}
 	usage := &mockUsageRepo{}
@@ -831,12 +838,11 @@ func TestRouteCombo_TwoPhase_KeyOrder(t *testing.T) {
 // TestRouteCombo_TwoPhase_HealthySucceeds_SkipsUnhealthy verifies that keys
 // which were unhealthy at request start are not retried when a healthy key
 // succeeds — each key is tried at most once per request.
-func TestRouteCombo_TwoPhase_HealthySucceeds_SkipsUnhealthy(t *testing.T) {
-	exec := &mockExecutor{
+func TestRouteCombo_TwoPhase_HealthySucceeds_SkipsUnhealthy(t *testing.T) {	exec := &mockExecutor{
 		status: 200,
 		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
 		failModels: map[string]int{
-			"gpt-4": 500, // healthy key of A still fails
+			"gpt-4": 404, // healthy key of A still fails
 		},
 	}
 	usage := &mockUsageRepo{}
@@ -868,6 +874,122 @@ func TestRouteCombo_TwoPhase_HealthySucceeds_SkipsUnhealthy(t *testing.T) {
 	want := []string{"c-openai-2", "c-anthropic-2"}
 	if got := calledConnsSnapshot(exec); !equalSeq(t, got, want) {
 		t.Fatalf("healthy-only calls: got %v, want %v", got, want)
+	}
+}
+
+// TestRouteCombo_Transient503_RetriesThenSucceeds verifies that a transient
+// 503 from the upstream is retried on the same connection and the request
+// succeeds once the upstream recovers, without falling back to another model.
+func TestRouteCombo_Transient503_RetriesThenSucceeds(t *testing.T) {
+	exec := &mockExecutor{
+		status: 200,
+		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
+		failFirst: map[string]int{
+			"gpt-4": 2, // first two calls return 503, third succeeds
+		},
+	}
+	usage := &mockUsageRepo{}
+	comboRepo := &mockComboRepo{
+		combos: map[string]*domain.Combo{
+			"cb1": {
+				ID:       "cb1",
+				Name:     "retrycombo",
+				Models:   []string{"openai/gpt-4"},
+				Strategy: "ordered_fallback",
+			},
+		},
+	}
+	srv := NewRouterService(comboRepo, twoProviderConnRepo(), exec, &mockTranslator{}, usage)
+
+	body := []byte(`{"model":"retrycombo","messages":[{"role":"user","content":"hi"}]}`)
+	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.StatusCode != 200 {
+		t.Fatalf("status: got %d want 200", res.StatusCode)
+	}
+	res.Body.Close()
+	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4", "gpt-4", "gpt-4"}) {
+		t.Fatalf("called = %v, want [gpt-4 gpt-4 gpt-4]", got)
+	}
+	if srv.Health.IsUnhealthy("retrycombo", "openai/gpt-4", "c-openai") {
+		t.Fatalf("model should remain healthy after transient failure + success")
+	}
+}
+
+// TestRouteCombo_Transient503_RetriesExhausted_FallsBack verifies that when
+// the retries are exhausted the router falls back to the next model.
+func TestRouteCombo_Transient503_RetriesExhausted_FallsBack(t *testing.T) {
+	exec := &mockExecutor{
+		status: 200,
+		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
+		failModels: map[string]int{
+			"gpt-4": 503, // always transient-fails; B will succeed
+		},
+	}
+	usage := &mockUsageRepo{}
+	comboRepo := &mockComboRepo{
+		combos: map[string]*domain.Combo{
+			"cb1": {
+				ID:       "cb1",
+				Name:     "retryfallback",
+				Models:   []string{"openai/gpt-4", "anthropic/claude-3"},
+				Strategy: "ordered_fallback",
+			},
+		},
+	}
+	srv := NewRouterService(comboRepo, twoProviderConnRepo(), exec, &mockTranslator{}, usage)
+
+	body := []byte(`{"model":"retryfallback","messages":[{"role":"user","content":"hi"}]}`)
+	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.StatusCode != 200 {
+		t.Fatalf("status: got %d want 200", res.StatusCode)
+	}
+	res.Body.Close()
+	// 3 attempts on gpt-4 (1 + 2 retries), then fallback to claude-3.
+	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4", "gpt-4", "gpt-4", "claude-3"}) {
+		t.Fatalf("called = %v, want [gpt-4 gpt-4 gpt-4 claude-3]", got)
+	}
+	if !srv.Health.IsUnhealthy("retryfallback", "openai/gpt-4", "c-openai") {
+		t.Fatalf("gpt-4 should be marked unhealthy after exhausting retries")
+	}
+}
+
+// TestRouteCombo_Permanent404_NoRetry verifies that permanent errors (4xx)
+// skip the retry loop and fall back to the next model immediately.
+func TestRouteCombo_Permanent404_NoRetry(t *testing.T) {
+	exec := &mockExecutor{
+		status: 200,
+		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
+		failModels: map[string]int{
+			"gpt-4": http.StatusNotFound,
+		},
+	}
+	usage := &mockUsageRepo{}
+	comboRepo := &mockComboRepo{
+		combos: map[string]*domain.Combo{
+			"cb1": {
+				ID:       "cb1",
+				Name:     "no404retry",
+				Models:   []string{"openai/gpt-4", "anthropic/claude-3"},
+				Strategy: "ordered_fallback",
+			},
+		},
+	}
+	srv := NewRouterService(comboRepo, twoProviderConnRepo(), exec, &mockTranslator{}, usage)
+
+	body := []byte(`{"model":"no404retry","messages":[{"role":"user","content":"hi"}]}`)
+	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	res.Body.Close()
+	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4", "claude-3"}) {
+		t.Fatalf("called = %v, want [gpt-4 claude-3] (no retry on 404)", got)
 	}
 }
 

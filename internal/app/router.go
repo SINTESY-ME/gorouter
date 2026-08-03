@@ -89,6 +89,41 @@ type probeCtxKey struct{}
 // at save time; this is a safety net for manually-edited data.
 const maxComboDepth = 5
 
+// maxTransientRetries is how many times the router retries an upstream call
+// on the same connection after a transient failure (429/5xx status or a
+// network error) before falling through to the next connection or model.
+// Retrying is safe: nothing has been written to the client yet.
+const maxTransientRetries = 2
+
+// transientBackoff returns the delay before retry attempt n (0-based).
+func transientBackoff(n int) time.Duration {
+	switch n {
+	case 0:
+		return 250 * time.Millisecond
+	case 1:
+		return 500 * time.Millisecond
+	default:
+		return time.Second
+	}
+}
+
+// isTransientStatus reports whether an upstream HTTP status is likely
+// transient (server overloaded, rate-limited, gateway hiccup) and therefore
+// worth a same-connection retry. Permanent client errors (4xx) fall through
+// to the next model immediately.
+func isTransientStatus(status int) bool {
+	switch status {
+	case http.StatusRequestTimeout, // 408
+		http.StatusTooManyRequests,     // 429
+		http.StatusInternalServerError, // 500
+		http.StatusBadGateway,          // 502
+		http.StatusServiceUnavailable,  // 503
+		http.StatusGatewayTimeout:      // 504
+		return true
+	}
+	return false
+}
+
 // IsProbeCall reports whether the given context originated from a health
 // probe. Exported for test doubles.
 func IsProbeCall(ctx context.Context) bool {
@@ -660,7 +695,7 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 			continue
 		}
 		connStart := time.Now()
-		res, err := s.executeOne(ctx, m, conn, body, stream, opts, ct)
+		res, err := s.executeOneWithRetry(ctx, m, conn, body, stream, opts, ct)
 		if err != nil {
 			s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, 0, err.Error(), connStart, comboChain, requestID, *attempt)
 			*attempt++
@@ -860,6 +895,47 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 		Body:       res.Body,
 		Stream:     false,
 	}, nil
+}
+
+// executeOneWithRetry runs executeOne, retrying transient upstream failures
+// (429/5xx statuses and network errors) on the same connection with a short
+// backoff before giving up. Retrying is safe because no bytes have been
+// written to the client yet. The retries are bounded by maxTransientRetries
+// and respect request cancellation. The final result is returned as-is so
+// the caller's existing status/error handling applies unchanged.
+func (s *RouterService) executeOneWithRetry(ctx context.Context, m domain.ModelID, conn *domain.Connection, body []byte, stream bool, opts RouteOptions, ct string) (*RouterResponse, error) {
+	var res *RouterResponse
+	var err error
+	for attempt := 0; attempt <= maxTransientRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				if err != nil {
+					return nil, err
+				}
+				return nil, ctx.Err()
+			case <-time.After(transientBackoff(attempt - 1)):
+			}
+		}
+		res, err = s.executeOne(ctx, m, conn, body, stream, opts, ct)
+		if err == nil && !isTransientStatus(res.StatusCode) {
+			return res, nil
+		}
+		if attempt < maxTransientRetries {
+			reason := "network error"
+			if err == nil {
+				reason = fmt.Sprintf("upstream %d", res.StatusCode)
+				if res.Body != nil {
+					res.Body.Close()
+				}
+			}
+			slog.Warn("transient upstream failure, retrying", "provider", m.Provider, "model", m.Model, "conn", conn.ID, "attempt", attempt+1, "reason", reason)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // wrapUsageTracking wraps res.Body with a tee reader that copies response
