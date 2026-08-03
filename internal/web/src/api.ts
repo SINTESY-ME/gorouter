@@ -237,6 +237,7 @@ export const api = {
   },
   models: {
     list: () => request<ModelInfo[]>("/api/models"),
+    all: () => request<ModelEntry[]>("/api/models/all"),
     stats: () => request<Record<string, ModelStat>>("/api/models/stats"),
     update: (id: string, m: { is_active?: boolean; kind?: string; name?: string }) =>
       request<ModelEntry>(`/api/models/${id}`, { method: "PUT", body: JSON.stringify(m) }),

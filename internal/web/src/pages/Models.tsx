@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, memo, useRef } from "react";
 import {
   Input, Spinner, Chip, Button, Card, Dropdown, Label, Modal, Select, ListBox, TextField,
 } from "@heroui/react";
@@ -19,16 +19,142 @@ const formatPricePerImage = (perImage: number | undefined): string | null => {
   return `$${perImage.toFixed(4)}/img`;
 };
 
-function useCopyToClipboard() {
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const copy = useCallback((text: string, id: string) => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 1500);
-    }).catch(() => {});
-  }, []);
-  return { copiedId, copy };
+// statKey derives the bare model id (without the "provider/" prefix) used as
+// a key in the per-model stats map. Falls back to the full id.
+function statKey(m: ModelEntry): string {
+  const parts = m.id.split("/");
+  return parts.length > 1 ? parts[1] : m.id;
 }
+
+interface ModelCardProps {
+  model: ModelEntry;
+  stat?: ModelStat;
+  isMenuOpen: boolean;
+  onOpenMenu: (id: string) => void;
+  onCloseMenu: () => void;
+  onToggle: (m: ModelEntry) => void;
+  onRemove: (m: ModelEntry) => void;
+  onPricing: (m: ModelEntry) => void;
+}
+
+// ModelCard renders a single model card. It is memoized so a state change in
+// the parent (open menu id, copy feedback) only re-renders the affected card
+// instead of every card in the list — this is what keeps the page responsive
+// with hundreds of models.
+const ModelCard = memo(function ModelCard({
+  model: m,
+  stat: st,
+  isMenuOpen,
+  onOpenMenu,
+  onCloseMenu,
+  onToggle,
+  onRemove,
+  onPricing,
+}: ModelCardProps) {
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<number | null>(null);
+  useEffect(() => () => { if (copyTimer.current !== null) window.clearTimeout(copyTimer.current); }, []);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(m.id).then(() => {
+      setCopied(true);
+      if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
+      copyTimer.current = window.setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  }, [m.id]);
+
+  const handleAction = useCallback((key: import("@heroui/react").Key) => {
+    const k = String(key);
+    onCloseMenu();
+    if (k === "pricing") onPricing(m);
+    else if (k === "toggle") onToggle(m);
+    else if (k === "remove") onRemove(m);
+  }, [onCloseMenu, onPricing, onToggle, onRemove, m]);
+
+  return (
+    <Card className="group relative p-3 hover:border-border transition-colors">
+      <div className="flex items-start gap-2 pr-6">
+        <code
+          className="text-sm font-mono truncate flex-1 cursor-pointer hover:text-accent transition-colors"
+          title={`${m.id} — clique para copiar`}
+          onClick={handleCopy}
+        >
+          {copied ? "copiado!" : m.id}
+        </code>
+      </div>
+      <span
+        className={`absolute right-9 top-3 w-2 h-2 rounded-full ${m.is_active ? "bg-success" : "bg-default-soft"}`}
+        title={m.is_active ? "ativo" : "inativo"}
+      />
+      <div className="flex min-w-0 items-center gap-1.5">
+        <Chip size="sm" color="default" className="h-5 shrink-0 text-[10px] opacity-70">{m.kind}</Chip>
+        <span className="min-w-0 truncate text-[10px] text-muted">{m.source}</span>
+        <div className="ml-auto flex min-w-0 items-center gap-1.5 text-[10px] opacity-70">
+          {(() => {
+            const p = m.pricing;
+            if (!p || (!p.source && !p.input_cost_per_token && !p.output_cost_per_token && !p.output_cost_per_image)) return null;
+            const inPrice = formatPricePer1M(p.input_cost_per_token);
+            const outPrice = formatPricePer1M(p.output_cost_per_token);
+            const imgPrice = formatPricePerImage(p.output_cost_per_image);
+            if (!inPrice && !outPrice && !imgPrice) return <span className="truncate text-muted">Free</span>;
+            return (
+              <span className="flex min-w-0 items-center gap-1 truncate">
+                {inPrice && <span className="truncate tabular-nums text-success">{inPrice}</span>}
+                {outPrice && <span className="truncate tabular-nums text-accent">{outPrice}</span>}
+                {imgPrice && <span className="truncate tabular-nums text-warning">{imgPrice}</span>}
+              </span>
+            );
+          })()}
+        </div>
+      </div>
+      {st && st.requests > 0 && (
+        <div className="flex items-center gap-3 text-[10px] text-muted">
+          <span className="tabular-nums">{st.avg_tps > 0 ? `${st.avg_tps.toFixed(1)} tok/s` : "—"}</span>
+          <span className="tabular-nums">{st.avg_ttft_ms && st.avg_ttft_ms > 0 ? `ttft ${Math.round(st.avg_ttft_ms)}ms` : ""}{st.avg_ttft_ms && st.avg_ttft_ms > 0 ? " · " : ""}{st.avg_latency_ms > 0 ? `${Math.round(st.avg_latency_ms)}ms` : "—"}</span>
+          <span className="tabular-nums">{st.requests > 999 ? formatCompact(st.requests) : `${st.requests}x`}</span>
+        </div>
+      )}
+      <div className="absolute top-1.5 right-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+        {isMenuOpen ? (
+          <Dropdown isOpen onOpenChange={(o) => { if (!o) onCloseMenu(); }}>
+            <Dropdown.Trigger>
+              <Button isIconOnly size="sm" variant="tertiary" className="size-6 min-w-6 p-0" aria-label="Fechar menu do modelo">
+                <IconDotsVertical className="size-3.5" />
+              </Button>
+            </Dropdown.Trigger>
+            <Dropdown.Popover placement="bottom end">
+              <Dropdown.Menu onAction={handleAction}>
+                <Dropdown.Item id="pricing" textValue="Editar preço">
+                  <IconDollar className="size-4 shrink-0 text-muted" />
+                  <Label>Editar preço</Label>
+                </Dropdown.Item>
+                <Dropdown.Item id="toggle" textValue={m.is_active ? "Desativar" : "Ativar"}>
+                  <IconPower className={`size-4 shrink-0 ${m.is_active ? "text-success" : "text-muted"}`} />
+                  <Label>{m.is_active ? "Desativar" : "Ativar"}</Label>
+                </Dropdown.Item>
+                <Dropdown.Item id="remove" textValue="Excluir" variant="danger">
+                  <IconTrash className="size-4 shrink-0 text-danger" />
+                  <Label>Excluir</Label>
+                </Dropdown.Item>
+              </Dropdown.Menu>
+            </Dropdown.Popover>
+          </Dropdown>
+        ) : (
+          <Button
+            isIconOnly
+            size="sm"
+            variant="tertiary"
+            className="size-6 min-w-6 p-0"
+            aria-label="Ações do modelo"
+            onPress={() => onOpenMenu(m.id)}
+          >
+            <IconDotsVertical className="size-3.5" />
+          </Button>
+        )}
+      </div>
+    </Card>
+  );
+});
 
 export default function Models() {
   const [items, setItems] = useState<ModelEntry[]>([]);
@@ -44,23 +170,26 @@ export default function Models() {
   const [pricingOpen, setPricingOpen] = useState(false);
   const [pricingModel, setPricingModel] = useState<ModelEntry | null>(null);
   const [pricingForm, setPricingForm] = useState({ inputPer1M: "", outputPer1M: "", perImage: "" });
-  const { copiedId, copy } = useCopyToClipboard();
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    api.providers.list().then((ps) => {
-      if (cancelled) return;
-      setProviders(ps);
-      return Promise.all(ps.map((p) => api.providers.models(p.id).catch(() => [] as ModelEntry[])))
-        .then((results) => {
-          if (cancelled) return;
-          const all: ModelEntry[] = [];
-          results.forEach((r) => all.push(...r));
-          setItems(all);
-          api.models.stats().then(setStats).catch(() => {});
-        });
-    }).catch((e) => setError(e?.message ?? "falha"))
+    // Load providers (for the sync/add flows) and the full model catalog in
+    // a single round-trip, in parallel. The old code issued one
+    // /api/providers/{id}/models request per provider, which made the page
+    // slow to load with many providers.
+    Promise.all([
+      api.providers.list().catch(() => [] as Provider[]),
+      api.models.all().catch(() => [] as ModelEntry[]),
+    ])
+      .then(([ps, all]) => {
+        if (cancelled) return;
+        setProviders(ps);
+        setItems(all);
+        api.models.stats().then(setStats).catch(() => {});
+      })
+      .catch((e) => setError(e?.message ?? "falha"))
       .finally(() => setLoading(false));
     return () => { cancelled = true; };
   }, []);
@@ -88,7 +217,7 @@ export default function Models() {
     return order.map((k) => ({ providerId: k, models: map[k] }));
   }, [filtered]);
 
-  const sync = async (providerId: string) => {
+  const sync = useCallback(async (providerId: string) => {
     const p = providers.find((x) => x.id === providerId);
     if (!p) return;
     setSyncing(p.id);
@@ -103,29 +232,29 @@ export default function Models() {
     } finally {
       setSyncing(null);
     }
-  };
+  }, [providers]);
 
-  const toggleActive = async (m: ModelEntry) => {
+  const toggleActive = useCallback(async (m: ModelEntry) => {
     try {
       await api.models.update(m.id, { is_active: !m.is_active });
       setItems((prev) => prev.map((x) => x.id === m.id ? { ...x, is_active: !x.is_active } : x));
     } catch (e: any) { setError(e?.message); }
-  };
+  }, []);
 
-  const removeModel = async (m: ModelEntry) => {
+  const removeModel = useCallback(async (m: ModelEntry) => {
     try {
       await api.models.remove(m.id);
       setItems((prev) => prev.filter((x) => x.id !== m.id));
     } catch (e: any) { setError(e?.message); }
-  };
+  }, []);
 
-  const openAdd = (providerId: string) => {
+  const openAdd = useCallback((providerId: string) => {
     const p = providers.find((x) => x.id === providerId);
     if (!p) return;
     setAddProviderId(p.id);
     setAddForm({ model_id: "", name: "", kind: "llm", context: 0 });
     setAddOpen(true);
-  };
+  }, [providers]);
 
   const submitAdd = async () => {
     try {
@@ -140,7 +269,7 @@ export default function Models() {
     } catch (e: any) { setError(e?.message); }
   };
 
-  const openPricing = (m: ModelEntry) => {
+  const openPricing = useCallback((m: ModelEntry) => {
     setPricingModel(m);
     const p = (m.pricing || {}) as ModelPricing;
     setPricingForm({
@@ -149,7 +278,7 @@ export default function Models() {
       perImage: p.output_cost_per_image ? String(p.output_cost_per_image) : "",
     });
     setPricingOpen(true);
-  };
+  }, []);
 
   const submitPricing = async () => {
     if (!pricingModel) return;
@@ -165,10 +294,8 @@ export default function Models() {
     } catch (e: any) { setError(e?.message); }
   };
 
-  const statKey = (m: ModelEntry) => {
-    const parts = m.id.split("/");
-    return parts.length > 1 ? parts[1] : m.id;
-  };
+  const openMenu = useCallback((id: string) => setOpenMenuId(id), []);
+  const closeMenu = useCallback(() => setOpenMenuId(null), []);
 
   if (loading) {
     return <div className="flex justify-center py-20"><Spinner /></div>;
@@ -218,86 +345,19 @@ export default function Models() {
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
-              {g.models.map((m) => {
-                const st = stats[statKey(m)] || stats[m.id];
-                return (
-                  <Card
-                    key={m.id}
-                    className="group relative p-3 hover:border-border transition-colors"
-                  >
-                    <div className="flex items-start gap-2 pr-6">
-                      <code
-                        className="text-sm font-mono truncate flex-1 cursor-pointer hover:text-accent transition-colors"
-                        title={`${m.id} — clique para copiar`}
-                        onClick={() => copy(m.id, m.id)}
-                      >
-                        {copiedId === m.id ? "copiado!" : m.id}
-                      </code>
-                    </div>
-                    <span
-                      className={`absolute right-9 top-3 w-2 h-2 rounded-full ${m.is_active ? "bg-success" : "bg-default-soft"}`}
-                      title={m.is_active ? "ativo" : "inativo"}
-                    />
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <Chip size="sm" color="default" className="h-5 shrink-0 text-[10px] opacity-70">{m.kind}</Chip>
-                      <span className="min-w-0 truncate text-[10px] text-muted">{m.source}</span>
-                      <div className="ml-auto flex min-w-0 items-center gap-1.5 text-[10px] opacity-70">
-                        {(() => {
-                          const p = m.pricing;
-                          if (!p || (!p.source && !p.input_cost_per_token && !p.output_cost_per_token && !p.output_cost_per_image)) return null;
-                          const inPrice = formatPricePer1M(p.input_cost_per_token);
-                          const outPrice = formatPricePer1M(p.output_cost_per_token);
-                          const imgPrice = formatPricePerImage(p.output_cost_per_image);
-                          if (!inPrice && !outPrice && !imgPrice) return <span className="truncate text-muted">Free</span>;
-                          return (
-                            <span className="flex min-w-0 items-center gap-1 truncate">
-                              {inPrice && <span className="truncate tabular-nums text-success">{inPrice}</span>}
-                              {outPrice && <span className="truncate tabular-nums text-accent">{outPrice}</span>}
-                              {imgPrice && <span className="truncate tabular-nums text-warning">{imgPrice}</span>}
-                            </span>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                    {st && st.requests > 0 && (
-                      <div className="flex items-center gap-3 text-[10px] text-muted">
-                        <span className="tabular-nums">{st.avg_tps > 0 ? `${st.avg_tps.toFixed(1)} tok/s` : "—"}</span>
-                        <span className="tabular-nums">{st.avg_ttft_ms && st.avg_ttft_ms > 0 ? `ttft ${Math.round(st.avg_ttft_ms)}ms` : ""}{st.avg_ttft_ms && st.avg_ttft_ms > 0 ? " · " : ""}{st.avg_latency_ms > 0 ? `${Math.round(st.avg_latency_ms)}ms` : "—"}</span>
-                        <span className="tabular-nums">{st.requests > 999 ? formatCompact(st.requests) : `${st.requests}x`}</span>
-                      </div>
-                    )}
-                    <div className="absolute top-1.5 right-1.5 opacity-0 transition-opacity group-hover:opacity-100">
-                      <Dropdown>
-                        <Dropdown.Trigger>
-                          <Button isIconOnly size="sm" variant="tertiary" className="size-6 min-w-6 p-0" aria-label="Ações do modelo">
-                            <IconDotsVertical className="size-3.5" />
-                          </Button>
-                        </Dropdown.Trigger>
-                        <Dropdown.Popover placement="bottom end">
-                          <Dropdown.Menu onAction={(key) => {
-                            if (key === "pricing") openPricing(m);
-                            else if (key === "toggle") toggleActive(m);
-                            else if (key === "remove") removeModel(m);
-                          }}>
-                            <Dropdown.Item id="pricing" textValue="Editar preço">
-                              <IconDollar className="size-4 shrink-0 text-muted" />
-                              <Label>Editar preço</Label>
-                            </Dropdown.Item>
-                            <Dropdown.Item id="toggle" textValue={m.is_active ? "Desativar" : "Ativar"}>
-                              <IconPower className={`size-4 shrink-0 ${m.is_active ? "text-success" : "text-muted"}`} />
-                              <Label>{m.is_active ? "Desativar" : "Ativar"}</Label>
-                            </Dropdown.Item>
-                            <Dropdown.Item id="remove" textValue="Excluir" variant="danger">
-                              <IconTrash className="size-4 shrink-0 text-danger" />
-                              <Label>Excluir</Label>
-                            </Dropdown.Item>
-                          </Dropdown.Menu>
-                        </Dropdown.Popover>
-                      </Dropdown>
-                    </div>
-                  </Card>
-                );
-              })}
+              {g.models.map((m) => (
+                <ModelCard
+                  key={m.id}
+                  model={m}
+                  stat={stats[statKey(m)] || stats[m.id]}
+                  isMenuOpen={openMenuId === m.id}
+                  onOpenMenu={openMenu}
+                  onCloseMenu={closeMenu}
+                  onToggle={toggleActive}
+                  onRemove={removeModel}
+                  onPricing={openPricing}
+                />
+              ))}
             </div>
           </div>
         ))}

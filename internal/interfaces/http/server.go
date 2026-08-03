@@ -142,6 +142,7 @@ func (s *Server) Routes() http.Handler {
 
 			r.Get("/models", s.handleListModelsDashboard)
 			r.Get("/models/stats", s.handleModelStats)
+			r.Get("/models/all", s.handleListAllModels)
 			r.Put("/models/*", s.handleUpdateModel)
 			r.Delete("/models/*", s.handleDeleteModel)
 			r.Post("/model-pricing", s.handleUpdateModelPricing)

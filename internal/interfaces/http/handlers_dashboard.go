@@ -812,6 +812,26 @@ func (s *Server) handleListModelsDashboard(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, models)
 }
 
+// handleListAllModels returns every model catalog entry (all providers, one
+// round-trip) for the Models page. Replaces the previous N requests to
+// /api/providers/{id}/models, which made the page slow to load with many
+// providers.
+func (s *Server) handleListAllModels(w http.ResponseWriter, r *http.Request) {
+	if s.ModelRepo == nil {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+	entries, err := s.ModelRepo.List(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if entries == nil {
+		entries = []domain.ModelEntry{}
+	}
+	writeJSON(w, http.StatusOK, entries)
+}
+
 // handleModelStats returns per-model performance stats (avg TPS, latency, requests).
 func (s *Server) handleModelStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := s.Usage.Repo.ModelStats(r.Context())
