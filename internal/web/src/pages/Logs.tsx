@@ -150,7 +150,26 @@ export default function Logs() {
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
   const start = total === 0 ? 0 : (page - 1) * PER_PAGE + 1;
   const end = Math.min(page * PER_PAGE, total);
-  const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
+
+  // Sliding window of page numbers: always show the first and last page,
+  // plus the neighbors of the current page, with ellipses for the gaps.
+  // This keeps the pagination compact (max ~7 items) regardless of the
+  // total page count, instead of rendering every page and overflowing.
+  const getPageNumbers = (): (number | "ellipsis")[] => {
+    const pages: (number | "ellipsis")[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+      return pages;
+    }
+    pages.push(1);
+    if (page > 3) pages.push("ellipsis");
+    const startPage = Math.max(2, page - 1);
+    const endPage = Math.min(totalPages - 1, page + 1);
+    for (let i = startPage; i <= endPage; i++) pages.push(i);
+    if (page < totalPages - 2) pages.push("ellipsis");
+    pages.push(totalPages);
+    return pages;
+  };
 
   const renderRow = (item: LogRow) => (
     <Table.Row id={item.id} textValue={item.label}>
@@ -310,11 +329,17 @@ export default function Logs() {
                     <Pagination.PreviousIcon />
                   </Pagination.Previous>
                 </Pagination.Item>
-                {pages.map((p) => (
-                  <Pagination.Item key={p}>
-                    <Pagination.Link isActive={p === page} onPress={() => setPage(p)}>{p}</Pagination.Link>
-                  </Pagination.Item>
-                ))}
+                {getPageNumbers().map((p, i) =>
+                  p === "ellipsis" ? (
+                    <Pagination.Item key={`ellipsis-${i}`}>
+                      <Pagination.Ellipsis />
+                    </Pagination.Item>
+                  ) : (
+                    <Pagination.Item key={p}>
+                      <Pagination.Link isActive={p === page} onPress={() => setPage(p)}>{p}</Pagination.Link>
+                    </Pagination.Item>
+                  ),
+                )}
                 <Pagination.Item>
                   <Pagination.Next isDisabled={page === totalPages} onPress={() => setPage((p) => Math.min(totalPages, p + 1))}>
                     <Pagination.NextIcon />
