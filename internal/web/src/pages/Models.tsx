@@ -223,7 +223,7 @@ export default function Models() {
                 return (
                   <Card
                     key={m.id}
-                    className="group relative p-3 hover:border-border transition-colors"
+                    className="group p-3 hover:border-border transition-colors"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <code
@@ -238,12 +238,12 @@ export default function Models() {
                         title={m.is_active ? "ativo" : "inativo"}
                       />
                     </div>
-                    <div className="flex items-center gap-1.5 mt-2">
+                    <div className="flex items-center gap-1.5 mt-1">
                       <Chip size="sm" color="default" className="h-5 text-[10px]">{m.kind}</Chip>
                       <span className="text-[10px] text-muted">{m.source}</span>
                     </div>
                     {st && st.requests > 0 && (
-                      <div className="flex items-center gap-3 mt-2 text-[10px] text-muted">
+                      <div className="flex items-center gap-3 mt-1 text-[10px] text-muted">
                         <span className="tabular-nums">{st.avg_tps > 0 ? `${st.avg_tps.toFixed(1)} tok/s` : "—"}</span>
                         <span className="tabular-nums">{st.avg_ttft_ms && st.avg_ttft_ms > 0 ? `ttft ${Math.round(st.avg_ttft_ms)}ms` : ""}{st.avg_ttft_ms && st.avg_ttft_ms > 0 ? " · " : ""}{st.avg_latency_ms > 0 ? `${Math.round(st.avg_latency_ms)}ms` : "—"}</span>
                         <span className="tabular-nums">{st.requests > 999 ? formatCompact(st.requests) : `${st.requests}x`}</span>
@@ -257,20 +257,20 @@ export default function Models() {
                       const imgPrice = formatPricePerImage(p.output_cost_per_image);
                       if (!inPrice && !outPrice && !imgPrice) {
                         return (
-                          <div className="flex items-center gap-1 mt-1.5 text-[10px]">
+                          <div className="flex items-center gap-1 mt-1 text-[10px]">
                             <span className="tabular-nums text-muted">Free</span>
                           </div>
                         );
                       }
                       return (
-                        <div className="flex items-center gap-2 mt-1.5 text-[10px]">
+                        <div className="flex items-center gap-2 mt-1 text-[10px]">
                           {inPrice && <span className="tabular-nums text-success">{inPrice}</span>}
                           {outPrice && <span className="tabular-nums text-accent">{outPrice}</span>}
                           {imgPrice && <span className="tabular-nums text-warning">{imgPrice}</span>}
                         </div>
                       );
                     })()}
-                    <div className="absolute top-1.5 right-7 opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5">
+                    <div className="flex gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <Button isIconOnly size="sm" variant="tertiary" onPress={() => openPricing(m)} aria-label="Editar preço">
                         <IconDollar className="w-3.5 h-3.5" />
                       </Button>
