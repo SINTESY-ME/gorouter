@@ -1,19 +1,20 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import {
-  Input, Spinner, Chip, Button, Modal, Select, ListBox, TextField, Label,
+  Input, Spinner, Chip, Button, Card, Modal, Select, ListBox, TextField, Label,
 } from "@heroui/react";
 import { api, type ModelEntry, type Provider, type ModelStat, type ModelPricing } from "../api";
 import { formatCompact } from "../format";
+import { IconSearch, IconTrash, IconPower, IconDollar } from "../icons";
 
 const KINDS = ["llm", "embedding", "image", "tts", "stt", "rerank", "ocr", "video"];
 
 const kindColor = (k: string): "accent" | "success" | "warning" | "danger" | "default" => {
   switch (k) {
-    case "llm": return "accent";
     case "embedding": return "success";
     case "image": return "warning";
-    case "tts": return "default";
     case "stt": return "danger";
+    case "llm":
+    case "tts":
     default: return "default";
   }
 };
@@ -123,7 +124,6 @@ export default function Models() {
   };
 
   const removeModel = async (m: ModelEntry) => {
-    if (!confirm(`Excluir ${m.id}?`)) return;
     try {
       await api.models.remove(m.id);
       setItems((prev) => prev.filter((x) => x.id !== m.id));
@@ -193,7 +193,7 @@ export default function Models() {
           <p className="text-sm text-muted mt-0.5">{items.length} modelos · {items.filter(m => m.is_active).length} ativos</p>
         </div>
         <div className="relative max-w-xs w-full">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><IconSearch /></span>
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><IconSearch className="w-4 h-4 text-muted" /></span>
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -232,9 +232,9 @@ export default function Models() {
               {g.models.map((m) => {
                 const st = stats[statKey(m)] || stats[m.id];
                 return (
-                  <div
+                  <Card
                     key={m.id}
-                    className="group relative bg-surface border border-border rounded-xl p-3 hover:border-border transition-colors"
+                    className="group relative p-3 hover:border-border transition-colors"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <code
@@ -282,29 +282,17 @@ export default function Models() {
                       );
                     })()}
                     <div className="absolute top-1.5 right-7 opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5">
-                      <button
-                        onClick={() => openPricing(m)}
-                        className="w-6 h-6 rounded-md bg-surface border border-border hover:bg-default-soft flex items-center justify-center shadow-sm"
-                        title="Editar preço"
-                      >
-                        <IconDollar />
-                      </button>
-                      <button
-                        onClick={() => toggleActive(m)}
-                        className="w-6 h-6 rounded-md bg-surface border border-border hover:bg-default-soft flex items-center justify-center shadow-sm"
-                        title={m.is_active ? "Desativar" : "Ativar"}
-                      >
-                        <IconPower active={m.is_active} />
-                      </button>
-                      <button
-                        onClick={() => removeModel(m)}
-                        className="w-6 h-6 rounded-md bg-surface border border-border hover:bg-danger-soft text-danger flex items-center justify-center shadow-sm"
-                        title="Excluir"
-                      >
-                        <IconTrash />
-                      </button>
+                      <Button isIconOnly size="sm" variant="tertiary" onPress={() => openPricing(m)} aria-label="Editar preço">
+                        <IconDollar className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button isIconOnly size="sm" variant="tertiary" onPress={() => toggleActive(m)} aria-label={m.is_active ? "Desativar" : "Ativar"}>
+                        <IconPower className={`w-3.5 h-3.5 ${m.is_active ? "text-success" : "text-muted"}`} />
+                      </Button>
+                      <Button isIconOnly size="sm" variant="tertiary" onPress={() => removeModel(m)} aria-label="Excluir" className="text-danger hover:bg-danger-soft">
+                        <IconTrash className="w-3.5 h-3.5" />
+                      </Button>
                     </div>
-                  </div>
+                  </Card>
                 );
               })}
             </div>
@@ -378,26 +366,5 @@ export default function Models() {
         </Modal.Backdrop>
       </Modal>
     </div>
-  );
-}
-
-function IconSearch() {
-  return <svg className="w-4 h-4 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>;
-}
-function IconTrash() {
-  return <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1.5 14a2 2 0 0 1-2 2H8.5a2 2 0 0 1-2-2L5 6" /></svg>;
-}
-function IconPower({ active }: { active: boolean }) {
-  return (
-    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: active ? "#22c55e" : "#999" }}>
-      <path d="M12 2v10" /><path d="M18.4 6.6a9 9 0 1 1-12.77.04" />
-    </svg>
-  );
-}
-function IconDollar() {
-  return (
-    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-    </svg>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  Table, Button, Card, Modal, Input, Chip, Select, ListBox, Spinner, TextArea, TextField, Label, AlertDialog,
+  Table, Button, Modal, Input, Chip, Select, ListBox, Spinner, TextArea, TextField, Label, AlertDialog,
 } from "@heroui/react";
 import { ModelComboBox, type ModelComboBoxItem } from "../components/ModelComboBox";
 import { api, type Combo, type ModelEntry, type ComboModelMeta, type Provider } from "../api";
@@ -136,67 +136,65 @@ export default function Combos() {
         <Button variant="outline" onPress={openNew}><IconPlus className="w-4 h-4" /> Novo combo</Button>
       </div>
 
-      <Card className="overflow-hidden">
-        {loading ? (
-          <div className="p-10 text-center text-muted text-sm">Carregando...</div>
-        ) : items.length === 0 ? (
-          <div className="p-10 text-center text-muted text-sm">
-            Nenhum combo ainda. Clique em <strong>Novo combo</strong>.
-          </div>
-        ) : (
-          <Table>
-            <Table.ScrollContainer>
-              <Table.Content aria-label="combos" className="min-w-[560px]">
-                <Table.Header>
-                  <Table.Column isRowHeader id="name">Nome</Table.Column>
-                  <Table.Column id="models">Modelos</Table.Column>
-                  <Table.Column id="strategy">Estratégia</Table.Column>
-                  <Table.Column id="actions">Ações</Table.Column>
-                </Table.Header>
-                <Table.Body items={items}>
-                  {(c) => (
-                    <Table.Row key={c.id} id={c.id}>
-                      <Table.Cell><span className="font-semibold">{c.name}</span></Table.Cell>
-                      <Table.Cell>
-                        <div className="flex flex-wrap gap-1">
-                          {c.models.map((m, i) => (
-                            <Chip key={m + i} size="sm" variant="soft">
-                              <span className="text-muted mr-0.5">{i + 1}.</span>
-                              {m}
-                            </Chip>
-                          ))}
-                        </div>
-                      </Table.Cell>
-                      <Table.Cell>
-                        <div className="flex flex-col gap-0.5 items-start">
-                          <Chip size="sm" variant="soft" color={STRATEGY_COLORS[c.strategy] ?? "default"}>
-                            {c.strategy}
+      {loading ? (
+        <div className="p-10 text-center text-muted text-sm">Carregando...</div>
+      ) : items.length === 0 ? (
+        <div className="p-10 text-center text-muted text-sm">
+          Nenhum combo ainda. Clique em <strong>Novo combo</strong>.
+        </div>
+      ) : (
+        <Table>
+          <Table.ScrollContainer>
+            <Table.Content aria-label="combos" className="min-w-[560px]">
+              <Table.Header>
+                <Table.Column isRowHeader id="name">Nome</Table.Column>
+                <Table.Column id="models">Modelos</Table.Column>
+                <Table.Column id="strategy">Estratégia</Table.Column>
+                <Table.Column id="actions">Ações</Table.Column>
+              </Table.Header>
+              <Table.Body items={items}>
+                {(c) => (
+                  <Table.Row key={c.id} id={c.id}>
+                    <Table.Cell><span className="font-semibold">{c.name}</span></Table.Cell>
+                    <Table.Cell>
+                      <div className="flex flex-wrap gap-1">
+                        {c.models.map((m, i) => (
+                          <Chip key={m + i} size="sm" variant="soft">
+                            <span className="text-muted mr-0.5">{i + 1}.</span>
+                            {m}
                           </Chip>
-                          {c.strategy === "intelligence" && c.classifier_model && (
-                            <span className="text-[11px] text-muted font-mono">
-                              classificador: {c.classifier_model}
-                            </span>
-                          )}
-                        </div>
-                      </Table.Cell>
-                      <Table.Cell>
-                        <div className="flex gap-1 justify-end">
-                          <Button isIconOnly size="sm" variant="ghost" onPress={() => openEdit(c)} aria-label="editar">
-                            <IconPencil className="w-4 h-4" />
-                          </Button>
-                          <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => setConfirmId(c.id)} aria-label="excluir">
-                            <IconTrash className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </Table.Cell>
-                    </Table.Row>
-                  )}
-                </Table.Body>
-              </Table.Content>
-            </Table.ScrollContainer>
-          </Table>
-        )}
-      </Card>
+                        ))}
+                      </div>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <div className="flex flex-col gap-0.5 items-start">
+                        <Chip size="sm" variant="soft" color={STRATEGY_COLORS[c.strategy] ?? "default"}>
+                          {c.strategy}
+                        </Chip>
+                        {c.strategy === "intelligence" && c.classifier_model && (
+                          <span className="text-[11px] text-muted font-mono">
+                            classificador: {c.classifier_model}
+                          </span>
+                        )}
+                      </div>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <div className="flex gap-1 justify-end">
+                        <Button isIconOnly size="sm" variant="ghost" onPress={() => openEdit(c)} aria-label="editar">
+                          <IconPencil className="w-4 h-4" />
+                        </Button>
+                        <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => setConfirmId(c.id)} aria-label="excluir">
+                          <IconTrash className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </Table.Cell>
+                  </Table.Row>
+                )}
+              </Table.Body>
+            </Table.Content>
+          </Table.ScrollContainer>
+        </Table>
+      )}
 
       <Modal isOpen={open} onOpenChange={setOpen}>
         <Modal.Backdrop>
