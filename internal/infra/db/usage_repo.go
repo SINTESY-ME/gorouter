@@ -167,7 +167,10 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 	}
 
 	// By provider
-	type groupRow struct{ Key string; Count int64 }
+	type groupRow struct {
+		Key   string
+		Count int64
+	}
 	var provRows []groupRow
 	if err := tx.Session(&gorm.Session{}).Where("timestamp >= ? AND timestamp < ?", from, to).
 		Select("provider as key, COUNT(*) as count").Group("provider").Scan(&provRows).Error; err != nil {
@@ -443,11 +446,19 @@ func (r *UsageRepo) timeseries(ctx context.Context, from, to time.Time, bucket s
 	return out, nil
 }
 
-func (r *UsageRepo) History(ctx context.Context, q domain.HistoryQuery) ([]domain.UsageEntry, error) {
-	limit := q.Limit
-	if limit <= 0 || limit > 500 {
-		limit = 100
+func (r *UsageRepo) History(ctx context.Context, q domain.HistoryQuery) (*domain.HistoryResult, error) {
+	perPage := q.PerPage
+	if perPage <= 0 {
+		perPage = q.Limit
 	}
+	if perPage <= 0 || perPage > 500 {
+		perPage = 100
+	}
+	page := q.Page
+	if page <= 0 {
+		page = 1
+	}
+	offset := (page - 1) * perPage
 	tx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
 	if !q.From.IsZero() {
 		tx = tx.Where("timestamp >= ?", q.From)
@@ -476,12 +487,36 @@ func (r *UsageRepo) History(ctx context.Context, q domain.HistoryQuery) ([]domai
 	if err := tx.Select("request_id, MAX(timestamp) as latest").
 		Group("request_id").
 		Order("latest DESC").
-		Limit(limit).
+		Offset(offset).
+		Limit(perPage).
 		Scan(&reqRows).Error; err != nil {
 		return nil, err
 	}
+	// Count total groups for pagination metadata.
+	var total int64
+	countTx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
+	if !q.From.IsZero() {
+		countTx = countTx.Where("timestamp >= ?", q.From)
+	}
+	if !q.To.IsZero() {
+		countTx = countTx.Where("timestamp < ?", q.To)
+	}
+	if q.Model != "" {
+		countTx = countTx.Where("model = ?", q.Model)
+	}
+	if q.ApiKey != "" {
+		countTx = countTx.Where("api_key = ?", q.ApiKey)
+	}
+	if q.Search != "" {
+		like := "%" + q.Search + "%"
+		countTx = countTx.Where("model LIKE ? OR provider LIKE ? OR endpoint LIKE ?", like, like, like)
+	}
+	if q.Combo != "" {
+		countTx = countTx.Where("id IN (SELECT usage_id FROM combo_executions WHERE combo_name = ?)", q.Combo)
+	}
+	countTx.Select("COUNT(DISTINCT request_id)").Count(&total)
 	if len(reqRows) == 0 {
-		return nil, nil
+		return &domain.HistoryResult{Data: nil, Total: int(total), Page: page, PerPage: perPage, HasMore: false}, nil
 	}
 	ids := make([]string, len(reqRows))
 	for i, rr := range reqRows {
@@ -492,7 +527,7 @@ func (r *UsageRepo) History(ctx context.Context, q domain.HistoryQuery) ([]domai
 		return nil, err
 	}
 	if len(entries) == 0 {
-		return entries, nil
+		return &domain.HistoryResult{Data: nil, Total: int(total), Page: page, PerPage: perPage, HasMore: false}, nil
 	}
 	entryIDs := make([]int64, len(entries))
 	for i := range entries {
@@ -507,7 +542,38 @@ func (r *UsageRepo) History(ctx context.Context, q domain.HistoryQuery) ([]domai
 	for i := range entries {
 		entries[i].ComboChain = byUsage[entries[i].ID]
 	}
-	return entries, nil
+	return &domain.HistoryResult{
+		Data:    entries,
+		Total:   int(total),
+		Page:    page,
+		PerPage: perPage,
+		HasMore: offset+perPage < int(total),
+	}, nil
+}
+
+func (r *UsageRepo) DistinctHistoryFilters(ctx context.Context, search string) (*domain.HistoryFilters, error) {
+	var models, providers, combos []string
+	modelQuery := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("model <> ''")
+	providerQuery := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("provider <> ''")
+	if search != "" {
+		like := "%" + search + "%"
+		modelQuery = modelQuery.Where("model LIKE ?", like)
+		providerQuery = providerQuery.Where("provider LIKE ?", like)
+	}
+	if err := modelQuery.Distinct("model").Order("model").Pluck("model", &models).Error; err != nil {
+		return nil, err
+	}
+	if err := providerQuery.Distinct("provider").Order("provider").Pluck("provider", &providers).Error; err != nil {
+		return nil, err
+	}
+	comboQuery := r.db.WithContext(ctx).Model(&domain.ComboExecution{}).Where("combo_name <> ''")
+	if search != "" {
+		comboQuery = comboQuery.Where("combo_name LIKE ?", "%"+search+"%")
+	}
+	if err := comboQuery.Distinct("combo_name").Order("combo_name").Pluck("combo_name", &combos).Error; err != nil {
+		return nil, err
+	}
+	return &domain.HistoryFilters{Models: models, Combos: combos, Providers: providers}, nil
 }
 
 func (r *UsageRepo) ModelStats(ctx context.Context) (map[string]*domain.ModelStat, error) {

@@ -330,7 +330,7 @@ func (s *Server) handleProviderModels(w http.ResponseWriter, r *http.Request) {
 // entries into the database.
 func (s *Server) handleSyncProviderModels(w http.ResponseWriter, r *http.Request) {
 	providerID := chi.URLParam(r, "id")
-	
+
 	// We need a connection to sync from. Find the first active one for this provider.
 	conns, err := s.Providers.List(r.Context())
 	if err != nil {
@@ -368,7 +368,7 @@ func (s *Server) handleSyncProviderModels(w http.ResponseWriter, r *http.Request
 // This is needed for providers that don't expose /v1/models.
 func (s *Server) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	providerID := chi.URLParam(r, "id")
-	
+
 	var req struct {
 		ModelID string `json:"model_id"`
 		Name    string `json:"name"`
@@ -449,8 +449,8 @@ func (s *Server) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 // overwrite it. The model ID is passed in the request body as "model_id".
 func (s *Server) handleUpdateModelPricing(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ModelID string                `json:"model_id"`
-		Pricing domain.ModelPricing   `json:"pricing"`
+		ModelID string              `json:"model_id"`
+		Pricing domain.ModelPricing `json:"pricing"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -492,12 +492,12 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 // ---- Combos ----
 
 type comboDTO struct {
-	ID              string                            `json:"id,omitempty"`
-	Name            string                            `json:"name"`
-	Models          []string                          `json:"models"`
-	Strategy        string                            `json:"strategy"`
+	ID              string                           `json:"id,omitempty"`
+	Name            string                           `json:"name"`
+	Models          []string                         `json:"models"`
+	Strategy        string                           `json:"strategy"`
 	ModelMeta       map[string]domain.ComboModelMeta `json:"model_meta,omitempty"`
-	ClassifierModel string                            `json:"classifier_model,omitempty"`
+	ClassifierModel string                           `json:"classifier_model,omitempty"`
 }
 
 func (s *Server) handleListCombos(w http.ResponseWriter, r *http.Request) {
@@ -677,17 +677,38 @@ func (s *Server) handleUsageStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, stats)
 }
 
+func (s *Server) handleUsageFilters(w http.ResponseWriter, r *http.Request) {
+	filters, err := s.Usage.DistinctHistoryFilters(r.Context(), r.URL.Query().Get("search"))
+	if err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, filters)
+}
+
 func (s *Server) handleUsageHistory(w http.ResponseWriter, r *http.Request) {
 	q := domain.HistoryQuery{
-		Limit:  100,
-		Model:  r.URL.Query().Get("model"),
-		Combo:  r.URL.Query().Get("combo"),
-		ApiKey: r.URL.Query().Get("api_key"),
-		Search: r.URL.Query().Get("search"),
+		Limit:   100,
+		Page:    1,
+		PerPage: 25,
+		Model:   r.URL.Query().Get("model"),
+		Combo:   r.URL.Query().Get("combo"),
+		ApiKey:  r.URL.Query().Get("api_key"),
+		Search:  r.URL.Query().Get("search"),
 	}
 	if v := r.URL.Query().Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			q.Limit = n
+		}
+	}
+	if v := r.URL.Query().Get("per_page"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 500 {
+			q.PerPage = n
+		}
+	}
+	if v := r.URL.Query().Get("page"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			q.Page = n
 		}
 	}
 	if v := r.URL.Query().Get("from"); v != "" {
@@ -721,7 +742,7 @@ func (s *Server) handleUsageHistory(w http.ResponseWriter, r *http.Request) {
 // by the top-of-dashboard cards.
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	type comboCount struct {
-		Total  int `json:"total"`
+		Total int `json:"total"`
 	}
 	var combos comboCount
 	if s.Combos != nil {
@@ -732,9 +753,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	conns, _ := s.Providers.List(r.Context())
 	var (
-		totalConns   int
-		activeConns  int
-		rateLimited  int
+		totalConns  int
+		activeConns int
+		rateLimited int
 	)
 	now := time.Now()
 	for i := range conns {
@@ -751,9 +772,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		health = s.Health.Summary()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"combos":         combos,
-		"connections":    map[string]int{"total": totalConns, "active": activeConns, "rate_limited": rateLimited},
-		"health":         health,
+		"combos":      combos,
+		"connections": map[string]int{"total": totalConns, "active": activeConns, "rate_limited": rateLimited},
+		"health":      health,
 	})
 }
 
@@ -854,4 +875,3 @@ func lookupKey(s *app.ApiKeyService, ctx context.Context, id string) (*domain.Ap
 }
 
 // --- ProviderConfig (provider grouping metadata) ---
-

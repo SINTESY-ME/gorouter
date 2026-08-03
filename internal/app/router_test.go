@@ -184,8 +184,11 @@ func (r *mockUsageRepo) Record(ctx context.Context, e *domain.UsageEntry) error 
 func (r *mockUsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domain.UsageStats, error) {
 	return &domain.UsageStats{}, nil
 }
-func (r *mockUsageRepo) History(ctx context.Context, q domain.HistoryQuery) ([]domain.UsageEntry, error) {
-	return r.entries, nil
+func (r *mockUsageRepo) History(ctx context.Context, q domain.HistoryQuery) (*domain.HistoryResult, error) {
+	return &domain.HistoryResult{Data: r.entries, Total: len(r.entries)}, nil
+}
+func (r *mockUsageRepo) DistinctHistoryFilters(ctx context.Context, search string) (*domain.HistoryFilters, error) {
+	return &domain.HistoryFilters{}, nil
 }
 func (r *mockUsageRepo) ModelStats(ctx context.Context) (map[string]*domain.ModelStat, error) {
 	return map[string]*domain.ModelStat{}, nil
@@ -838,7 +841,8 @@ func TestRouteCombo_TwoPhase_KeyOrder(t *testing.T) {
 // TestRouteCombo_TwoPhase_HealthySucceeds_SkipsUnhealthy verifies that keys
 // which were unhealthy at request start are not retried when a healthy key
 // succeeds — each key is tried at most once per request.
-func TestRouteCombo_TwoPhase_HealthySucceeds_SkipsUnhealthy(t *testing.T) {	exec := &mockExecutor{
+func TestRouteCombo_TwoPhase_HealthySucceeds_SkipsUnhealthy(t *testing.T) {
+	exec := &mockExecutor{
 		status: 200,
 		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
 		failModels: map[string]int{

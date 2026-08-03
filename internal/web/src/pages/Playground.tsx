@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  Button, TextArea, Tooltip,
+  Button, TextArea, TextField, Tooltip,
 } from "@heroui/react";
 import { ModelComboBox, type ModelComboBoxItem } from "../components/ModelComboBox";
 import {
   api, streamChat, type ChatMessage, type ModelEntry, type Combo, type Provider,
 } from "../api";
+import { IconChat, IconSparkles, IconPlus, IconStop, IconArrowUp } from "../icons";
 
 interface PlaygroundMsg {
   id: string;
@@ -240,22 +241,28 @@ export default function Playground() {
 
       <div className="shrink-0 bg-linear-to-t from-background via-background to-transparent pt-6 pb-4 px-4">
         <div className="mx-auto max-w-3xl">
-          <div className="bg-surface border border-border rounded-2xl shadow-md focus-within:border-accent/50 focus-within:shadow-lg transition-all">
-            <TextArea
-              ref={textareaRef}
+          <div className="bg-surface border border-border rounded-2xl shadow-md focus-within:border-accent/50 focus-within:shadow-lg transition-all p-1">
+            <TextField
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={onKeyDown}
-              placeholder={
-                selectedModel
-                  ? "Mensagem"
-                  : "Selecione um modelo ou combo acima para começar"
-              }
-              disabled={!selectedModel}
-              rows={2}
-              autoFocus
-              className="text-[15px] resize-none px-4 py-3 leading-snug bg-transparent border-0 shadow-none outline-none"
-            />
+              onChange={setInput}
+              aria-label="Mensagem"
+              className="w-full"
+            >
+              <TextArea
+                ref={textareaRef}
+                onKeyDown={onKeyDown}
+                placeholder={
+                  selectedModel
+                    ? "Mensagem"
+                    : "Selecione um modelo ou combo acima para começar"
+                }
+                disabled={!selectedModel}
+                rows={2}
+                autoFocus
+                className="resize-none"
+                variant="secondary"
+              />
+            </TextField>
             <div className="flex items-center justify-between px-2 pb-2">
               <div className="text-[11px] text-muted pl-2">
                 Enter envia · Shift+Enter nova linha
@@ -307,16 +314,16 @@ function WelcomeScreen({ disabled, onPick }: { disabled: boolean; onPick: (text:
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
           {SUGGESTIONS.map((s) => (
-            <button
+            <Button
               key={s}
-              type="button"
-              disabled={disabled}
-              onClick={() => onPick(s)}
-              className="text-sm text-left px-3 py-2.5 rounded-xl border border-border bg-surface hover:bg-surface-secondary hover:border-border-secondary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              variant="outline"
+              isDisabled={disabled}
+              onPress={() => onPick(s)}
+              className="justify-start text-sm h-auto py-2.5"
             >
-              <IconSparkles className="w-3.5 h-3.5 inline-block text-muted mr-1.5 -mt-0.5" />
+              <IconSparkles className="w-3.5 h-3.5 text-muted" />
               {s}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -375,41 +382,4 @@ function MessageRow({ msg }: { msg: PlaygroundMsg }) {
 function formatLatency(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(2)}s`;
-}
-
-function IconChat({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  );
-}
-function IconSparkles({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
-    </svg>
-  );
-}
-function IconPlus({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
-}
-function IconStop({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <rect x="6" y="6" width="12" height="12" rx="1.5" />
-    </svg>
-  );
-}
-function IconArrowUp({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="19" x2="12" y2="5" />
-      <polyline points="5 12 12 5 19 12" />
-    </svg>
-  );
 }

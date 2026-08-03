@@ -54,8 +54,12 @@ func (r *AsyncUsageRecorder) Stats(ctx context.Context, q domain.UsageStatsQuery
 	return r.repo.Stats(ctx, q)
 }
 
-func (r *AsyncUsageRecorder) History(ctx context.Context, q domain.HistoryQuery) ([]domain.UsageEntry, error) {
+func (r *AsyncUsageRecorder) History(ctx context.Context, q domain.HistoryQuery) (*domain.HistoryResult, error) {
 	return r.repo.History(ctx, q)
+}
+
+func (r *AsyncUsageRecorder) DistinctHistoryFilters(ctx context.Context, search string) (*domain.HistoryFilters, error) {
+	return r.repo.DistinctHistoryFilters(ctx, search)
 }
 
 func (r *AsyncUsageRecorder) ModelStats(ctx context.Context) (map[string]*domain.ModelStat, error) {

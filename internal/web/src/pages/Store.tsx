@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Chip, Input, Spinner } from "@heroui/react";
+import { Button, Card, Chip, Input, Spinner, AlertDialog } from "@heroui/react";
 import { api, type StoreEntry } from "../api";
 
 export default function Store() {
@@ -8,6 +8,7 @@ export default function Store() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -32,7 +33,6 @@ export default function Store() {
   };
 
   const remove = async (id: string) => {
-    if (!confirm(`Remover preset ${id}? (conexões existentes não são apagadas)`)) return;
     setBusy(id);
     try {
       await api.providers.store.remove(id);
@@ -89,11 +89,11 @@ export default function Store() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filtered.map((e) => (
-            <div key={e.id} className="bg-surface rounded-2xl border border-border p-4 flex flex-col gap-3">
+            <Card key={e.id} className="p-4 flex flex-col gap-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: e.color || "#888" }} />
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-muted" style={e.color ? { background: e.color } : undefined} />
                     <h3 className="font-semibold truncate">{e.name || e.id}</h3>
                   </div>
                   <p className="text-xs text-muted font-mono mt-0.5">{e.id}</p>
@@ -114,7 +114,7 @@ export default function Store() {
               )}
               <div className="mt-auto pt-1">
                 {e.installed ? (
-                  <Button size="sm" variant="danger-soft" className="w-full" isDisabled={busy === e.id} onPress={() => remove(e.id)}>
+                  <Button size="sm" variant="danger-soft" className="w-full" isDisabled={busy === e.id} onPress={() => setConfirmId(e.id)}>
                     Remover
                   </Button>
                 ) : (
@@ -123,10 +123,31 @@ export default function Store() {
                   </Button>
                 )}
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       )}
+
+      <AlertDialog>
+        <AlertDialog.Backdrop isOpen={!!confirmId} onOpenChange={(o) => !o && setConfirmId(null)}>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className="sm:max-w-[400px]">
+              <AlertDialog.CloseTrigger />
+              <AlertDialog.Header>
+                <AlertDialog.Icon status="danger" />
+                <AlertDialog.Heading>Remover preset {confirmId}?</AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p>Conexões existentes não são apagadas.</p>
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button slot="close" variant="tertiary">Cancelar</Button>
+                <Button slot="close" variant="danger" onPress={() => { if (confirmId) remove(confirmId); setConfirmId(null); }}>Remover</Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog>
     </div>
   );
 }

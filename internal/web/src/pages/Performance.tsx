@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Spinner, Switch, Button } from "@heroui/react";
+import { Spinner, Switch, Button, Card } from "@heroui/react";
 import { api } from "../api";
 import { formatCompact } from "../format";
 
@@ -74,7 +74,7 @@ export default function Performance() {
       </div>
 
       {/* RTK section */}
-      <div className="bg-surface rounded-2xl border border-border p-6">
+      <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1">
             <div className="flex items-center gap-2">
@@ -101,10 +101,10 @@ export default function Performance() {
             </Switch.Content>
           </Switch>
         </div>
-      </div>
+      </Card>
 
       {/* Cache section */}
-      <div className="bg-surface rounded-2xl border border-border p-6">
+      <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1">
             <h3 className="font-semibold">Response Cache</h3>
@@ -163,12 +163,14 @@ export default function Performance() {
             )}
           </div>
         )}
-      </div>
+      </Card>
 
       {/* Info note */}
-      <div className="text-xs text-muted bg-background rounded-xl p-4 border border-border">
-        Ambas as otimizações são <strong>fail-open</strong>: qualquer erro interno retorna o body/resposta original sem afetar o request. Quando desligadas, zero overhead (nil check no hot path).
-      </div>
+      <Card variant="transparent" className="p-4">
+        <p className="text-xs text-muted">
+          Ambas as otimizações são <strong>fail-open</strong>: qualquer erro interno retorna o body/resposta original sem afetar o request. Quando desligadas, zero overhead (nil check no hot path).
+        </p>
+      </Card>
     </div>
   );
 }

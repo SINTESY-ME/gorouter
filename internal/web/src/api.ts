@@ -263,7 +263,7 @@ export const api = {
       if (q.api_key_id) sp.set("api_key_id", q.api_key_id);
       return request<UsageStats>(`/api/usage/stats?${sp.toString()}`);
     },
-    history: (params: { from?: string; to?: string; model?: string; combo?: string; api_key_id?: string; api_key?: string; search?: string; limit?: number } = {}) => {
+    history: (params: { from?: string; to?: string; model?: string; combo?: string; api_key_id?: string; api_key?: string; search?: string; limit?: number; page?: number; per_page?: number } = {}) => {
       const sp = new URLSearchParams();
       if (params.from) sp.set("from", params.from);
       if (params.to) sp.set("to", params.to);
@@ -272,8 +272,14 @@ export const api = {
       if (params.api_key_id) sp.set("api_key_id", params.api_key_id);
       if (params.api_key) sp.set("api_key", params.api_key);
       if (params.search) sp.set("search", params.search);
-      sp.set("limit", String(params.limit ?? 200));
-      return request<UsageEntry[]>(`/api/usage/history?${sp.toString()}`);
+      if (params.page) sp.set("page", String(params.page));
+      sp.set("per_page", String(params.per_page ?? 25));
+      return request<{ data: UsageEntry[]; total: number; page: number; per_page: number; has_more: boolean }>(`/api/usage/history?${sp.toString()}`);
+    },
+    filters: (search?: string) => {
+      const sp = new URLSearchParams();
+      if (search) sp.set("search", search);
+      return request<{ models: string[]; combos: string[]; providers: string[] }>(`/api/usage/filters${sp.toString() ? `?${sp.toString()}` : ""}`);
     },
   },
   settings: {

@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import {
-  Table, Button, Modal, Input, Chip, TextField, Label, Description,
+  Table, Button, Modal, Input, Chip, TextField, Label, Description, Card, AlertDialog,
 } from "@heroui/react";
 import { api, type ApiKey } from "../api";
+import { IconPlus, IconTrash, IconApi, IconCopy, IconCheck } from "../icons";
 
 export default function Keys() {
   const [items, setItems] = useState<ApiKey[]>([]);
@@ -15,6 +16,7 @@ export default function Keys() {
   const [saving, setSaving] = useState(false);
   const [endpoint, setEndpoint] = useState("/v1");
   const [endpointCopied, setEndpointCopied] = useState(false);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") setEndpoint(`${window.location.origin}/v1`);
@@ -36,7 +38,7 @@ export default function Keys() {
   };
 
   const remove = async (id: string) => {
-    if (confirm("Remover esta chave?")) { await api.keys.remove(id); load(); }
+    await api.keys.remove(id); load();
   };
 
   const toggleActive = async (k: ApiKey) => {
@@ -69,12 +71,12 @@ export default function Keys() {
           <h1 className="text-2xl font-bold tracking-tight">API Keys</h1>
           <p className="text-sm text-muted mt-0.5">{items.length} chaves cadastradas</p>
         </div>
-        <Button variant="outline" onPress={() => setCreateOpen(true)}><IconPlus /> Nova chave</Button>
+        <Button variant="outline" onPress={() => setCreateOpen(true)}><IconPlus className="w-4 h-4" /> Nova chave</Button>
       </div>
 
-      <div className="bg-surface rounded-2xl border border-border p-5">
+      <Card className="p-5">
         <div className="flex items-center gap-2 mb-3">
-          <IconApi />
+          <IconApi className="w-4 h-4" />
           <h2 className="text-base font-semibold">API Endpoint</h2>
         </div>
         <p className="text-xs text-muted mb-3">
@@ -90,12 +92,12 @@ export default function Keys() {
             aria-label="copiar endpoint"
             className={endpointCopied ? "text-success" : ""}
           >
-            {endpointCopied ? <IconCheck /> : <IconCopy />}
+            {endpointCopied ? <IconCheck className="w-4 h-4 text-success" /> : <IconCopy className="w-4 h-4" />}
           </Button>
         </div>
-      </div>
+      </Card>
 
-      <div className="bg-surface rounded-2xl border border-border overflow-hidden">
+      <Card className="overflow-hidden">
         {loading ? (
           <div className="p-10 text-center text-muted text-sm">Carregando...</div>
         ) : items.length === 0 ? (
@@ -125,7 +127,7 @@ export default function Keys() {
                           title="Clique para copiar"
                         >
                           <code className="text-xs text-muted group-hover:text-accent transition-colors">{k.key.slice(0, 10)}…{k.key.slice(-6)}</code>
-                          {copiedKeyId === k.id ? <IconCheck className="text-success shrink-0" /> : <IconCopy className="w-3 h-3 text-muted/70 shrink-0 group-hover:text-accent transition-colors" />}
+                          {copiedKeyId === k.id ? <IconCheck className="text-success shrink-0 w-3 h-3" /> : <IconCopy className="w-3 h-3 text-muted/70 shrink-0 group-hover:text-accent transition-colors" />}
                         </div>
                       </Table.Cell>
                       <Table.Cell>
@@ -152,7 +154,7 @@ export default function Keys() {
                           <Button size="sm" variant="secondary" onPress={() => toggleActive(k)}>
                             {k.is_active ? "Desativar" : "Ativar"}
                           </Button>
-                          <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => remove(k.id)} aria-label="excluir"><IconTrash /></Button>
+                          <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => setConfirmId(k.id)} aria-label="excluir"><IconTrash className="w-4 h-4" /></Button>
                         </div>
                       </Table.Cell>
                     </Table.Row>
@@ -162,7 +164,7 @@ export default function Keys() {
             </Table.ScrollContainer>
           </Table>
         )}
-      </div>
+      </Card>
 
       <Modal isOpen={createOpen} onOpenChange={setCreateOpen}>
         <Modal.Backdrop>
@@ -206,12 +208,27 @@ export default function Keys() {
           </Modal.Container>
         </Modal.Backdrop>
       </Modal>
+
+      <AlertDialog>
+        <AlertDialog.Backdrop isOpen={!!confirmId} onOpenChange={(o) => !o && setConfirmId(null)}>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className="sm:max-w-[400px]">
+              <AlertDialog.CloseTrigger />
+              <AlertDialog.Header>
+                <AlertDialog.Icon status="danger" />
+                <AlertDialog.Heading>Remover esta chave?</AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p>Apps que usam esta chave perderão acesso ao gateway.</p>
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button slot="close" variant="tertiary">Cancelar</Button>
+                <Button slot="close" variant="danger" onPress={() => { if (confirmId) remove(confirmId); setConfirmId(null); }}>Remover</Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog>
     </div>
   );
 }
-
-function IconPlus() { return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5v14"/></svg>; }
-function IconTrash() { return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1.5 14a2 2 0 0 1-2 2H8.5a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>; }
-function IconApi() { return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>; }
-function IconCopy({ className = "w-4 h-4" }: { className?: string }) { return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>; }
-function IconCheck({ className = "w-4 h-4" }: { className?: string }) { return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>; }

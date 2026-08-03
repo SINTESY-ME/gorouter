@@ -34,20 +34,20 @@ type ModelSyncer interface {
 // Server bundles the services and wires the routes. It is constructed once
 // at startup; *http.Server is the caller's responsibility.
 type Server struct {
-	Router    *app.RouterService
-	Models    *app.ModelsService
-	Providers *app.ConnectionService
+	Router          *app.RouterService
+	Models          *app.ModelsService
+	Providers       *app.ConnectionService
 	ProviderConfigs domain.ProviderConfigRepo
-	Combos    *app.ComboService
-	Keys      *app.ApiKeyService
-	Usage     *app.UsageService
-	Health    *app.HealthTracker
-	Prober    Prober
-	ModelSync ModelSyncer
-	ModelRepo domain.ModelRepo
-	Cache     *app.CacheService
-	Settings  domain.SettingRepo
-	Savings   *app.SavingsTracker
+	Combos          *app.ComboService
+	Keys            *app.ApiKeyService
+	Usage           *app.UsageService
+	Health          *app.HealthTracker
+	Prober          Prober
+	ModelSync       ModelSyncer
+	ModelRepo       domain.ModelRepo
+	Cache           *app.CacheService
+	Settings        domain.SettingRepo
+	Savings         *app.SavingsTracker
 	// RTKCompressorFactory creates a fresh RequestCompressor when the user
 	// toggles RTK on via the dashboard. Injected at composition root.
 	RTKCompressorFactory func() domain.RequestCompressor
@@ -77,7 +77,7 @@ func (s *Server) Routes() http.Handler {
 		}
 		r.Get("/models", s.handleListModels)
 		r.Post("/chat/completions", s.handleChatWithFormat(domain.FormatOpenAI))
-		r.Post("/completions", s.handleChatWithFormat(domain.FormatOpenAI)) // alias
+		r.Post("/completions", s.handleChatWithFormat(domain.FormatOpenAI))  // alias
 		r.Post("/messages", s.handleChatWithFormat(domain.FormatAnthropic))  // anthropic-style
 		r.Post("/responses", s.handleChatWithFormat(domain.FormatResponses)) // openai responses
 		r.Post("/embeddings", s.handlePassthrough("embeddings"))
@@ -106,58 +106,59 @@ func (s *Server) Routes() http.Handler {
 		// all other /api/* routes once configured.
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireDashboardToken)
-		// dashboard API does not require the OpenAI-style client key; in v1
-		// of this router we trust localhost. Add dashboard auth as required.
-		r.Get("/providers", s.handleListProviders)
-		r.Post("/providers", s.handleCreateProvider)
-		r.Put("/providers/{id}", s.handleUpdateProvider)
-		r.Delete("/providers/{id}", s.handleDeleteProvider)
-		
-		r.Get("/connections", s.handleListConnections)
-		r.Post("/connections", s.handleCreateConnection)
-		r.Put("/connections/{id}", s.handleUpdateConnection)
-		r.Delete("/connections/{id}", s.handleDeleteConnection)
-		r.Post("/connections/reorder", s.handleReorderConnections)
-		r.Get("/providers/{id}/models", s.handleProviderModels)
-		r.Post("/providers/{id}/models", s.handleAddModel)
-		r.Post("/providers/{id}/models/sync", s.handleSyncProviderModels)
+			// dashboard API does not require the OpenAI-style client key; in v1
+			// of this router we trust localhost. Add dashboard auth as required.
+			r.Get("/providers", s.handleListProviders)
+			r.Post("/providers", s.handleCreateProvider)
+			r.Put("/providers/{id}", s.handleUpdateProvider)
+			r.Delete("/providers/{id}", s.handleDeleteProvider)
 
-		r.Get("/provider-catalog", s.handleListCatalog)
-		r.Get("/provider-catalog/{id}", s.handleGetCatalog)
-		r.Get("/provider-store", s.handleListStore)
-		r.Post("/provider-store/install/{id}", s.handleInstallStore)
-		r.Delete("/provider-store/{id}", s.handleRemoveStore)
+			r.Get("/connections", s.handleListConnections)
+			r.Post("/connections", s.handleCreateConnection)
+			r.Put("/connections/{id}", s.handleUpdateConnection)
+			r.Delete("/connections/{id}", s.handleDeleteConnection)
+			r.Post("/connections/reorder", s.handleReorderConnections)
+			r.Get("/providers/{id}/models", s.handleProviderModels)
+			r.Post("/providers/{id}/models", s.handleAddModel)
+			r.Post("/providers/{id}/models/sync", s.handleSyncProviderModels)
 
-		r.Get("/oauth/providers", s.handleOAuthProviders)
-		r.Post("/oauth/{provider}/start", s.handleOAuthStart)
-		r.Post("/oauth/{provider}/complete", s.handleOAuthComplete)
-		// Callback is public (browser redirect) — registered outside auth group below
+			r.Get("/provider-catalog", s.handleListCatalog)
+			r.Get("/provider-catalog/{id}", s.handleGetCatalog)
+			r.Get("/provider-store", s.handleListStore)
+			r.Post("/provider-store/install/{id}", s.handleInstallStore)
+			r.Delete("/provider-store/{id}", s.handleRemoveStore)
 
-		r.Get("/models", s.handleListModelsDashboard)
-		r.Get("/models/stats", s.handleModelStats)
-		r.Put("/models/*", s.handleUpdateModel)
-		r.Delete("/models/*", s.handleDeleteModel)
-		r.Post("/model-pricing", s.handleUpdateModelPricing)
+			r.Get("/oauth/providers", s.handleOAuthProviders)
+			r.Post("/oauth/{provider}/start", s.handleOAuthStart)
+			r.Post("/oauth/{provider}/complete", s.handleOAuthComplete)
+			// Callback is public (browser redirect) — registered outside auth group below
 
-		r.Get("/combos", s.handleListCombos)
-		r.Post("/combos", s.handleCreateCombo)
-		r.Put("/combos/{id}", s.handleUpdateCombo)
-		r.Delete("/combos/{id}", s.handleDeleteCombo)
+			r.Get("/models", s.handleListModelsDashboard)
+			r.Get("/models/stats", s.handleModelStats)
+			r.Put("/models/*", s.handleUpdateModel)
+			r.Delete("/models/*", s.handleDeleteModel)
+			r.Post("/model-pricing", s.handleUpdateModelPricing)
 
-		r.Get("/keys", s.handleListKeys)
-		r.Post("/keys", s.handleCreateKey)
-		r.Put("/keys/{id}", s.handleUpdateKey)
-		r.Delete("/keys/{id}", s.handleDeleteKey)
+			r.Get("/combos", s.handleListCombos)
+			r.Post("/combos", s.handleCreateCombo)
+			r.Put("/combos/{id}", s.handleUpdateCombo)
+			r.Delete("/combos/{id}", s.handleDeleteCombo)
 
-		r.Get("/usage/stats", s.handleUsageStats)
-		r.Get("/usage/history", s.handleUsageHistory)
-		r.Get("/status", s.handleStatus)
+			r.Get("/keys", s.handleListKeys)
+			r.Post("/keys", s.handleCreateKey)
+			r.Put("/keys/{id}", s.handleUpdateKey)
+			r.Delete("/keys/{id}", s.handleDeleteKey)
 
-		r.Get("/cache/stats", s.handleCacheStats)
-		r.Post("/cache/flush", s.handleCacheFlush)
-		r.Get("/savings", s.handleSavings)
-		r.Get("/settings", s.handleGetSettings)
-		r.Put("/settings", s.handleUpdateSettings)
+			r.Get("/usage/stats", s.handleUsageStats)
+			r.Get("/usage/history", s.handleUsageHistory)
+			r.Get("/usage/filters", s.handleUsageFilters)
+			r.Get("/status", s.handleStatus)
+
+			r.Get("/cache/stats", s.handleCacheStats)
+			r.Post("/cache/flush", s.handleCacheFlush)
+			r.Get("/savings", s.handleSavings)
+			r.Get("/settings", s.handleGetSettings)
+			r.Put("/settings", s.handleUpdateSettings)
 		})
 	})
 

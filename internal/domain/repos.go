@@ -62,13 +62,35 @@ type UsageStatsQuery struct {
 // HistoryQuery specifies filters for the logs/history endpoint. All fields
 // are optional; empty/zero values mean "no filter on this field".
 type HistoryQuery struct {
-	From   time.Time // inclusive; zero = no lower bound
-	To     time.Time // exclusive; zero = no upper bound
-	Model  string    // exact model name; empty = all
-	Combo  string    // combo name in the chain; empty = all
-	ApiKey string    // raw api key; empty = all
-	Search string    // substring match on model/provider/endpoint; empty = all
-	Limit  int       // max results; 0 = default 100
+	From    time.Time // inclusive; zero = no lower bound
+	To      time.Time // exclusive; zero = no upper bound
+	Model   string    // exact model name; empty = all
+	Combo   string    // combo name in the chain; empty = all
+	ApiKey  string    // raw api key; empty = all
+	Search  string    // substring match on model/provider/endpoint; empty = all
+	Limit   int       // legacy: max groups to return; ignored when PerPage > 0
+	Page    int       // 1-based page number; 0 = page 1
+	PerPage int       // groups per page; 0 = use Limit or default 100
+}
+
+// HistoryResult is a paginated page of usage history groups. Each entry in
+// Data is a raw UsageEntry; callers group by request_id (newest attempt is
+// the primary row, older attempts are children). Total is the total number
+// of request groups matching the filters (not just this page).
+type HistoryResult struct {
+	Data    []UsageEntry `json:"data"`
+	Total   int          `json:"total"`
+	Page    int          `json:"page"`
+	PerPage int          `json:"per_page"`
+	HasMore bool         `json:"has_more"`
+}
+
+// HistoryFilters lists the distinct models, combos, and providers seen in
+// usage entries, for populating the logs filter dropdowns.
+type HistoryFilters struct {
+	Models    []string `json:"models"`
+	Combos    []string `json:"combos"`
+	Providers []string `json:"providers"`
 }
 
 // UsageRepo records and aggregates request usage.
@@ -81,7 +103,8 @@ type UsageRepo interface {
 	Stats(ctx context.Context, q UsageStatsQuery) (*UsageStats, error)
 	// History returns raw entries matching the query, newest first.
 	// Each entry includes the combo chain (populated from combo_executions).
-	History(ctx context.Context, q HistoryQuery) ([]UsageEntry, error)
+	History(ctx context.Context, q HistoryQuery) (*HistoryResult, error)
+	DistinctHistoryFilters(ctx context.Context, search string) (*HistoryFilters, error)
 	// ModelStats returns per-model aggregate stats (avg TPS, avg latency, requests).
 	ModelStats(ctx context.Context) (map[string]*ModelStat, error)
 	// ModelStatsByID is like ModelStats but keyed by the full "provider/model"
@@ -162,11 +185,11 @@ type UsageStats struct {
 
 	// ComboRequests counts entries that have at least one row in
 	// combo_executions (i.e. the request was routed through a combo).
-	ComboRequests    int     `json:"combo_requests"`
-	CacheHitRate     float64 `json:"cache_hit_rate"`
-	CacheHits        int64   `json:"cache_hits"`
-	TokensSaved      int64   `json:"tokens_saved"`
-	CostSaved        float64 `json:"cost_saved"`
+	ComboRequests int     `json:"combo_requests"`
+	CacheHitRate  float64 `json:"cache_hit_rate"`
+	CacheHits     int64   `json:"cache_hits"`
+	TokensSaved   int64   `json:"tokens_saved"`
+	CostSaved     float64 `json:"cost_saved"`
 
 	// Efficiency — tokens per dollar (1k tokens per $1). For inputs and
 	// outputs separately so users can see which side is expensive.
@@ -200,7 +223,7 @@ type SavingsAgg struct {
 // ModelStat is per-model aggregate performance data.
 type ModelStat struct {
 	AvgTPS       float64 `json:"avg_tps"`
-	AvgTTFTMs    int64  `json:"avg_ttft_ms"`
-	AvgLatencyMs int64  `json:"avg_latency_ms"`
+	AvgTTFTMs    int64   `json:"avg_ttft_ms"`
+	AvgLatencyMs int64   `json:"avg_latency_ms"`
 	Requests     int     `json:"requests"`
 }

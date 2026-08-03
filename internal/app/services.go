@@ -269,8 +269,12 @@ func (s *UsageService) Stats(ctx context.Context, q domain.UsageStatsQuery) (*do
 	return s.Repo.Stats(ctx, q)
 }
 
-func (s *UsageService) History(ctx context.Context, q domain.HistoryQuery) ([]domain.UsageEntry, error) {
+func (s *UsageService) History(ctx context.Context, q domain.HistoryQuery) (*domain.HistoryResult, error) {
 	return s.Repo.History(ctx, q)
+}
+
+func (s *UsageService) DistinctHistoryFilters(ctx context.Context, search string) (*domain.HistoryFilters, error) {
+	return s.Repo.DistinctHistoryFilters(ctx, search)
 }
 
 func fmtValidation(msg string) error {

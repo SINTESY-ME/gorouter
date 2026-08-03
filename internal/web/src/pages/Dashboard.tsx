@@ -11,8 +11,10 @@ import {
 } from "recharts";
 import { api, type UsageStats, type SavingsStats, type ApiKey, type StatusSnapshot, type ModelStat } from "../api";
 import { formatCompact, formatCost } from "../format";
+import { IconCalendar } from "../icons";
 
-const PIE_COLORS = ["#00C2A8", "#FF6B6B", "#4DA3FF", "#FFB347", "#B266FF", "#FFD93D", "#6BCB77"];
+const PIE_COLORS = ["var(--accent)", "var(--danger)", "var(--success)", "var(--warning)", "var(--default)", "var(--warning)", "var(--success)"];
+const CHART_COLORS = ["var(--accent)", "var(--success)", "var(--warning)", "var(--danger)"];
 
 const periods: { key: string; label: string }[] = [
   { key: "1h", label: "1h" },
@@ -34,12 +36,6 @@ const buckets: { key: string; label: string }[] = [
 const bucketLabel: Record<string, string> = {
   minute: "minuto", "5m": "5 min", "30m": "30 min", hour: "hora", day: "dia",
 };
-
-const tooltipStyle = {
-  backgroundColor: "#1a1a1a", border: "1px solid #333", borderRadius: "8px",
-  fontSize: "12px", color: "#eee",
-};
-const itemStyle = { color: "#eee" };
 
 function formatBucketLabel(dateStr: string, bucket: string): string {
   if (bucket === "day") return dateStr.slice(5);
@@ -131,11 +127,11 @@ export default function Dashboard() {
   });
 
   const chartMetrics = [
-    { key: "requests", label: "Requests", color: "#00C2A8", fmt: (v: number) => v.toLocaleString("en-US"), yFmt: formatCompact },
-    { key: "tokens", label: "Tokens", color: "#4DA3FF", fmt: (v: number) => v.toLocaleString("en-US"), yFmt: formatCompact },
-    { key: "cost", label: "Custo", color: "#FFB347", fmt: (v: number) => `$${v.toFixed(6)}`, yFmt: formatCost },
-    { key: "errors", label: "Erros", color: "#FF6B6B", fmt: (v: number) => v.toLocaleString("en-US"), yFmt: formatCompact },
-    { key: "avg_tps", label: "TPS", color: "#B266FF", fmt: (v: number) => `${v.toFixed(2)} tok/s`, yFmt: (v: number) => v.toFixed(1) },
+    { key: "requests", label: "Requests", color: "var(--accent)", fmt: (v: number) => v.toLocaleString("en-US"), yFmt: formatCompact },
+    { key: "tokens", label: "Tokens", color: "var(--success)", fmt: (v: number) => v.toLocaleString("en-US"), yFmt: formatCompact },
+    { key: "cost", label: "Custo", color: "var(--warning)", fmt: (v: number) => `$${v.toFixed(6)}`, yFmt: formatCost },
+    { key: "errors", label: "Erros", color: "var(--danger)", fmt: (v: number) => v.toLocaleString("en-US"), yFmt: formatCompact },
+    { key: "avg_tps", label: "TPS", color: "var(--default)", fmt: (v: number) => `${v.toFixed(2)} tok/s`, yFmt: (v: number) => v.toFixed(1) },
   ];
   const activeMetric = chartMetrics.find((m) => m.key === chartMetric) || chartMetrics[0];
 
@@ -149,17 +145,16 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex bg-surface rounded-lg p-0.5 border border-border">
+          <div className="flex bg-surface rounded-lg p-0.5 border border-border gap-0.5">
             {periods.map((p) => (
-              <button
+              <Button
                 key={p.key}
-                onClick={() => { setPeriod(p.key); setCustomMode(false); }}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                  !customMode && period === p.key ? "bg-accent text-white" : "text-foreground/80 hover:bg-default-soft"
-                }`}
+                size="sm"
+                variant={!customMode && period === p.key ? "primary" : "tertiary"}
+                onPress={() => { setPeriod(p.key); setCustomMode(false); }}
               >
                 {p.label}
-              </button>
+              </Button>
             ))}
           </div>
           <Popover>
@@ -296,10 +291,10 @@ export default function Dashboard() {
                   <stop offset="95%" stopColor={activeMetric.color} stopOpacity={0.02} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" vertical={false} />
-              <XAxis dataKey="label" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={20} />
-              <YAxis stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={activeMetric.yFmt} />
-              <RTooltip contentStyle={tooltipStyle} itemStyle={itemStyle} labelStyle={{ color: "#888" }} formatter={(v: number) => [activeMetric.fmt(v), activeMetric.label]} />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+              <XAxis dataKey="label" stroke="var(--muted)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={20} />
+              <YAxis stroke="var(--muted)" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={activeMetric.yFmt} />
+              <RTooltip cursor={{ stroke: "var(--border)" }} formatter={(v: number) => [activeMetric.fmt(v), activeMetric.label]} />
               <Area type="monotone" dataKey={chartMetric} stroke={activeMetric.color} strokeWidth={2} fill="url(#gradChart)" />
             </AreaChart>
           </ResponsiveContainer>
@@ -314,12 +309,12 @@ export default function Dashboard() {
               <ResponsiveContainer width="100%" height={260}>
                 <PieChart>
                   <Pie data={byProvider} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={2}
-                    label={(e: any) => <text x={e.x} y={e.y} fill="#aaa" fontSize={11} textAnchor={e.x > e.cx ? "start" : "end"} dominantBaseline="central">{e.name}</text>}
-                    labelLine={{ stroke: "#666" }}>
+                    label={(e: any) => <text x={e.x} y={e.y} fill="var(--muted)" fontSize={11} textAnchor={e.x > e.cx ? "start" : "end"} dominantBaseline="central">{e.name}</text>}
+                    labelLine={{ stroke: "var(--muted)" }}>
                     {byProvider.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="none" />)}
                   </Pie>
                   <Legend formatter={(v) => <span className="text-xs text-foreground/80">{v}</span>} />
-                  <RTooltip contentStyle={tooltipStyle} itemStyle={itemStyle} labelStyle={{ color: "#aaa" }} />
+                  <RTooltip cursor={{ stroke: "var(--border)" }} />
                 </PieChart>
               </ResponsiveContainer>
             </Card.Content>
@@ -332,11 +327,11 @@ export default function Dashboard() {
             <Card.Content>
               <ResponsiveContainer width="100%" height={Math.max(260, byModel.length * 26)}>
                 <BarChart data={byModel} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
-                  <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={formatCompact} />
-                  <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
-                  <RTooltip contentStyle={tooltipStyle} itemStyle={itemStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
-                  <Bar dataKey="value" fill="#4DA3FF" radius={[0, 4, 4, 0]} barSize={18} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+                  <XAxis type="number" stroke="var(--muted)" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={formatCompact} />
+                  <YAxis type="category" dataKey="name" stroke="var(--muted)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
+                  <RTooltip cursor={{ stroke: "var(--border)" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
+                  <Bar dataKey="value" fill={CHART_COLORS[1]} radius={[0, 4, 4, 0]} barSize={18} />
                 </BarChart>
               </ResponsiveContainer>
             </Card.Content>
@@ -354,10 +349,10 @@ export default function Dashboard() {
           </Card.Header>
           <Card.Content className="space-y-5">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <SavingsCard label="Cache hits" value={formatCompact(savings.cache_hits)} sub="respostas do cache" full={savings.cache_hits.toLocaleString("en-US")} dot="#00C2A8" />
-              <SavingsCard label="Tokens (cache)" value={formatCompact(savings.cache_tokens_saved)} sub={formatCost(savings.cache_cost_saved)} full={savings.cache_tokens_saved.toLocaleString("en-US")} dot="#00C2A8" />
-              <SavingsCard label="Compressões RTK" value={formatCompact(savings.rtk_compressions)} sub="tool_results" full={savings.rtk_compressions.toLocaleString("en-US")} dot="#4DA3FF" />
-              <SavingsCard label="Tokens (RTK)" value={formatCompact(savings.rtk_tokens_saved)} sub={formatCost(savings.rtk_cost_saved)} full={savings.rtk_tokens_saved.toLocaleString("en-US")} dot="#4DA3FF" />
+              <SavingsCard label="Cache hits" value={formatCompact(savings.cache_hits)} sub="respostas do cache" full={savings.cache_hits.toLocaleString("en-US")} dot={CHART_COLORS[0]} />
+              <SavingsCard label="Tokens (cache)" value={formatCompact(savings.cache_tokens_saved)} sub={formatCost(savings.cache_cost_saved)} full={savings.cache_tokens_saved.toLocaleString("en-US")} dot={CHART_COLORS[0]} />
+              <SavingsCard label="Compressões RTK" value={formatCompact(savings.rtk_compressions)} sub="tool_results" full={savings.rtk_compressions.toLocaleString("en-US")} dot={CHART_COLORS[1]} />
+              <SavingsCard label="Tokens (RTK)" value={formatCompact(savings.rtk_tokens_saved)} sub={formatCost(savings.rtk_cost_saved)} full={savings.rtk_tokens_saved.toLocaleString("en-US")} dot={CHART_COLORS[1]} />
             </div>
             {(savings.cache_cost_saved + savings.rtk_cost_saved) > 0 && (
               <div className="flex items-baseline gap-8 pt-2 border-t border-border">
@@ -456,11 +451,11 @@ export default function Dashboard() {
             <Card.Content>
               <ResponsiveContainer width="100%" height={Math.max(260, byModelCost.length * 26)}>
                 <BarChart data={byModelCost} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
-                  <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={formatCost} />
-                  <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
-                  <RTooltip contentStyle={tooltipStyle} itemStyle={itemStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [`$${v.toFixed(6)}`, "Custo"]} />
-                  <Bar dataKey="value" fill="#FFB347" radius={[0, 4, 4, 0]} barSize={18} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+                  <XAxis type="number" stroke="var(--muted)" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={formatCost} />
+                  <YAxis type="category" dataKey="name" stroke="var(--muted)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
+                  <RTooltip cursor={{ stroke: "var(--border)" }} formatter={(v: number) => [`$${v.toFixed(6)}`, "Custo"]} />
+                  <Bar dataKey="value" fill={CHART_COLORS[2]} radius={[0, 4, 4, 0]} barSize={18} />
                 </BarChart>
               </ResponsiveContainer>
             </Card.Content>
@@ -473,11 +468,11 @@ export default function Dashboard() {
             <Card.Content>
               <ResponsiveContainer width="100%" height={Math.max(260, byCombo.length * 26)}>
                 <BarChart data={byCombo} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
-                  <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={formatCompact} />
-                  <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
-                  <RTooltip contentStyle={tooltipStyle} itemStyle={itemStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
-                  <Bar dataKey="value" fill="#B266FF" radius={[0, 4, 4, 0]} barSize={18} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+                  <XAxis type="number" stroke="var(--muted)" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={formatCompact} />
+                  <YAxis type="category" dataKey="name" stroke="var(--muted)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
+                  <RTooltip cursor={{ stroke: "var(--border)" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
+                  <Bar dataKey="value" fill={CHART_COLORS[3]} radius={[0, 4, 4, 0]} barSize={18} />
                 </BarChart>
               </ResponsiveContainer>
             </Card.Content>
@@ -490,11 +485,11 @@ export default function Dashboard() {
             <Card.Content>
               <ResponsiveContainer width="100%" height={Math.max(260, byComboTokens.length * 26)}>
                 <BarChart data={byComboTokens} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
-                  <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={formatCompact} />
-                  <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
-                  <RTooltip contentStyle={tooltipStyle} itemStyle={itemStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [formatCompact(v), "Tokens"]} />
-                  <Bar dataKey="value" fill="#4DA3FF" radius={[0, 4, 4, 0]} barSize={18} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+                  <XAxis type="number" stroke="var(--muted)" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={formatCompact} />
+                  <YAxis type="category" dataKey="name" stroke="var(--muted)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
+                  <RTooltip cursor={{ stroke: "var(--border)" }} formatter={(v: number) => [formatCompact(v), "Tokens"]} />
+                  <Bar dataKey="value" fill={CHART_COLORS[1]} radius={[0, 4, 4, 0]} barSize={18} />
                 </BarChart>
               </ResponsiveContainer>
             </Card.Content>
@@ -507,11 +502,11 @@ export default function Dashboard() {
             <Card.Content>
               <ResponsiveContainer width="100%" height={Math.max(260, byApiKey.length * 26)}>
                 <BarChart data={byApiKey} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" horizontal={false} />
-                  <XAxis type="number" stroke="#666" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={formatCompact} />
-                  <YAxis type="category" dataKey="name" stroke="#666" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
-                  <RTooltip contentStyle={tooltipStyle} itemStyle={itemStyle} cursor={{ fill: "#ffffff10" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
-                  <Bar dataKey="value" fill="#6BCB77" radius={[0, 4, 4, 0]} barSize={18} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+                  <XAxis type="number" stroke="var(--muted)" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={formatCompact} />
+                  <YAxis type="category" dataKey="name" stroke="var(--muted)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
+                  <RTooltip cursor={{ stroke: "var(--border)" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
+                  <Bar dataKey="value" fill={CHART_COLORS[0]} radius={[0, 4, 4, 0]} barSize={18} />
                 </BarChart>
               </ResponsiveContainer>
             </Card.Content>
@@ -547,11 +542,11 @@ export default function Dashboard() {
 function SystemCard({ label, value, sub, variant }: { label: string; value: number; sub: string; variant?: "danger" | "success" | "default" }) {
   const borderClass = variant === "danger" ? "border-danger/30" : variant === "success" ? "border-border" : "border-border";
   return (
-    <div className={`bg-surface rounded-2xl border ${borderClass} p-5`}>
+    <Card className={`p-5 ${borderClass}`}>
       <p className="text-xs text-muted uppercase tracking-wide font-medium">{label}</p>
       <p className="text-2xl font-bold mt-2 tabular-nums">{value}</p>
       <p className="text-xs text-muted mt-1">{sub}</p>
-    </div>
+    </Card>
   );
 }
 
@@ -569,14 +564,14 @@ function StatCard({ label, value, sub, full }: { label: string; value: string | 
 
 function SavingsCard({ label, value, sub, full, dot }: { label: string; value: string; sub: string; full?: string; dot: string }) {
   return (
-    <div className="rounded-xl border border-border p-5">
+    <Card className="p-5">
       <div className="flex items-center gap-2">
         <span className="w-2 h-2 rounded-full" style={{ backgroundColor: dot }} />
         <p className="text-xs text-muted uppercase tracking-wide font-medium">{label}</p>
       </div>
       <p className="text-2xl font-bold mt-2 tabular-nums" title={full}>{value}</p>
       <p className="text-xs text-muted mt-1">{sub}</p>
-    </div>
+    </Card>
   );
 }
 
@@ -584,15 +579,4 @@ function formatDateRangeLabel(range: { start: { toString(): string }; end: { toS
   if (!range) return "Personalizado";
   const fmt = (s: string) => s.slice(11, 16) || s.slice(0, 10);
   return `${fmt(range.start.toString())} → ${fmt(range.end.toString())}`;
-}
-
-function IconCalendar({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-      <line x1="16" y1="2" x2="16" y2="6" />
-      <line x1="8" y1="2" x2="8" y2="6" />
-      <line x1="3" y1="10" x2="21" y2="10" />
-    </svg>
-  );
 }

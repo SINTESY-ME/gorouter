@@ -1,8 +1,10 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   Table, Button, Modal, Input, Select, ListBox, Chip, Spinner, Popover, TextField, Label,
+  AlertDialog, toast,
 } from "@heroui/react";
 import { api, type Provider, type Connection, type ModelEntry, type ProviderDef } from "../api";
+import { IconPlus, IconSearch, IconPencil, IconTrash, IconChevron, IconEye, IconEyeOff } from "../icons";
 
 const FORMATS = ["auto", "openai", "anthropic", "gemini", "responses"];
 const AUTHS = ["bearer", "x-api-key", "none"];
@@ -30,6 +32,9 @@ export default function Providers() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [savingConfig, setSavingConfig] = useState<string | null>(null);
+
+  const [confirmProviderId, setConfirmProviderId] = useState<string | null>(null);
+  const [confirmConnId, setConfirmConnId] = useState<string | null>(null);
 
   const [oauthProviders, setOauthProviders] = useState<string[]>([]);
   const [oauthState, setOauthState] = useState("");
@@ -150,11 +155,9 @@ export default function Providers() {
   };
 
   const removeProvider = async (id: string) => {
-    if (confirm("Remover este provider e todas as suas conexões?")) {
-      await api.providers.remove(id);
-      if (expandedProviderId === id) setExpandedProviderId(null);
-      loadData();
-    }
+    await api.providers.remove(id);
+    if (expandedProviderId === id) setExpandedProviderId(null);
+    loadData();
   };
 
   const updateLoadBalance = async (providerId: string, lb: string) => {
@@ -209,10 +212,8 @@ export default function Providers() {
   };
 
   const removeConnection = async (id: string) => {
-    if (confirm("Remover esta chave API?")) {
-      await api.connections.remove(id);
-      loadData();
-    }
+    await api.connections.remove(id);
+    loadData();
   };
 
   const toggleProviderView = useCallback(async (providerId: string) => {
@@ -286,7 +287,7 @@ export default function Providers() {
           <h1 className="text-2xl font-bold tracking-tight">Providers</h1>
           <p className="text-sm text-muted mt-0.5">{providers.length} providers, {connections.length} chaves ativas</p>
         </div>
-        <Button variant="outline" onPress={openNewProvider}><IconPlus /> Novo provider</Button>
+        <Button variant="outline" onPress={openNewProvider}><IconPlus className="w-4 h-4" /> Novo provider</Button>
       </div>
 
       {loading ? (
@@ -309,7 +310,7 @@ export default function Providers() {
                   onClick={() => toggleProviderView(provider.id)}
                 >
                   <div className="flex items-center gap-3">
-                    <IconChevron expanded={isExpanded} />
+                    <IconChevron className={`w-4 h-4 text-muted transition-transform ${isExpanded ? "rotate-90" : ""}`} />
                     <div>
                       <div className="font-semibold flex items-center gap-2">
                         {provider.name || provider.id}
@@ -326,8 +327,8 @@ export default function Providers() {
                   <div className="flex items-center gap-3">
                     <Chip size="sm" variant="soft" color="accent">{provider.format}</Chip>
                     <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                      <Button isIconOnly size="sm" variant="ghost" onPress={() => openEditProvider(provider)} aria-label="editar"><IconPencil /></Button>
-                      <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => removeProvider(provider.id)} aria-label="excluir"><IconTrash /></Button>
+                      <Button isIconOnly size="sm" variant="ghost" onPress={() => openEditProvider(provider)} aria-label="editar"><IconPencil className="w-4 h-4" /></Button>
+                      <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => setConfirmProviderId(provider.id)} aria-label="excluir"><IconTrash className="w-4 h-4" /></Button>
                     </div>
                   </div>
                 </div>
@@ -361,7 +362,7 @@ export default function Providers() {
                           Sincronizar
                         </Button>
                       </div>
-                      <div className="max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
+                      <div className="max-h-[160px] overflow-y-auto pr-2">
                         <ModelsPanel
                           providerId={provider.id}
                           loading={loadingModels === provider.id}
@@ -393,7 +394,7 @@ export default function Providers() {
 
                     <div className="mb-3 text-sm font-semibold flex justify-between items-center">
                       Conexões / Chaves API
-                      <Button size="sm" variant="outline" onPress={() => openNewConnection(provider.id)}><IconPlus /> Adicionar Chave</Button>
+                      <Button size="sm" variant="outline" onPress={() => openNewConnection(provider.id)}><IconPlus className="w-4 h-4" /> Adicionar Chave</Button>
                     </div>
 
                     {conns.length === 0 ? (
@@ -423,8 +424,8 @@ export default function Providers() {
                                     </Table.Cell>
                                     <Table.Cell>
                                       <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
-                                        <Button isIconOnly size="sm" variant="ghost" onPress={() => openEditConnection(c)} aria-label="editar"><IconPencil /></Button>
-                                        <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => removeConnection(c.id)} aria-label="excluir"><IconTrash /></Button>
+                                        <Button isIconOnly size="sm" variant="ghost" onPress={() => openEditConnection(c)} aria-label="editar"><IconPencil className="w-4 h-4" /></Button>
+                                        <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => setConfirmConnId(c.id)} aria-label="excluir"><IconTrash className="w-4 h-4" /></Button>
                                       </div>
                                     </Table.Cell>
                                   </Table.Row>
@@ -456,7 +457,7 @@ export default function Providers() {
                 {!providerEditId && providerStep === "pick" && (
                   <>
                     <div className="relative mb-2">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><IconSearch /></span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><IconSearch className="w-4 h-4 text-muted" /></span>
                       <Input
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
@@ -467,19 +468,19 @@ export default function Providers() {
                         aria-label="Buscar provider"
                       />
                     </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-80 overflow-y-auto custom-scrollbar pr-1">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-80 overflow-y-auto pr-1">
                       {filteredCatalog.map((t) => {
                         const isOauth = oauthProviders.includes(t.id);
                         const isPopular = POPULAR.includes(t.id);
                         return (
-                          <button
+                          <Button
                             key={t.id}
-                            type="button"
-                            onClick={() => pickTemplate(t)}
-                            className="text-left rounded-xl border border-border p-3 hover:border-accent/50 hover:bg-background transition-colors"
+                            variant="outline"
+                            onPress={() => pickTemplate(t)}
+                            className="text-left rounded-xl border border-border p-3 hover:border-accent/50 hover:bg-background transition-colors h-auto items-start flex-col"
                           >
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: t.display.color || "#888" }} />
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-muted" style={t.display.color ? { background: t.display.color } : undefined} />
                               <span className="font-medium text-sm truncate">{t.display.name}</span>
                             </div>
                             <p className="text-[11px] text-muted font-mono truncate">{t.id}</p>
@@ -487,7 +488,7 @@ export default function Providers() {
                               {isOauth && <Chip size="sm" color="default" variant="soft" className="h-5 text-[10px]">OAuth</Chip>}
                               {isPopular && <Chip size="sm" color="accent" variant="soft" className="h-5 text-[10px]">Popular</Chip>}
                             </div>
-                          </button>
+                          </Button>
                         );
                       })}
                     </div>
@@ -600,6 +601,48 @@ export default function Providers() {
           </Modal.Container>
         </Modal.Backdrop>
       </Modal>
+
+      <AlertDialog>
+        <AlertDialog.Backdrop isOpen={!!confirmProviderId} onOpenChange={(o) => !o && setConfirmProviderId(null)}>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className="sm:max-w-[400px]">
+              <AlertDialog.CloseTrigger />
+              <AlertDialog.Header>
+                <AlertDialog.Icon status="danger" />
+                <AlertDialog.Heading>Remover este provider?</AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p>Isso removerá o provider e todas as suas conexões. Esta ação não pode ser desfeita.</p>
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button slot="close" variant="tertiary">Cancelar</Button>
+                <Button slot="close" variant="danger" onPress={() => { if (confirmProviderId) removeProvider(confirmProviderId); setConfirmProviderId(null); }}>Remover</Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog>
+
+      <AlertDialog>
+        <AlertDialog.Backdrop isOpen={!!confirmConnId} onOpenChange={(o) => !o && setConfirmConnId(null)}>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className="sm:max-w-[400px]">
+              <AlertDialog.CloseTrigger />
+              <AlertDialog.Header>
+                <AlertDialog.Icon status="danger" />
+                <AlertDialog.Heading>Remover esta chave API?</AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p>Apps que usam esta chave perderão acesso ao gateway.</p>
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button slot="close" variant="tertiary">Cancelar</Button>
+                <Button slot="close" variant="danger" onPress={() => { if (confirmConnId) removeConnection(confirmConnId); setConfirmConnId(null); }}>Remover</Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog>
     </div>
   );
 }
@@ -616,6 +659,7 @@ function ModelsPanel({ providerId, loading, models, error, onAdd, onRemove, onTo
   const [adding, setAdding] = useState(false);
   const [newModel, setNewModel] = useState("");
   const [saving, setSaving] = useState(false);
+  const [confirmModel, setConfirmModel] = useState<ModelEntry | null>(null);
 
   const handleAdd = async () => {
     const val = newModel.trim();
@@ -630,7 +674,7 @@ function ModelsPanel({ providerId, loading, models, error, onAdd, onRemove, onTo
       setNewModel("");
       setAdding(false);
     } catch (err: any) {
-      alert(`Erro ao adicionar modelo: ${err.message || err}`);
+      toast.danger(`Erro ao adicionar modelo: ${err.message || err}`);
     } finally {
       setSaving(false);
     }
@@ -641,18 +685,16 @@ function ModelsPanel({ providerId, loading, models, error, onAdd, onRemove, onTo
       await api.models.update(m.id, { is_active: !m.is_active });
       if (onToggle) onToggle(m.id, !m.is_active);
     } catch (err: any) {
-      alert(`Erro: ${err.message || err}`);
+      toast.danger(`Erro: ${err.message || err}`);
     }
   };
 
   const handleRemove = async (m: ModelEntry) => {
-    if (confirm(`Remover o modelo "${m.id}"?`)) {
-      try {
-        await api.models.remove(m.id);
-        if (onRemove) onRemove(m.id);
-      } catch (err: any) {
-        alert(`Erro: ${err.message || err}`);
-      }
+    try {
+      await api.models.remove(m.id);
+      if (onRemove) onRemove(m.id);
+    } catch (err: any) {
+      toast.danger(`Erro: ${err.message || err}`);
     }
   };
 
@@ -673,37 +715,41 @@ function ModelsPanel({ providerId, loading, models, error, onAdd, onRemove, onTo
             onBlur={() => !saving && handleAdd()}
             aria-label="Novo modelo"
           />
+          <Button type="submit" size="sm" variant="primary" isDisabled={saving}>Add</Button>
         </form>
       ) : (
-        <button
-          type="button"
-          onClick={() => setAdding(true)}
-          className="inline-flex items-center gap-1 rounded-full border border-dashed border-accent px-2.5 py-0.5 text-[11px] font-mono text-accent hover:bg-accent/10 transition-colors"
+        <Button
+          size="sm"
+          variant="outline"
+          onPress={() => setAdding(true)}
+          className="inline-flex items-center gap-1 rounded-full border border-dashed border-accent px-2.5 py-0.5 text-[11px] font-mono text-accent hover:bg-accent/10 transition-colors h-auto"
         >
           <span className="font-bold">+</span> adicionar
-        </button>
+        </Button>
       )}
 
       {models?.map((m) => (
         <Popover key={m.id}>
           <Popover.Trigger>
-            <button
-              type="button"
-              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-mono cursor-pointer hover:opacity-80 transition-opacity ${m.is_active ? "bg-accent/15 text-accent" : "bg-default-soft text-muted"}`}
+            <Button
+              size="sm"
+              variant={m.is_active ? "primary" : "outline"}
+              onPress={() => {}}
+              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-mono cursor-pointer hover:opacity-80 transition-opacity h-auto ${m.is_active ? "bg-accent/15 text-accent" : "bg-default-soft text-muted"}`}
             >
               {m.is_active ? "" : <span className="text-muted mr-0.5">○</span>}
               {m.model_id || m.id}
-            </button>
+            </Button>
           </Popover.Trigger>
           <Popover.Content placement="bottom" className="p-1">
             <div className="flex flex-col gap-1 min-w-[140px]">
               <div className="text-[11px] font-mono text-muted px-2 pt-1 pb-1 break-all">{m.id}</div>
               <Button size="sm" variant="ghost" onPress={() => handleToggle(m)} className="justify-start">
-                {m.is_active ? <IconEyeOff /> : <IconEye />}
+                {m.is_active ? <IconEyeOff className="w-4 h-4" /> : <IconEye className="w-4 h-4" />}
                 {m.is_active ? "Inativar" : "Ativar"}
               </Button>
-              <Button size="sm" variant="ghost" className="justify-start text-danger" onPress={() => handleRemove(m)}>
-                <IconTrash /> Remover
+              <Button size="sm" variant="ghost" className="justify-start text-danger" onPress={() => setConfirmModel(m)}>
+                <IconTrash className="w-4 h-4" /> Remover
               </Button>
             </div>
           </Popover.Content>
@@ -712,23 +758,27 @@ function ModelsPanel({ providerId, loading, models, error, onAdd, onRemove, onTo
       {models && models.length === 0 && !adding && (
         <span className="text-sm text-muted">Nenhum modelo sincronizado.</span>
       )}
+
+      <AlertDialog>
+        <AlertDialog.Backdrop isOpen={!!confirmModel} onOpenChange={(o) => !o && setConfirmModel(null)}>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className="sm:max-w-[400px]">
+              <AlertDialog.CloseTrigger />
+              <AlertDialog.Header>
+                <AlertDialog.Icon status="danger" />
+                <AlertDialog.Heading>Remover o modelo "{confirmModel?.id}"?</AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p>Este modelo será removido do provider. Você pode sincronizá-lo novamente depois.</p>
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button slot="close" variant="tertiary">Cancelar</Button>
+                <Button slot="close" variant="danger" onPress={() => { if (confirmModel) handleRemove(confirmModel); setConfirmModel(null); }}>Remover</Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog>
     </div>
   );
 }
-
-function IconPlus() { return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5v14"/></svg>; }
-function IconSearch() { return <svg className="w-4 h-4 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>; }
-function IconPencil() { return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>; }
-function IconTrash() { return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1.5 14a2 2 0 0 1-2 2H8.5a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>; }
-function IconChevron({ expanded }: { expanded: boolean }) {
-  return (
-    <svg
-      className={`w-4 h-4 text-muted transition-transform ${expanded ? "rotate-90" : ""}`}
-      viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    >
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  );
-}
-function IconEye() { return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>; }
-function IconEyeOff() { return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/></svg>; }

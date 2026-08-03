@@ -1,10 +1,3 @@
 @import "@heroui/react/styles";
 
 @custom-variant dark (&:is(.dark *));
-
-/* Remove native focus outline on inputs inside HeroUI components —
-   the library draws its own focus ring; the browser's default square
-   outline would otherwise show through. */
-input:focus, textarea:focus, select:focus, button:focus {
-  outline: none;
-}

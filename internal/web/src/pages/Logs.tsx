@@ -74,6 +74,8 @@ export default function Logs() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [expandedKeys, setExpandedKeys] = useState<Selection>(new Set());
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
 
   type DateRangeValue = { start: CalendarDate; end: CalendarDate } | null;
   const [dateRange, setDateRange] = useState<DateRangeValue>(null);
@@ -81,13 +83,16 @@ export default function Logs() {
   const [comboFilter, setComboFilter] = useState("");
   const [keyFilter, setKeyFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [filterOptions, setFilterOptions] = useState<{ models: string[]; combos: string[] }>({ models: [], combos: [] });
 
-  const modelOptions = [...new Set(items.map((e) => e.model).filter(Boolean))].sort();
-  const comboOptions = [...new Set(items.flatMap((e) => e.combo_chain ?? []).filter(Boolean))].sort();
+  const modelOptions = filterOptions.models;
+  const comboOptions = filterOptions.combos;
+
+  const PER_PAGE = 25;
 
   const fetchLogs = useCallback(() => {
     setLoading(true);
-    const params: Record<string, string | number> = { limit: 500 };
+    const params: Record<string, string | number> = { page, per_page: PER_PAGE };
     if (dateRange) {
       params.from = new Date(dateRange.start.toString()).toISOString();
       params.to = new Date(dateRange.end.toString()).toISOString();
@@ -97,13 +102,18 @@ export default function Logs() {
     if (keyFilter) params.api_key = keyFilter;
     if (search) params.search = search;
     api.usage.history(params)
-      .then(setItems)
-      .catch(() => setItems([]))
+      .then((res) => {
+        setItems(res.data ?? []);
+        setTotal(res.total);
+        setHasMore(res.has_more);
+      })
+      .catch(() => { setItems([]); setTotal(0); })
       .finally(() => setLoading(false));
-  }, [dateRange, modelFilter, comboFilter, keyFilter, search]);
+  }, [page, dateRange, modelFilter, comboFilter, keyFilter, search]);
 
   useEffect(() => {
     api.keys.list().then(setApiKeys).catch(() => {});
+    api.usage.filters().then((filters) => setFilterOptions({ models: filters.models, combos: filters.combos })).catch(() => {});
   }, []);
 
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
@@ -126,10 +136,6 @@ export default function Logs() {
     const groups: LogRow[] = [];
     for (const [key, entries] of map) {
       entries.sort((a, b) => (a.attempt ?? 0) - (b.attempt ?? 0));
-      // Linha principal = última tentativa (o resultado do request).
-      // A árvore lista as tentativas anteriores em ordem decrescente
-      // (mais recente logo abaixo do pai, mais antiga no fundo), lendo
-      // de cima pra baixo como um histórico reverso.
       const primary = entries[entries.length - 1];
       const row = toRow(primary, key);
       if (entries.length > 1) {
@@ -141,14 +147,9 @@ export default function Logs() {
     return groups;
   }, [items]);
 
-  const totalPages = Math.ceil(rows.length / PER_PAGE);
-  const paged = useMemo(() => {
-    const start = (page - 1) * PER_PAGE;
-    return rows.slice(start, start + PER_PAGE);
-  }, [rows, page]);
-
-  const start = rows.length === 0 ? 0 : (page - 1) * PER_PAGE + 1;
-  const end = Math.min(page * PER_PAGE, rows.length);
+  const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
+  const start = total === 0 ? 0 : (page - 1) * PER_PAGE + 1;
+  const end = Math.min(page * PER_PAGE, total);
   const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
 
   const renderRow = (item: LogRow) => (
@@ -288,7 +289,7 @@ export default function Logs() {
               <Table.Column id="status">Status</Table.Column>
               <Table.Column id="latency">Latência</Table.Column>
             </Table.Header>
-            <Table.Body items={paged} renderEmptyState={() => (
+            <Table.Body items={rows} renderEmptyState={() => (
               <div className="p-10 text-center text-muted text-sm">
                 {hasFilters ? "Nenhum registro encontrado." : "Nenhum log ainda."}
               </div>
@@ -302,7 +303,7 @@ export default function Logs() {
         {!loading && totalPages > 1 && (
           <Table.Footer>
             <Pagination size="sm">
-              <Pagination.Summary>{start} a {end} de {rows.length}</Pagination.Summary>
+              <Pagination.Summary>{start} a {end} de {total}</Pagination.Summary>
               <Pagination.Content>
                 <Pagination.Item>
                   <Pagination.Previous isDisabled={page === 1} onPress={() => setPage((p) => Math.max(1, p - 1))}>

@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { Button, Card, Input, Label, TextField } from "@heroui/react";
 import { api, setDashboardToken } from "../api";
+import { IconRoute } from "../icons";
 
 // Setup is the first-run page shown when no dashboard password is
 // configured. The user sets a password; it's stored hashed on the server
@@ -38,7 +40,7 @@ export default function Setup({ onDone }: { onDone: () => void }) {
             <p className="text-xs text-muted leading-tight">LLM router</p>
           </div>
         </div>
-        <div className="bg-surface rounded-xl border border-border p-6 space-y-4">
+        <Card className="p-6 space-y-4">
           <div>
             <h2 className="text-lg font-semibold">Bem-vindo</h2>
             <p className="text-sm text-muted mt-1">
@@ -47,42 +49,21 @@ export default function Setup({ onDone }: { onDone: () => void }) {
             </p>
           </div>
           <form onSubmit={submit} className="space-y-3">
-            <input
-              type="password"
-              placeholder="Senha"
-              value={pw}
-              onChange={(e) => setPw(e.target.value)}
-              autoFocus
-              disabled={busy}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-            <input
-              type="password"
-              placeholder="Confirmar senha"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              disabled={busy}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
-            />
+            <TextField isRequired value={pw} onChange={setPw} type="password">
+              <Label>Senha</Label>
+              <Input placeholder="Senha" autoFocus disabled={busy} />
+            </TextField>
+            <TextField isRequired value={confirm} onChange={setConfirm} type="password">
+              <Label>Confirmar senha</Label>
+              <Input placeholder="Confirmar senha" disabled={busy} />
+            </TextField>
             {err && <p className="text-sm text-danger">{err}</p>}
-            <button
-              type="submit"
-              disabled={busy}
-              className="w-full rounded-lg bg-accent text-white py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50"
-            >
+            <Button type="submit" fullWidth isPending={busy}>
               {busy ? "Definindo..." : "Definir senha"}
-            </button>
+            </Button>
           </form>
-        </div>
+        </Card>
       </div>
     </div>
-  );
-}
-
-function IconRoute({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 14 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" fillRule="evenodd">
-      <path d="M10.008,12.17 C10.008,13.275 9.108,14.17 8,14.17 C6.89,14.17 5.992,13.275 5.992,12.17 C5.992,11.065 6.89,10.17 8,10.17 C9.108,10.17 10.008,11.065 10.008,12.17 M7.973,18.005 C5.39,18.005 3.035,16.295 2.239,13.848 C1.446,11.41 2.358,8.739 4.344,7.227 C4.894,6.808 5.095,6.113 5.005,5.428 C4.781,3.732 6.099,2 7.973,2 C9.846,2 11.164,3.732 10.94,5.428 C10.85,6.112 11.051,6.808 11.601,7.227 C13.586,8.739 14.499,11.41 13.705,13.848 C12.91,16.295 10.555,18.005 7.973,18.005 M13.316,6.039 C13.076,5.823 12.955,5.519 12.968,5.198 C13.075,2.432 10.833,0 7.973,0 C5.111,0 2.868,2.433 2.977,5.2 C2.989,5.52 2.869,5.824 2.629,6.038 C-1.615,9.817 -0.632,17.124 4.94,19.416 C7.89,20.629 11.377,19.909 13.631,17.658 C17.125,14.17 16.528,8.905 13.316,6.039" />
-    </svg>
   );
 }
