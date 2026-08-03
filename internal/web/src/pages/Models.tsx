@@ -225,7 +225,7 @@ export default function Models() {
                     key={m.id}
                     className="group relative p-3 hover:border-border transition-colors"
                   >
-                    <div className="flex items-start justify-between gap-2 pr-6">
+                    <div className="flex items-start gap-2 pr-6">
                       <code
                         className="text-sm font-mono truncate flex-1 cursor-pointer hover:text-accent transition-colors"
                         title={`${m.id} — clique para copiar`}
@@ -233,11 +233,11 @@ export default function Models() {
                       >
                         {copiedId === m.id ? "copiado!" : m.id}
                       </code>
-                      <span
-                        className={`w-2 h-2 rounded-full shrink-0 ${m.is_active ? "bg-success" : "bg-default-soft"}`}
-                        title={m.is_active ? "ativo" : "inativo"}
-                      />
                     </div>
+                    <span
+                      className={`absolute right-9 top-3 w-2 h-2 rounded-full ${m.is_active ? "bg-success" : "bg-default-soft"}`}
+                      title={m.is_active ? "ativo" : "inativo"}
+                    />
                     <div className="flex min-w-0 items-center gap-1.5">
                       <Chip size="sm" color="default" className="h-5 shrink-0 text-[10px] opacity-70">{m.kind}</Chip>
                       <span className="min-w-0 truncate text-[10px] text-muted">{m.source}</span>
