@@ -158,7 +158,7 @@ export default function Dashboard() {
             ))}
             <Popover>
               <Popover.Trigger>
-                <Button variant={customMode ? "primary" : "tertiary"} onPress={() => setCustomMode(true)}>
+                <Button variant={customMode ? "primary" : "tertiary"} className="rounded-l-none" onPress={() => setCustomMode(true)}>
                   <ButtonGroup.Separator />
                   <IconCalendar className="w-4 h-4" />
                   {formatDateRangeLabel(customMode ? dateRange : null)}
