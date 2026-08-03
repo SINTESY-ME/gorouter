@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Spinner, Select, ListBox, Popover, Button, ButtonGroup, Card, Tabs,
-  Table, ProgressBar,
+  Table,
   DateRangePicker, DateField, RangeCalendar,
 } from "@heroui/react";
 import type { CalendarDateTime } from "@internationalized/date";
@@ -490,10 +490,10 @@ export default function Dashboard() {
             sub={`${status.connections.active} ativas${status.connections.rate_limited > 0 ? ` · ${status.connections.rate_limited} rate-limited` : ""}`}
           />
           <SystemCard
-            label="Saúde"
-            value={status.health.unhealthy > 0 ? status.health.unhealthy : 0}
-            sub={status.health.unhealthy > 0 ? "unhealthy" : "OK"}
-            variant={status.health.unhealthy > 0 ? "danger" : "success"}
+            label="Taxa de erro"
+            value={`${errorPct.toFixed(1)}%`}
+            sub={`${stats.error_requests.toLocaleString("en-US")} erros · ${stats.successful_requests.toLocaleString("en-US")} sucesso`}
+            variant={errorPct > 5 ? "danger" : "success"}
           />
           <SystemCard
             label="Tokens"
@@ -502,38 +502,11 @@ export default function Dashboard() {
           />
         </div>
       )}
-
-      <Card className="border border-border">
-        <Card.Content className="grid grid-cols-1 gap-4 py-4 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center md:gap-8">
-          <div className="min-w-0">
-            <p className="text-xs text-muted">Taxa de erro</p>
-            <p className="text-lg font-semibold tabular-nums">{errorPct.toFixed(1)}%</p>
-            <ProgressBar
-              aria-label="Taxa de erro"
-              className="mt-2"
-              size="sm"
-              color={errorPct > 5 ? "danger" : "success"}
-              value={Math.min(errorPct, 100)}
-            />
-            <p className="mt-1 text-xs text-muted">
-              {stats.error_requests.toLocaleString("en-US")} erros · {stats.successful_requests.toLocaleString("en-US")} sucesso
-            </p>
-          </div>
-          <div className="flex items-center justify-between gap-4 md:block">
-            <p className="text-xs text-muted">Requests</p>
-            <p className="text-lg font-semibold tabular-nums">{stats.requests.toLocaleString("en-US")}</p>
-          </div>
-          <div className="flex items-center justify-between gap-4 md:block">
-            <p className="text-xs text-muted">Combos</p>
-            <p className="text-lg font-semibold tabular-nums">{stats.combo_requests.toLocaleString("en-US")}</p>
-          </div>
-        </Card.Content>
-      </Card>
     </div>
   );
 }
 
-function SystemCard({ label, value, sub, variant }: { label: string; value: number; sub: string; variant?: "danger" | "success" | "default" }) {
+function SystemCard({ label, value, sub, variant }: { label: string; value: string | number; sub: string; variant?: "danger" | "success" | "default" }) {
   const borderClass = variant === "danger" ? "border-danger/30" : variant === "success" ? "border-border" : "border-border";
   return (
     <Card className={`p-5 ${borderClass}`}>
