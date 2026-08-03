@@ -506,10 +506,8 @@ export default function Dashboard() {
       <Card className="border border-border">
         <Card.Content className="grid grid-cols-1 gap-4 py-4 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center md:gap-8">
           <div className="min-w-0">
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-sm font-medium">Taxa de erro</span>
-              <span className="text-sm font-semibold tabular-nums">{errorPct.toFixed(1)}%</span>
-            </div>
+            <p className="text-xs text-muted">Taxa de erro</p>
+            <p className="text-lg font-semibold tabular-nums">{errorPct.toFixed(1)}%</p>
             <ProgressBar
               aria-label="Taxa de erro"
               className="mt-2"
