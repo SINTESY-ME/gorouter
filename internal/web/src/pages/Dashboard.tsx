@@ -145,18 +145,21 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex bg-surface rounded-lg p-0.5 border border-border gap-0.5">
-            {periods.map((p) => (
-              <Button
-                key={p.key}
-                size="sm"
-                variant={!customMode && period === p.key ? "primary" : "tertiary"}
-                onPress={() => { setPeriod(p.key); setCustomMode(false); }}
-              >
-                {p.label}
-              </Button>
-            ))}
-          </div>
+          <Tabs
+            selectedKey={!customMode ? period : undefined}
+            onSelectionChange={(k) => { setPeriod(String(k)); setCustomMode(false); }}
+          >
+            <Tabs.ListContainer>
+              <Tabs.List aria-label="Período">
+                {periods.map((p) => (
+                  <Tabs.Tab key={p.key} id={p.key}>
+                    {p.label}
+                    <Tabs.Indicator />
+                  </Tabs.Tab>
+                ))}
+              </Tabs.List>
+            </Tabs.ListContainer>
+          </Tabs>
           <Popover>
             <Popover.Trigger>
               <Button size="sm" variant={customMode ? "primary" : "secondary"} onPress={() => setCustomMode(true)}>
