@@ -12,6 +12,7 @@ import {
 import { api, type UsageStats, type SavingsStats, type ApiKey, type StatusSnapshot, type ModelStat } from "../api";
 import { formatCompact, formatCost } from "../format";
 import { IconCalendar } from "../icons";
+import { ChartTooltip } from "../chartTooltip";
 
 const PIE_COLORS = ["var(--accent)", "var(--danger)", "var(--success)", "var(--warning)", "var(--default)", "var(--warning)", "var(--success)"];
 const CHART_COLORS = ["var(--accent)", "var(--success)", "var(--warning)", "var(--danger)"];
@@ -297,7 +298,7 @@ export default function Dashboard() {
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
               <XAxis dataKey="label" stroke="var(--muted)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={20} />
               <YAxis stroke="var(--muted)" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={activeMetric.yFmt} />
-              <RTooltip cursor={{ stroke: "var(--border)" }} formatter={(v: number) => [activeMetric.fmt(v), activeMetric.label]} />
+              <RTooltip content={<ChartTooltip />} cursor={{ stroke: "var(--border)", strokeWidth: 1 }} />
               <Area type="monotone" dataKey={chartMetric} stroke={activeMetric.color} strokeWidth={2} fill="url(#gradChart)" />
             </AreaChart>
           </ResponsiveContainer>
@@ -317,7 +318,7 @@ export default function Dashboard() {
                     {byProvider.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="none" />)}
                   </Pie>
                   <Legend formatter={(v) => <span className="text-xs text-foreground/80">{v}</span>} />
-                  <RTooltip cursor={{ stroke: "var(--border)" }} />
+                  <RTooltip content={<ChartTooltip />} cursor={{ fill: "var(--surface-secondary)" }} />
                 </PieChart>
               </ResponsiveContainer>
             </Card.Content>
@@ -333,7 +334,7 @@ export default function Dashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
                   <XAxis type="number" stroke="var(--muted)" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={formatCompact} />
                   <YAxis type="category" dataKey="name" stroke="var(--muted)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
-                  <RTooltip cursor={{ stroke: "var(--border)" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
+                  <RTooltip content={<ChartTooltip />} cursor={{ fill: "var(--surface-secondary)" }} />
                   <Bar dataKey="value" fill={CHART_COLORS[1]} radius={[0, 4, 4, 0]} barSize={18} />
                 </BarChart>
               </ResponsiveContainer>
@@ -455,7 +456,7 @@ export default function Dashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
                   <XAxis type="number" stroke="var(--muted)" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={formatCost} />
                   <YAxis type="category" dataKey="name" stroke="var(--muted)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
-                  <RTooltip cursor={{ stroke: "var(--border)" }} formatter={(v: number) => [`$${v.toFixed(6)}`, "Custo"]} />
+                  <RTooltip content={<ChartTooltip />} cursor={{ fill: "var(--surface-secondary)" }} />
                   <Bar dataKey="value" fill={CHART_COLORS[2]} radius={[0, 4, 4, 0]} barSize={18} />
                 </BarChart>
               </ResponsiveContainer>
@@ -472,7 +473,7 @@ export default function Dashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
                   <XAxis type="number" stroke="var(--muted)" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={formatCompact} />
                   <YAxis type="category" dataKey="name" stroke="var(--muted)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
-                  <RTooltip cursor={{ stroke: "var(--border)" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
+                  <RTooltip content={<ChartTooltip />} cursor={{ fill: "var(--surface-secondary)" }} />
                   <Bar dataKey="value" fill={CHART_COLORS[3]} radius={[0, 4, 4, 0]} barSize={18} />
                 </BarChart>
               </ResponsiveContainer>
@@ -489,7 +490,7 @@ export default function Dashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
                   <XAxis type="number" stroke="var(--muted)" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={formatCompact} />
                   <YAxis type="category" dataKey="name" stroke="var(--muted)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
-                  <RTooltip cursor={{ stroke: "var(--border)" }} formatter={(v: number) => [formatCompact(v), "Tokens"]} />
+                  <RTooltip content={<ChartTooltip />} cursor={{ fill: "var(--surface-secondary)" }} />
                   <Bar dataKey="value" fill={CHART_COLORS[1]} radius={[0, 4, 4, 0]} barSize={18} />
                 </BarChart>
               </ResponsiveContainer>
@@ -506,7 +507,7 @@ export default function Dashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
                   <XAxis type="number" stroke="var(--muted)" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={formatCompact} />
                   <YAxis type="category" dataKey="name" stroke="var(--muted)" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={100} />
-                  <RTooltip cursor={{ stroke: "var(--border)" }} formatter={(v: number) => [v.toLocaleString("en-US"), "Requests"]} />
+                  <RTooltip content={<ChartTooltip />} cursor={{ fill: "var(--surface-secondary)" }} />
                   <Bar dataKey="value" fill={CHART_COLORS[0]} radius={[0, 4, 4, 0]} barSize={18} />
                 </BarChart>
               </ResponsiveContainer>
