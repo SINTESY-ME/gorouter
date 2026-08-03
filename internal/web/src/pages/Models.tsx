@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, memo, useRef } from "react";
+import { Icon } from "@iconify/react";
 import {
   Input, Spinner, Chip, Button, Card, Dropdown, Label, Modal, Select, ListBox, TextField,
 } from "@heroui/react";
@@ -171,6 +172,11 @@ export default function Models() {
   const [pricingModel, setPricingModel] = useState<ModelEntry | null>(null);
   const [pricingForm, setPricingForm] = useState({ inputPer1M: "", outputPer1M: "", perImage: "" });
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  // Collapsible provider groups. Collapsed by default so the page doesn't
+  // render ~1,000 model cards at once (the DOM stays small and interactions
+  // like opening a dropdown stay instant). A search query auto-expands all.
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [showAllGroups, setShowAllGroups] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -216,6 +222,42 @@ export default function Models() {
     order.sort();
     return order.map((k) => ({ providerId: k, models: map[k] }));
   }, [filtered]);
+
+  // When searching, every group is expanded and uncapped (results are a
+  // small filtered subset). Otherwise groups render collapsed, expanding to
+  // a capped window with a "show all" affordance. This keeps the DOM small
+  // with ~1,000+ models in the catalog.
+  const isSearching = query.trim() !== "";
+  const GROUP_PAGE = 50;
+  const visibleGroups = useMemo(() => {
+    return groups.map((g) => {
+      if (isSearching) {
+        return { ...g, collapsed: false, shown: g.models.length, capped: false };
+      }
+      const expanded = expandedGroups.has(g.providerId);
+      const showAll = showAllGroups.has(g.providerId);
+      if (!expanded) {
+        return { ...g, collapsed: true, shown: 0, capped: false };
+      }
+      const shown = showAll ? g.models.length : Math.min(GROUP_PAGE, g.models.length);
+      return { ...g, collapsed: false, shown, capped: !showAll && g.models.length > GROUP_PAGE };
+    });
+  }, [groups, isSearching, expandedGroups, showAllGroups]);
+
+  const toggleGroup = useCallback((providerId: string) => {
+    // During search every group is expanded; ignore toggles so clearing the
+    // search doesn't leave groups in an unexpected collapsed state.
+    if (query.trim() !== "") return;
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(providerId)) next.delete(providerId); else next.add(providerId);
+      return next;
+    });
+  }, [query]);
+
+  const expandAllGroup = useCallback((providerId: string) => {
+    setShowAllGroups((prev) => new Set(prev).add(providerId));
+  }, []);
 
   const sync = useCallback(async (providerId: string) => {
     const p = providers.find((x) => x.id === providerId);
@@ -332,11 +374,23 @@ export default function Models() {
       )}
 
       <div className="space-y-6">
-        {groups.map((g) => (
+        {visibleGroups.map((g) => (
           <div key={g.providerId}>
             <div className="flex items-center gap-2 mb-3">
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-label={g.collapsed ? `Expandir ${g.providerId}` : `Recolher ${g.providerId}`}
+                onPress={() => toggleGroup(g.providerId)}
+                className="px-0 text-muted shrink-0"
+              >
+                <Icon className={`w-4 h-4 transition-transform ${g.collapsed ? "" : "rotate-90"}`} icon="gravity-ui:chevron-right" />
+              </Button>
               <Chip size="sm" color="default" className="font-mono">{g.providerId}</Chip>
-              <span className="text-xs text-muted">{g.models.length} modelo{g.models.length === 1 ? "" : "s"}</span>
+              <span className="text-xs text-muted">
+                {g.models.length} modelo{g.models.length === 1 ? "" : "s"}
+                {!g.collapsed && g.shown < g.models.length ? ` · mostrando ${g.shown}` : ""}
+              </span>
               <div className="flex gap-1 ml-auto">
                 <Button size="sm" variant="secondary" onPress={() => sync(g.providerId)} isDisabled={syncing === providers.find(p => p.id === g.providerId)?.id}>
                   Sincronizar
@@ -344,21 +398,32 @@ export default function Models() {
                 <Button size="sm" variant="outline" onPress={() => openAdd(g.providerId)}>+ Model</Button>
               </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
-              {g.models.map((m) => (
-                <ModelCard
-                  key={m.id}
-                  model={m}
-                  stat={stats[statKey(m)] || stats[m.id]}
-                  isMenuOpen={openMenuId === m.id}
-                  onOpenMenu={openMenu}
-                  onCloseMenu={closeMenu}
-                  onToggle={toggleActive}
-                  onRemove={removeModel}
-                  onPricing={openPricing}
-                />
-              ))}
-            </div>
+            {!g.collapsed && (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+                  {g.models.slice(0, g.shown).map((m) => (
+                    <ModelCard
+                      key={m.id}
+                      model={m}
+                      stat={stats[statKey(m)] || stats[m.id]}
+                      isMenuOpen={openMenuId === m.id}
+                      onOpenMenu={openMenu}
+                      onCloseMenu={closeMenu}
+                      onToggle={toggleActive}
+                      onRemove={removeModel}
+                      onPricing={openPricing}
+                    />
+                  ))}
+                </div>
+                {g.capped && (
+                  <div className="mt-3 flex justify-center">
+                    <Button size="sm" variant="secondary" onPress={() => expandAllGroup(g.providerId)}>
+                      Mostrar todos ({g.models.length - g.shown} mais)
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         ))}
       </div>
