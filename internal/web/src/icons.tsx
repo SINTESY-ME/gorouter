@@ -1,0 +1,32 @@
+import { Icon } from "@iconify/react";
+
+export const IconRoute = (p: { className?: string }) => <Icon icon="gravity-ui:route" className={p.className} />;
+export const IconHome = (p: { className?: string }) => <Icon icon="gravity-ui:house" className={p.className} />;
+export const IconServer = (p: { className?: string }) => <Icon icon="gravity-ui:server" className={p.className} />;
+export const IconLayers = (p: { className?: string }) => <Icon icon="gravity-ui:layers" className={p.className} />;
+export const IconBox = (p: { className?: string }) => <Icon icon="gravity-ui:box" className={p.className} />;
+export const IconKey = (p: { className?: string }) => <Icon icon="gravity-ui:key" className={p.className} />;
+export const IconActivity = (p: { className?: string }) => <Icon icon="gravity-ui:activity" className={p.className} />;
+export const IconGauge = (p: { className?: string }) => <Icon icon="gravity-ui:gauge" className={p.className} />;
+export const IconChat = (p: { className?: string }) => <Icon icon="gravity-ui:chat" className={p.className} />;
+export const IconLogout = (p: { className?: string }) => <Icon icon="gravity-ui:sign-out" className={p.className} />;
+
+export const IconPlus = (p: { className?: string }) => <Icon icon="gravity-ui:plus" className={p.className} />;
+export const IconPencil = (p: { className?: string }) => <Icon icon="gravity-ui:pencil" className={p.className} />;
+export const IconTrash = (p: { className?: string }) => <Icon icon="gravity-ui:trash-bin" className={p.className} />;
+export const IconArrow = (p: { className?: string; dir?: "up" | "down" }) => <Icon icon="gravity-ui:chevron-up" className={`${p.className ?? ""} ${p.dir === "down" ? "rotate-180" : ""}`} />;
+export const IconX = (p: { className?: string }) => <Icon icon="gravity-ui:x" className={p.className} />;
+export const IconSparkles = (p: { className?: string }) => <Icon icon="gravity-ui:sparkles" className={p.className} />;
+export const IconStack = (p: { className?: string }) => <Icon icon="gravity-ui:stack" className={p.className} />;
+export const IconSearch = (p: { className?: string }) => <Icon icon="gravity-ui:magnifier" className={p.className} />;
+export const IconPower = (p: { className?: string }) => <Icon icon="gravity-ui:power" className={p.className} />;
+export const IconDollar = (p: { className?: string }) => <Icon icon="gravity-ui:dollar-sign" className={p.className} />;
+export const IconStop = (p: { className?: string }) => <Icon icon="gravity-ui:stop" className={p.className} />;
+export const IconArrowUp = (p: { className?: string }) => <Icon icon="gravity-ui:arrow-up" className={p.className} />;
+export const IconCopy = (p: { className?: string }) => <Icon icon="gravity-ui:copy" className={p.className} />;
+export const IconCheck = (p: { className?: string }) => <Icon icon="gravity-ui:check" className={p.className} />;
+export const IconApi = (p: { className?: string }) => <Icon icon="gravity-ui:api" className={p.className} />;
+export const IconChevron = (p: { className?: string }) => <Icon icon="gravity-ui:chevron-right" className={p.className} />;
+export const IconEye = (p: { className?: string }) => <Icon icon="gravity-ui:eye" className={p.className} />;
+export const IconEyeOff = (p: { className?: string }) => <Icon icon="gravity-ui:eye-closed" className={p.className} />;
+export const IconCalendar = (p: { className?: string }) => <Icon icon="gravity-ui:calendar" className={p.className} />;
