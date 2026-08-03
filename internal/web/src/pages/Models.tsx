@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import {
-  Input, Spinner, Chip, Button, Card, Modal, Select, ListBox, TextField, Label,
+  Input, Spinner, Chip, Button, Card, Dropdown, Label, Modal, Select, ListBox, TextField,
 } from "@heroui/react";
 import { api, type ModelEntry, type Provider, type ModelStat, type ModelPricing } from "../api";
 import { formatCompact } from "../format";
-import { IconSearch, IconTrash, IconPower, IconDollar } from "../icons";
+import { IconSearch, IconTrash, IconPower, IconDollar, IconDotsVertical } from "../icons";
 
 const KINDS = ["llm", "embedding", "image", "tts", "stt", "rerank", "ocr", "video"];
 
@@ -223,7 +223,7 @@ export default function Models() {
                 return (
                   <Card
                     key={m.id}
-                    className="group p-3 hover:border-border transition-colors"
+                    className="group relative p-3 hover:border-border transition-colors"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <code
@@ -257,17 +257,6 @@ export default function Models() {
                             </span>
                           );
                         })()}
-                        <span className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                          <Button isIconOnly size="sm" variant="tertiary" className="size-6 min-w-6 p-0" onPress={() => openPricing(m)} aria-label="Editar preço">
-                            <IconDollar className="size-3" />
-                          </Button>
-                          <Button isIconOnly size="sm" variant="tertiary" className="size-6 min-w-6 p-0" onPress={() => toggleActive(m)} aria-label={m.is_active ? "Desativar" : "Ativar"}>
-                            <IconPower className={`size-3 ${m.is_active ? "text-success" : "text-muted"}`} />
-                          </Button>
-                          <Button isIconOnly size="sm" variant="tertiary" className="size-6 min-w-6 p-0 text-danger hover:bg-danger-soft" onPress={() => removeModel(m)} aria-label="Excluir">
-                            <IconTrash className="size-3" />
-                          </Button>
-                        </span>
                       </div>
                     </div>
                     {st && st.requests > 0 && (
@@ -277,6 +266,35 @@ export default function Models() {
                         <span className="tabular-nums">{st.requests > 999 ? formatCompact(st.requests) : `${st.requests}x`}</span>
                       </div>
                     )}
+                    <div className="absolute bottom-1.5 right-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <Dropdown>
+                        <Dropdown.Trigger>
+                          <Button isIconOnly size="sm" variant="tertiary" className="size-6 min-w-6 p-0" aria-label="Ações do modelo">
+                            <IconDotsVertical className="size-3.5" />
+                          </Button>
+                        </Dropdown.Trigger>
+                        <Dropdown.Popover placement="top end">
+                          <Dropdown.Menu onAction={(key) => {
+                            if (key === "pricing") openPricing(m);
+                            else if (key === "toggle") toggleActive(m);
+                            else if (key === "remove") removeModel(m);
+                          }}>
+                            <Dropdown.Item id="pricing" textValue="Editar preço">
+                              <IconDollar className="size-4 shrink-0 text-muted" />
+                              <Label>Editar preço</Label>
+                            </Dropdown.Item>
+                            <Dropdown.Item id="toggle" textValue={m.is_active ? "Desativar" : "Ativar"}>
+                              <IconPower className={`size-4 shrink-0 ${m.is_active ? "text-success" : "text-muted"}`} />
+                              <Label>{m.is_active ? "Desativar" : "Ativar"}</Label>
+                            </Dropdown.Item>
+                            <Dropdown.Item id="remove" textValue="Excluir" variant="danger">
+                              <IconTrash className="size-4 shrink-0 text-danger" />
+                              <Label>Excluir</Label>
+                            </Dropdown.Item>
+                          </Dropdown.Menu>
+                        </Dropdown.Popover>
+                      </Dropdown>
+                    </div>
                   </Card>
                 );
               })}
