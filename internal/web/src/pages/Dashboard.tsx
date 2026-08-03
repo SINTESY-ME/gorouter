@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  Spinner, Select, ListBox, Popover, Button, Card, Tabs,
+  Spinner, Select, ListBox, Popover, Button, ButtonGroup, Card, Tabs,
   Table, ProgressBar, Separator,
   DateRangePicker, DateField, RangeCalendar,
 } from "@heroui/react";
@@ -146,25 +146,20 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center rounded-lg border border-border bg-surface p-0.5">
-            <Tabs
-              selectedKey={!customMode ? period : undefined}
-              onSelectionChange={(k) => { setPeriod(String(k)); setCustomMode(false); }}
-            >
-              <Tabs.ListContainer>
-                <Tabs.List aria-label="Período">
-                  {periods.map((p) => (
-                    <Tabs.Tab key={p.key} id={p.key}>
-                      {p.label}
-                      <Tabs.Indicator />
-                    </Tabs.Tab>
-                  ))}
-                </Tabs.List>
-              </Tabs.ListContainer>
-            </Tabs>
+          <ButtonGroup size="sm" variant="secondary">
+            {periods.map((p) => (
+              <Button
+                key={p.key}
+                variant={!customMode && period === p.key ? "primary" : "tertiary"}
+                onPress={() => { setPeriod(p.key); setCustomMode(false); }}
+              >
+                {p.label}
+              </Button>
+            ))}
             <Popover>
               <Popover.Trigger>
-                <Button size="sm" variant={customMode ? "primary" : "tertiary"} onPress={() => setCustomMode(true)}>
+                <Button variant={customMode ? "primary" : "tertiary"} onPress={() => setCustomMode(true)}>
+                  <ButtonGroup.Separator />
                   <IconCalendar className="w-4 h-4" />
                   {formatDateRangeLabel(customMode ? dateRange : null)}
                 </Button>
@@ -227,8 +222,8 @@ export default function Dashboard() {
                 )}
               </div>
             </Popover.Content>
-          </Popover>
-          </div>
+           </Popover>
+          </ButtonGroup>
           {apiKeys.length > 0 && (
             <Select
               aria-label="Token"
