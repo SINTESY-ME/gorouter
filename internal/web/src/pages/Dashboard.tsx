@@ -411,34 +411,32 @@ export default function Dashboard() {
         </Card>
       )}
 
-      <Card className="border border-border">
-        <Card.Content className="py-4">
-          <div className="flex items-center gap-6 flex-wrap">
-            <div className="flex-1 min-w-[200px]">
-              <div className="flex justify-between items-baseline mb-1.5">
-                <span className="text-sm text-muted">Taxa de erro</span>
-                <span className="text-sm font-semibold tabular-nums">{errorPct.toFixed(1)}%</span>
-              </div>
-              <ProgressBar
-                aria-label="Taxa de erro"
-                size="sm"
-                color={errorPct > 5 ? "danger" : "success"}
-                value={Math.min(errorPct, 100)}
-              />
-              <p className="text-[11px] text-muted mt-1">
-                {stats.error_requests.toLocaleString("en-US")} erros · {stats.successful_requests.toLocaleString("en-US")} ok
-              </p>
+      <Card>
+        <Card.Content className="grid gap-5 py-4 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center">
+          <div className="min-w-0">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="text-sm text-muted">Taxa de erro</span>
+              <span className="tabular-nums text-lg font-semibold">{errorPct.toFixed(1)}%</span>
             </div>
-            <Separator orientation="vertical" className="hidden md:block h-12" />
-            <div className="flex gap-6">
-              <div>
-                <p className="text-xs text-muted">Combos</p>
-                <p className="text-lg font-semibold tabular-nums mt-0.5">{stats.combo_requests.toLocaleString("en-US")}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted">Erro/Total</p>
-                <p className="text-lg font-semibold tabular-nums mt-0.5">{stats.error_requests.toLocaleString("en-US")}/{stats.requests.toLocaleString("en-US")}</p>
-              </div>
+            <ProgressBar
+              aria-label="Taxa de erro"
+              size="sm"
+              color={errorPct > 5 ? "danger" : "success"}
+              value={Math.min(errorPct, 100)}
+            />
+            <p className="mt-2 text-xs text-muted">
+              {stats.error_requests.toLocaleString("en-US")} erros · {stats.successful_requests.toLocaleString("en-US")} sucesso
+            </p>
+          </div>
+          <Separator orientation="vertical" className="hidden h-12 md:block" />
+          <div className="grid grid-cols-2 gap-8 md:gap-6">
+            <div>
+              <p className="text-xs text-muted">Requests</p>
+              <p className="mt-1 tabular-nums text-xl font-semibold">{stats.requests.toLocaleString("en-US")}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted">Combos</p>
+              <p className="mt-1 tabular-nums text-xl font-semibold">{stats.combo_requests.toLocaleString("en-US")}</p>
             </div>
           </div>
         </Card.Content>
