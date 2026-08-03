@@ -146,28 +146,29 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Tabs
-            selectedKey={!customMode ? period : undefined}
-            onSelectionChange={(k) => { setPeriod(String(k)); setCustomMode(false); }}
-          >
-            <Tabs.ListContainer>
-              <Tabs.List aria-label="Período">
-                {periods.map((p) => (
-                  <Tabs.Tab key={p.key} id={p.key}>
-                    {p.label}
-                    <Tabs.Indicator />
-                  </Tabs.Tab>
-                ))}
-              </Tabs.List>
-            </Tabs.ListContainer>
-          </Tabs>
-          <Popover>
-            <Popover.Trigger>
-              <Button size="sm" variant={customMode ? "primary" : "secondary"} onPress={() => setCustomMode(true)}>
-                <IconCalendar className="w-4 h-4" />
-                {formatDateRangeLabel(customMode ? dateRange : null)}
-              </Button>
-            </Popover.Trigger>
+          <div className="flex items-center rounded-lg border border-border bg-surface p-0.5">
+            <Tabs
+              selectedKey={!customMode ? period : undefined}
+              onSelectionChange={(k) => { setPeriod(String(k)); setCustomMode(false); }}
+            >
+              <Tabs.ListContainer>
+                <Tabs.List aria-label="Período">
+                  {periods.map((p) => (
+                    <Tabs.Tab key={p.key} id={p.key}>
+                      {p.label}
+                      <Tabs.Indicator />
+                    </Tabs.Tab>
+                  ))}
+                </Tabs.List>
+              </Tabs.ListContainer>
+            </Tabs>
+            <Popover>
+              <Popover.Trigger>
+                <Button size="sm" variant={customMode ? "primary" : "tertiary"} onPress={() => setCustomMode(true)}>
+                  <IconCalendar className="w-4 h-4" />
+                  {formatDateRangeLabel(customMode ? dateRange : null)}
+                </Button>
+              </Popover.Trigger>
             <Popover.Content placement="bottom" className="p-3">
               <div className="space-y-3 w-80">
                 <DateRangePicker
@@ -227,6 +228,7 @@ export default function Dashboard() {
               </div>
             </Popover.Content>
           </Popover>
+          </div>
           {apiKeys.length > 0 && (
             <Select
               aria-label="Token"
