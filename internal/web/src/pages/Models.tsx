@@ -8,17 +8,6 @@ import { IconSearch, IconTrash, IconPower, IconDollar } from "../icons";
 
 const KINDS = ["llm", "embedding", "image", "tts", "stt", "rerank", "ocr", "video"];
 
-const kindColor = (k: string): "accent" | "success" | "warning" | "danger" | "default" => {
-  switch (k) {
-    case "embedding": return "success";
-    case "image": return "warning";
-    case "stt": return "danger";
-    case "llm":
-    case "tts":
-    default: return "default";
-  }
-};
-
 const formatPricePer1M = (perToken: number | undefined): string | null => {
   if (!perToken || perToken <= 0) return null;
   const per1M = perToken * 1_000_000;
@@ -219,7 +208,7 @@ export default function Models() {
         {groups.map((g) => (
           <div key={g.providerId}>
             <div className="flex items-center gap-2 mb-3">
-              <Chip size="sm" variant="soft" color="default" className="font-mono">{g.providerId}</Chip>
+              <Chip size="sm" variant="tertiary" color="default" className="font-mono">{g.providerId}</Chip>
               <span className="text-xs text-muted">{g.models.length} modelo{g.models.length === 1 ? "" : "s"}</span>
               <div className="flex gap-1 ml-auto">
                 <Button size="sm" variant="secondary" onPress={() => sync(g.providerId)} isDisabled={syncing === providers.find(p => p.id === g.providerId)?.id}>
@@ -250,7 +239,7 @@ export default function Models() {
                       />
                     </div>
                     <div className="flex items-center gap-1.5 mt-2">
-                      <Chip size="sm" variant="soft" color={kindColor(m.kind)} className="h-5 text-[10px]">{m.kind}</Chip>
+                      <Chip size="sm" variant="tertiary" color="default" className="h-5 text-[10px]">{m.kind}</Chip>
                       <span className="text-[10px] text-muted">{m.source}</span>
                     </div>
                     {st && st.requests > 0 && (
