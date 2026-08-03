@@ -239,9 +239,9 @@ export default function Models() {
                       />
                     </div>
                     <div className="flex min-w-0 items-center gap-1.5">
-                      <Chip size="sm" color="default" className="h-5 shrink-0 text-[10px]">{m.kind}</Chip>
+                      <Chip size="sm" color="default" className="h-5 shrink-0 text-[10px] opacity-70">{m.kind}</Chip>
                       <span className="min-w-0 truncate text-[10px] text-muted">{m.source}</span>
-                      <div className="ml-auto flex min-w-0 items-center gap-1.5 text-[10px]">
+                      <div className="ml-auto flex min-w-0 items-center gap-1.5 text-[10px] opacity-70">
                         {(() => {
                           const p = m.pricing;
                           if (!p || (!p.source && !p.input_cost_per_token && !p.output_cost_per_token && !p.output_cost_per_image)) return null;
