@@ -225,7 +225,7 @@ export default function Models() {
                     key={m.id}
                     className="group relative p-3 hover:border-border transition-colors"
                   >
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start justify-between gap-2 pr-6">
                       <code
                         className="text-sm font-mono truncate flex-1 cursor-pointer hover:text-accent transition-colors"
                         title={`${m.id} — clique para copiar`}
@@ -266,14 +266,14 @@ export default function Models() {
                         <span className="tabular-nums">{st.requests > 999 ? formatCompact(st.requests) : `${st.requests}x`}</span>
                       </div>
                     )}
-                    <div className="absolute bottom-1.5 right-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+                    <div className="absolute top-1.5 right-1.5 opacity-0 transition-opacity group-hover:opacity-100">
                       <Dropdown>
                         <Dropdown.Trigger>
                           <Button isIconOnly size="sm" variant="tertiary" className="size-6 min-w-6 p-0" aria-label="Ações do modelo">
                             <IconDotsVertical className="size-3.5" />
                           </Button>
                         </Dropdown.Trigger>
-                        <Dropdown.Popover placement="top end">
+                        <Dropdown.Popover placement="bottom end">
                           <Dropdown.Menu onAction={(key) => {
                             if (key === "pricing") openPricing(m);
                             else if (key === "toggle") toggleActive(m);
