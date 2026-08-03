@@ -234,17 +234,19 @@ func (s *ApiKeyService) List(ctx context.Context) ([]domain.ApiKey, error) {
 	return s.Repo.List(ctx)
 }
 
-func (s *ApiKeyService) Create(ctx context.Context, name string, rateLimitRPM int) (*domain.ApiKey, error) {
+func (s *ApiKeyService) Create(ctx context.Context, name string, rateLimitRPM int, budgetLimitUSD float64, budgetPeriod string) (*domain.ApiKey, error) {
 	key, err := apikeyGenerate(s.Secret)
 	if err != nil {
 		return nil, err
 	}
 	k := &domain.ApiKey{
-		ID:           uuid.NewString(),
-		Key:          key,
-		Name:         name,
-		IsActive:     true,
-		RateLimitRPM: rateLimitRPM,
+		ID:             uuid.NewString(),
+		Key:            key,
+		Name:           name,
+		IsActive:       true,
+		RateLimitRPM:   rateLimitRPM,
+		BudgetLimitUSD: budgetLimitUSD,
+		BudgetPeriod:   budgetPeriod,
 	}
 	if err := s.Repo.Create(ctx, k); err != nil {
 		return nil, err

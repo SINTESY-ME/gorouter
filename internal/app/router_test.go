@@ -199,6 +199,9 @@ func (r *mockUsageRepo) ModelStatsByID(ctx context.Context) (map[string]*domain.
 func (r *mockUsageRepo) SavingsStats(ctx context.Context, period string, apiKey string) (*domain.SavingsAgg, error) {
 	return &domain.SavingsAgg{}, nil
 }
+func (r *mockUsageRepo) SumCostByApiKey(ctx context.Context, apiKey string, since time.Time) (float64, error) {
+	return 0, nil
+}
 
 // mockTranslator implements domain.Translator as passthrough (OpenAI->OpenAI).
 type mockTranslator struct{}

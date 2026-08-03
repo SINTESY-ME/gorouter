@@ -354,16 +354,22 @@ export default function Dashboard() {
               <SavingsCard label="Tokens (cache)" value={formatCompact(savings.cache_tokens_saved)} sub={formatCost(savings.cache_cost_saved)} full={savings.cache_tokens_saved.toLocaleString("en-US")} dot={CHART_COLORS[0]} />
               <SavingsCard label="Compressões RTK" value={formatCompact(savings.rtk_compressions)} sub="tool_results" full={savings.rtk_compressions.toLocaleString("en-US")} dot={CHART_COLORS[1]} />
               <SavingsCard label="Tokens (RTK)" value={formatCompact(savings.rtk_tokens_saved)} sub={formatCost(savings.rtk_cost_saved)} full={savings.rtk_tokens_saved.toLocaleString("en-US")} dot={CHART_COLORS[1]} />
+              {savings.semantic_hits ? (
+                <SavingsCard label="Semantic hits" value={formatCompact(savings.semantic_hits)} sub="por similaridade" full={savings.semantic_hits.toLocaleString("en-US")} dot={CHART_COLORS[3]} />
+              ) : null}
+              {savings.semantic_tokens_saved ? (
+                <SavingsCard label="Tokens (semantic)" value={formatCompact(savings.semantic_tokens_saved)} sub={formatCost(savings.semantic_cost_saved || 0)} full={savings.semantic_tokens_saved.toLocaleString("en-US")} dot={CHART_COLORS[3]} />
+              ) : null}
             </div>
-            {(savings.cache_cost_saved + savings.rtk_cost_saved) > 0 && (
+            {(savings.cache_cost_saved + savings.rtk_cost_saved + (savings.semantic_cost_saved || 0)) > 0 && (
               <div className="flex items-baseline gap-8 pt-2 border-t border-border">
                 <div className="flex items-baseline gap-2">
                   <span className="text-sm text-muted">Total economizado</span>
-                  <span className="text-lg font-semibold tabular-nums">{formatCost(savings.cache_cost_saved + savings.rtk_cost_saved)}</span>
+                  <span className="text-lg font-semibold tabular-nums">{formatCost(savings.cache_cost_saved + savings.rtk_cost_saved + (savings.semantic_cost_saved || 0))}</span>
                 </div>
                 <div className="flex items-baseline gap-2">
                   <span className="text-sm text-muted">Tokens</span>
-                  <span className="text-lg font-semibold tabular-nums">{formatCompact(savings.cache_tokens_saved + savings.rtk_tokens_saved)}</span>
+                  <span className="text-lg font-semibold tabular-nums">{formatCompact(savings.cache_tokens_saved + savings.rtk_tokens_saved + (savings.semantic_tokens_saved || 0))}</span>
                 </div>
               </div>
             )}

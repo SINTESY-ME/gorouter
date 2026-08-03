@@ -11,6 +11,8 @@ export default function Keys() {
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
   const [rpm, setRpm] = useState("");
+  const [budgetUSD, setBudgetUSD] = useState("");
+  const [budgetPeriod, setBudgetPeriod] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -31,8 +33,13 @@ export default function Keys() {
   const create = async () => {
     setSaving(true);
     try {
-      const k = await api.keys.create({ name, rate_limit_rpm: rpm ? parseInt(rpm) : 0 });
-      setName(""); setRpm(""); setCreateOpen(false); load();
+      const k = await api.keys.create({
+        name,
+        rate_limit_rpm: rpm ? parseInt(rpm) : 0,
+        budget_limit_usd: budgetUSD ? parseFloat(budgetUSD) : 0,
+        budget_period: budgetPeriod || "",
+      });
+      setName(""); setRpm(""); setBudgetUSD(""); setBudgetPeriod(""); setCreateOpen(false); load();
       setCopied(k.key);
     } finally { setSaving(false); }
   };
@@ -49,6 +56,12 @@ export default function Keys() {
   const updateRpm = async (k: ApiKey, value: string) => {
     const n = value ? parseInt(value) : 0;
     await api.keys.update(k.id, { rate_limit_rpm: n });
+    load();
+  };
+
+  const updateBudget = async (k: ApiKey, usd: string, period: string) => {
+    const n = usd ? parseFloat(usd) : 0;
+    await api.keys.update(k.id, { budget_limit_usd: n, budget_period: period });
     load();
   };
 
@@ -107,11 +120,12 @@ export default function Keys() {
         ) : (
           <Table>
             <Table.ScrollContainer>
-              <Table.Content aria-label="keys" className="min-w-[640px]">
+              <Table.Content aria-label="keys" className="min-w-[820px]">
                 <Table.Header>
                   <Table.Column isRowHeader id="name">Nome</Table.Column>
                   <Table.Column id="key">Chave</Table.Column>
                   <Table.Column id="rpm">Rate Limit</Table.Column>
+                  <Table.Column id="budget">Budget</Table.Column>
                   <Table.Column id="status">Status</Table.Column>
                   <Table.Column id="created">Criada</Table.Column>
                   <Table.Column id="actions">Ações</Table.Column>
@@ -142,6 +156,32 @@ export default function Keys() {
                             if (v !== String(k.rate_limit_rpm || "")) updateRpm(k, v);
                           }}
                         />
+                      </Table.Cell>
+                      <Table.Cell>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-muted">$</span>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            defaultValue={k.budget_limit_usd ? String(k.budget_limit_usd) : ""}
+                            placeholder="0"
+                            className="w-16"
+                            aria-label="Budget limit"
+                            onBlur={(e) => {
+                              const v = e.target.value;
+                              if (v !== String(k.budget_limit_usd || "")) updateBudget(k, v, k.budget_period || "");
+                            }}
+                          />
+                          <select
+                            defaultValue={k.budget_period || ""}
+                            className="text-xs bg-transparent border border-border rounded-lg px-1 py-1.5 text-muted outline-none"
+                            onChange={(e) => updateBudget(k, k.budget_limit_usd ? String(k.budget_limit_usd) : "", e.target.value)}
+                          >
+                            <option value="">—</option>
+                            <option value="daily">dia</option>
+                            <option value="monthly">mês</option>
+                          </select>
+                        </div>
                       </Table.Cell>
                       <Table.Cell>
                         <Chip size="sm" variant="soft" color={k.is_active ? "success" : "default"}>
@@ -180,6 +220,19 @@ export default function Keys() {
                   <Label>Rate Limit (req/min)</Label>
                   <Input type="number" placeholder="0 = ilimitado" />
                   <Description>Máximo de requisições por minuto. 0 desativa o limite.</Description>
+                </TextField>
+                <TextField value={budgetUSD} onChange={setBudgetUSD}>
+                  <Label>Limite de gasto (USD)</Label>
+                  <Input type="number" step="0.01" placeholder="0 = ilimitado" />
+                  <Description>Rejeita requests quando o gasto exceder este valor no período.</Description>
+                </TextField>
+                <TextField value={budgetPeriod} onChange={setBudgetPeriod}>
+                  <Label>Período do orçamento</Label>
+                  <select className="w-full bg-transparent border border-border rounded-lg px-3 py-2 text-sm outline-none">
+                    <option value="">Sem limite</option>
+                    <option value="daily">Diário</option>
+                    <option value="monthly">Mensal</option>
+                  </select>
                 </TextField>
               </Modal.Body>
               <Modal.Footer>

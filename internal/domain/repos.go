@@ -112,6 +112,10 @@ type UsageRepo interface {
 	ModelStatsByID(ctx context.Context) (map[string]*ModelStat, error)
 	// SavingsStats returns aggregated savings (cache + RTK) for a time range.
 	SavingsStats(ctx context.Context, period string, apiKey string) (*SavingsAgg, error)
+	// SumCostByApiKey returns the total dollar cost spent by the given API
+	// key since the given timestamp (inclusive). Only successful requests
+	// (status < 400) are counted. Used by the budget cap middleware.
+	SumCostByApiKey(ctx context.Context, apiKey string, since time.Time) (float64, error)
 }
 
 // ModelRepo persists the model catalog (synced + manual entries).
@@ -211,13 +215,16 @@ type UsageDailyPoint struct {
 // (cache, RTK) has its own counters so the dashboard can show them
 // separately. Future saving mechanisms can add their own fields.
 type SavingsAgg struct {
-	CacheHits        int64   `json:"cache_hits"`
-	CacheTokensSaved int64   `json:"cache_tokens_saved"`
-	CacheCostSaved   float64 `json:"cache_cost_saved"`
-	RTKCompressions  int64   `json:"rtk_compressions"`
-	RTKBytesSaved    int64   `json:"rtk_bytes_saved"`
-	RTKTokensSaved   int64   `json:"rtk_tokens_saved"`
-	RTKCostSaved     float64 `json:"rtk_cost_saved"`
+	CacheHits           int64   `json:"cache_hits"`
+	CacheTokensSaved    int64   `json:"cache_tokens_saved"`
+	CacheCostSaved      float64 `json:"cache_cost_saved"`
+	RTKCompressions     int64   `json:"rtk_compressions"`
+	RTKBytesSaved       int64   `json:"rtk_bytes_saved"`
+	RTKTokensSaved      int64   `json:"rtk_tokens_saved"`
+	RTKCostSaved        float64 `json:"rtk_cost_saved"`
+	SemanticHits        int64   `json:"semantic_hits"`
+	SemanticTokensSaved int64   `json:"semantic_tokens_saved"`
+	SemanticCostSaved   float64 `json:"semantic_cost_saved"`
 }
 
 // ModelStat is per-model aggregate performance data.

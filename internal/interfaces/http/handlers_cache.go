@@ -30,6 +30,30 @@ func (s *Server) handleCacheFlush(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "flushed"})
 }
 
+func (s *Server) handleSemanticCacheStats(w http.ResponseWriter, r *http.Request) {
+	if s.SemanticCache == nil || !s.SemanticCache.Enabled() {
+		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
+		return
+	}
+	stats := s.SemanticCache.Stats()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"enabled": true,
+		"mode":    s.SemanticCache.Mode(),
+		"entries": stats.Entries,
+		"hits":    stats.Hits,
+		"misses":  stats.Misses,
+	})
+}
+
+func (s *Server) handleSemanticCacheFlush(w http.ResponseWriter, r *http.Request) {
+	if s.SemanticCache == nil {
+		writeError(w, http.StatusNotFound, "semantic cache is not configured")
+		return
+	}
+	s.SemanticCache.Flush(r.Context())
+	writeJSON(w, http.StatusOK, map[string]string{"status": "flushed"})
+}
+
 // handleSavings returns aggregated savings (cache + RTK) from the database
 // so the data survives restarts. Reads from usage_entries where savings
 // fields are populated. Falls back to in-memory tracker when Usage is nil.

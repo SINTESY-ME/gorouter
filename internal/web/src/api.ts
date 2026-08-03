@@ -107,7 +107,8 @@ export interface Combo {
   created_at: string; updated_at: string;
 }
 export interface ApiKey {
-  id: string; key: string; name: string; is_active: boolean; rate_limit_rpm: number; created_at: string;
+  id: string; key: string; name: string; is_active: boolean; rate_limit_rpm: number;
+  budget_limit_usd?: number; budget_period?: string; created_at: string;
 }
 export interface UsageStats {
   requests: number; prompt_tokens: number; completion_tokens: number; cost: number;
@@ -184,6 +185,9 @@ export interface SavingsStats {
   rtk_bytes_saved: number;
   rtk_tokens_saved: number;
   rtk_cost_saved: number;
+  semantic_hits?: number;
+  semantic_tokens_saved?: number;
+  semantic_cost_saved?: number;
 }
 
 
@@ -248,8 +252,8 @@ export const api = {
   },
   keys: {
     list: () => request<ApiKey[]>("/api/keys"),
-    create: (k: { name: string; rate_limit_rpm?: number }) => request<ApiKey>("/api/keys", { method: "POST", body: JSON.stringify(k) }),
-    update: (id: string, k: { name?: string; is_active?: boolean; rate_limit_rpm?: number }) => request<ApiKey>(`/api/keys/${id}`, { method: "PUT", body: JSON.stringify(k) }),
+    create: (k: { name: string; rate_limit_rpm?: number; budget_limit_usd?: number; budget_period?: string }) => request<ApiKey>("/api/keys", { method: "POST", body: JSON.stringify(k) }),
+    update: (id: string, k: { name?: string; is_active?: boolean; rate_limit_rpm?: number; budget_limit_usd?: number; budget_period?: string }) => request<ApiKey>(`/api/keys/${id}`, { method: "PUT", body: JSON.stringify(k) }),
     remove: (id: string) => request<void>(`/api/keys/${id}`, { method: "DELETE" }),
   },
   usage: {
@@ -283,13 +287,17 @@ export const api = {
     },
   },
   settings: {
-    get: () => request<{ rtk_enabled: boolean; cache_enabled: boolean }>("/api/settings"),
-    update: (s: { rtk_enabled?: boolean; cache_enabled?: boolean }) =>
+    get: () => request<{ rtk_enabled: boolean; cache_enabled: boolean; semantic_cache_enabled: boolean; semantic_cache_mode: string; semantic_cache_model: string }>("/api/settings"),
+    update: (s: { rtk_enabled?: boolean; cache_enabled?: boolean; semantic_cache_enabled?: boolean; semantic_cache_mode?: string; semantic_cache_model?: string }) =>
       request<{ status: string }>("/api/settings", { method: "PUT", body: JSON.stringify(s) }),
   },
   cache: {
     stats: () => request<{ enabled: boolean; entries?: number; hits?: number; misses?: number }>("/api/cache/stats"),
     flush: () => request<{ status: string }>("/api/cache/flush", { method: "POST" }),
+  },
+  semanticCache: {
+    stats: () => request<{ enabled: boolean; mode?: string; entries?: number; hits?: number; misses?: number }>("/api/semantic-cache/stats"),
+    flush: () => request<{ status: string }>("/api/semantic-cache/flush", { method: "POST" }),
   },
   savings: {
     stats: (period = "60d", apiKeyId = "") => request<SavingsStats>(`/api/savings?period=${period}${apiKeyId ? `&api_key_id=${apiKeyId}` : ""}`),

@@ -16,9 +16,9 @@ import (
 type Format string
 
 const (
-	FormatOpenAI    Format = "openai"     // /v1/chat/completions
+	FormatOpenAI    Format = "openai"    // /v1/chat/completions
 	FormatAnthropic Format = "anthropic" // /v1/messages
-	FormatGemini    Format = "gemini"     // generateContent
+	FormatGemini    Format = "gemini"    // generateContent
 	FormatResponses Format = "responses" // /v1/responses
 	FormatAuto      Format = "auto"      // auto-detect at probe time
 )
@@ -41,20 +41,20 @@ const (
 // is configuration, not state. Matches the registry pattern from 9router
 // but trimmed to what we use.
 type Provider struct {
-	ID      string        // stable short id, e.g. "openai", "anthropic", "groq"
-	Display string        // human label
-	Format  Format        // wire format the provider speaks natively
-	BaseURL string        // default base url; a connection may override
-	Kind    string        // "openai-compatible" | "anthropic" | "gemini" | "custom"
-	Auth    AuthScheme    // how to authenticate
-	Models  []ModelSpec   // static model list; auto-fetched ones are merged on top
+	ID      string      // stable short id, e.g. "openai", "anthropic", "groq"
+	Display string      // human label
+	Format  Format      // wire format the provider speaks natively
+	BaseURL string      // default base url; a connection may override
+	Kind    string      // "openai-compatible" | "anthropic" | "gemini" | "custom"
+	Auth    AuthScheme  // how to authenticate
+	Models  []ModelSpec // static model list; auto-fetched ones are merged on top
 }
 
 // AuthScheme describes how a connection authenticates against its provider.
 type AuthScheme string
 
 const (
-	AuthBearer  AuthScheme = "bearer"   // Authorization: Bearer <key>
+	AuthBearer  AuthScheme = "bearer"    // Authorization: Bearer <key>
 	AuthXAPIKey AuthScheme = "x-api-key" // x-api-key: <key>  (Anthropic)
 	AuthNone    AuthScheme = "none"
 )
@@ -70,13 +70,13 @@ type ModelSpec struct {
 // multiple connections (multi-account / key pool). Connections have priority
 // order; the router tries them in order on failure.
 type Connection struct {
-	ID               string       `json:"id" gorm:"primaryKey"`
-	ProviderID       string       `json:"provider_id" gorm:"column:provider_id;uniqueIndex:idx_provider_name,priority:1;index:idx_conn_provider,priority:1"`
-	Name             string       `json:"name" gorm:"uniqueIndex:idx_provider_name,priority:2"`
-	APIKey           string       `json:"api_key" gorm:"column:api_key"` // access token for oauth
-	Priority         int          `json:"priority" gorm:"index:idx_conn_provider,priority:2"`
-	IsActive         bool         `json:"is_active" gorm:"column:is_active;default:true"`
-	RateLimitedUntil time.Time    `json:"rate_limited_until" gorm:"column:rate_limited_until"`
+	ID               string    `json:"id" gorm:"primaryKey"`
+	ProviderID       string    `json:"provider_id" gorm:"column:provider_id;uniqueIndex:idx_provider_name,priority:1;index:idx_conn_provider,priority:1"`
+	Name             string    `json:"name" gorm:"uniqueIndex:idx_provider_name,priority:2"`
+	APIKey           string    `json:"api_key" gorm:"column:api_key"` // access token for oauth
+	Priority         int       `json:"priority" gorm:"index:idx_conn_provider,priority:2"`
+	IsActive         bool      `json:"is_active" gorm:"column:is_active;default:true"`
+	RateLimitedUntil time.Time `json:"rate_limited_until" gorm:"column:rate_limited_until"`
 	// OAuth extras (empty for API-key connections).
 	RefreshToken   string    `json:"-" gorm:"column:refresh_token"` // never expose in list JSON
 	TokenExpiresAt time.Time `json:"token_expires_at,omitempty" gorm:"column:token_expires_at"`
@@ -91,19 +91,19 @@ type Connection struct {
 // and the load-balance strategy applied to all its connections. The
 // ID field matches the provider_id used by Connection.ProviderID.
 type ProviderConfig struct {
-	ID          string     `json:"id" gorm:"primaryKey"`
-	Name        string     `json:"name"`        // human-friendly display name (optional)
-	Description string     `json:"description,omitempty"`
-	BaseURL     string     `json:"base_url" gorm:"column:base_url"`
+	ID          string `json:"id" gorm:"primaryKey"`
+	Name        string `json:"name"` // human-friendly display name (optional)
+	Description string `json:"description,omitempty"`
+	BaseURL     string `json:"base_url" gorm:"column:base_url"`
 	// ResolvedBaseURL is the base URL ready for consumption, with the
 	// version prefix (e.g. /v1) included. It is resolved once by the probe
 	// when the first connection is added, and re-resolved whenever BaseURL
 	// changes. Consumers (executor, fetcher) use this field directly — no
 	// runtime URL resolution. If empty, the provider has not been probed
 	// yet; the caller should return an error to the user.
-	ResolvedBaseURL string `json:"resolved_base_url" gorm:"column:resolved_base_url"`
-	Format      Format     `json:"format" gorm:"default:openai"`
-	Auth        AuthScheme `json:"auth" gorm:"default:bearer"`
+	ResolvedBaseURL string     `json:"resolved_base_url" gorm:"column:resolved_base_url"`
+	Format          Format     `json:"format" gorm:"default:openai"`
+	Auth            AuthScheme `json:"auth" gorm:"default:bearer"`
 	// LoadBalance controls how connections are selected for this provider.
 	// "failover" (default): always try the first active connection, only
 	// fall through on failure. "round-robin": rotate the starting index
@@ -117,7 +117,7 @@ type ProviderConfig struct {
 // models with OwnedBy == "combo".
 type ModelInfo struct {
 	ID      string    `json:"id"`
-	Object  string    `json:"object"`  // always "model"
+	Object  string    `json:"object"`   // always "model"
 	OwnedBy string    `json:"owned_by"` // provider id, or "combo"
 	Kind    ModelKind `json:"kind,omitempty"`
 }
@@ -127,21 +127,21 @@ type ModelInfo struct {
 // with data from external model registries (LiteLLM, models.dev, OpenRouter,
 // HuggingFace).
 type ModelEntry struct {
-	ID                string    `json:"id" gorm:"primaryKey"` // "{providerID}/{modelID}"
-	ProviderID        string    `json:"provider_id" gorm:"index;column:provider_id"`
-	ModelID           string    `json:"model_id" gorm:"column:model_id"` // without prefix
-	Name              string    `json:"name,omitempty"`
-	Kind              ModelKind `json:"kind" gorm:"default:llm;index"`
-	Source            string    `json:"source" gorm:"default:sync"` // "sync" | "manual"
-	IsActive          bool      `json:"is_active" gorm:"column:is_active;default:true;index"`
-	Context           int       `json:"context,omitempty"`
-	SupportsVision    bool      `json:"supports_vision,omitempty"`
-	SupportsToolCall  bool      `json:"supports_tool_call,omitempty"`
-	SupportsReasoning bool      `json:"supports_reasoning,omitempty"`
+	ID                string       `json:"id" gorm:"primaryKey"` // "{providerID}/{modelID}"
+	ProviderID        string       `json:"provider_id" gorm:"index;column:provider_id"`
+	ModelID           string       `json:"model_id" gorm:"column:model_id"` // without prefix
+	Name              string       `json:"name,omitempty"`
+	Kind              ModelKind    `json:"kind" gorm:"default:llm;index"`
+	Source            string       `json:"source" gorm:"default:sync"` // "sync" | "manual"
+	IsActive          bool         `json:"is_active" gorm:"column:is_active;default:true;index"`
+	Context           int          `json:"context,omitempty"`
+	SupportsVision    bool         `json:"supports_vision,omitempty"`
+	SupportsToolCall  bool         `json:"supports_tool_call,omitempty"`
+	SupportsReasoning bool         `json:"supports_reasoning,omitempty"`
 	Pricing           ModelPricing `json:"pricing,omitempty" gorm:"serializer:json;type:text"`
-	LastSyncedAt      time.Time `json:"last_synced_at,omitempty" gorm:"index"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	LastSyncedAt      time.Time    `json:"last_synced_at,omitempty" gorm:"index"`
+	CreatedAt         time.Time    `json:"created_at"`
+	UpdatedAt         time.Time    `json:"updated_at"`
 }
 
 // ModelPricing holds per-model price data used for cost calculation. All
@@ -171,8 +171,8 @@ type ModelPricing struct {
 	InputCostPerPixel  float64 `json:"input_cost_per_pixel,omitempty"`
 
 	// Audio (per-second)
-	InputCostPerSecond   float64 `json:"input_cost_per_second,omitempty"`
-	OutputCostPerSecond  float64 `json:"output_cost_per_second,omitempty"`
+	InputCostPerSecond  float64 `json:"input_cost_per_second,omitempty"`
+	OutputCostPerSecond float64 `json:"output_cost_per_second,omitempty"`
 
 	// TTS (per-character)
 	InputCostPerCharacter  float64 `json:"input_cost_per_character,omitempty"`
@@ -209,12 +209,14 @@ type ComboModelMeta struct {
 // ApiKey is a client-facing key created in the dashboard. Clients send it
 // as Authorization: Bearer or x-api-key.
 type ApiKey struct {
-	ID           string    `json:"id" gorm:"primaryKey"`
-	Key          string    `json:"key" gorm:"uniqueIndex"`
-	Name         string    `json:"name"`
-	IsActive     bool      `json:"is_active" gorm:"column:is_active;default:true"`
-	RateLimitRPM int       `json:"rate_limit_rpm" gorm:"column:rate_limit_rpm;default:0"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID             string    `json:"id" gorm:"primaryKey"`
+	Key            string    `json:"key" gorm:"uniqueIndex"`
+	Name           string    `json:"name"`
+	IsActive       bool      `json:"is_active" gorm:"column:is_active;default:true"`
+	RateLimitRPM   int       `json:"rate_limit_rpm" gorm:"column:rate_limit_rpm;default:0"`
+	BudgetLimitUSD float64   `json:"budget_limit_usd,omitempty" gorm:"column:budget_limit_usd;default:0"`
+	BudgetPeriod   string    `json:"budget_period,omitempty"  gorm:"column:budget_period;default:''"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // UsageEntry is a single upstream call's resource accounting. One row per
@@ -222,32 +224,35 @@ type ApiKey struct {
 // separate combo_executions table so that nested combos don't duplicate
 // tokens/cost in aggregate queries.
 type UsageEntry struct {
-	ID                int64     `json:"id" gorm:"primaryKey;autoIncrement"`
-	Timestamp         time.Time `json:"timestamp" gorm:"index"`
-	Provider          string    `json:"provider"`
-	Model             string    `json:"model"`
-	ConnectionID      string    `json:"connection_id" gorm:"column:connection_id"`
-	ApiKey            string    `json:"api_key,omitempty" gorm:"column:api_key"`
-	Endpoint          string    `json:"endpoint"`
-	LatencyMs         int64     `json:"latency_ms,omitempty"`
-	TTFTMs            int64     `json:"ttft_ms,omitempty" gorm:"column:ttft_ms;default:0"`
-	PromptTokens      int       `json:"prompt_tokens"`
-	CompletionTokens  int       `json:"completion_tokens"`
-	CachedTokens      int       `json:"cached_tokens,omitempty"`
-	Cost              float64   `json:"cost"`
-	Status            int       `json:"status"`
-	CacheHit          bool      `json:"cache_hit,omitempty" gorm:"column:cache_hit;default:false"`
-	CacheTokensSaved  int       `json:"cache_tokens_saved,omitempty" gorm:"column:cache_tokens_saved;default:0"`
-	CacheCostSaved    float64   `json:"cache_cost_saved,omitempty" gorm:"column:cache_cost_saved;default:0"`
-	RTKCompressed     bool      `json:"rtk_compressed,omitempty" gorm:"column:rtk_compressed;default:false"`
-	RTKBytesSaved     int       `json:"rtk_bytes_saved,omitempty" gorm:"column:rtk_bytes_saved;default:0"`
-	RTKTokensSaved    int       `json:"rtk_tokens_saved,omitempty" gorm:"column:rtk_tokens_saved;default:0"`
-	RTKCostSaved       float64 `json:"rtk_cost_saved,omitempty" gorm:"column:rtk_cost_saved;default:0"`
-	FallbackReason string `json:"fallback_reason,omitempty" gorm:"column:fallback_reason;default:''"`
-	RequestID      string `json:"request_id,omitempty" gorm:"column:request_id;index"`
-	Attempt        int    `json:"attempt" gorm:"column:attempt;default:0"`
-	Error          string `json:"error,omitempty" gorm:"column:error;type:text;default:''"`
-	ComboChain []string `json:"combo_chain,omitempty" gorm:"-"`
+	ID                  int64     `json:"id" gorm:"primaryKey;autoIncrement"`
+	Timestamp           time.Time `json:"timestamp" gorm:"index"`
+	Provider            string    `json:"provider"`
+	Model               string    `json:"model"`
+	ConnectionID        string    `json:"connection_id" gorm:"column:connection_id"`
+	ApiKey              string    `json:"api_key,omitempty" gorm:"column:api_key"`
+	Endpoint            string    `json:"endpoint"`
+	LatencyMs           int64     `json:"latency_ms,omitempty"`
+	TTFTMs              int64     `json:"ttft_ms,omitempty" gorm:"column:ttft_ms;default:0"`
+	PromptTokens        int       `json:"prompt_tokens"`
+	CompletionTokens    int       `json:"completion_tokens"`
+	CachedTokens        int       `json:"cached_tokens,omitempty"`
+	Cost                float64   `json:"cost"`
+	Status              int       `json:"status"`
+	CacheHit            bool      `json:"cache_hit,omitempty" gorm:"column:cache_hit;default:false"`
+	CacheTokensSaved    int       `json:"cache_tokens_saved,omitempty" gorm:"column:cache_tokens_saved;default:0"`
+	CacheCostSaved      float64   `json:"cache_cost_saved,omitempty" gorm:"column:cache_cost_saved;default:0"`
+	RTKCompressed       bool      `json:"rtk_compressed,omitempty" gorm:"column:rtk_compressed;default:false"`
+	RTKBytesSaved       int       `json:"rtk_bytes_saved,omitempty" gorm:"column:rtk_bytes_saved;default:0"`
+	RTKTokensSaved      int       `json:"rtk_tokens_saved,omitempty" gorm:"column:rtk_tokens_saved;default:0"`
+	RTKCostSaved        float64   `json:"rtk_cost_saved,omitempty" gorm:"column:rtk_cost_saved;default:0"`
+	SemanticCacheHit    bool      `json:"semantic_cache_hit,omitempty" gorm:"column:semantic_cache_hit;default:false"`
+	SemanticTokensSaved int       `json:"semantic_tokens_saved,omitempty" gorm:"column:semantic_tokens_saved;default:0"`
+	SemanticCostSaved   float64   `json:"semantic_cost_saved,omitempty" gorm:"column:semantic_cost_saved;default:0"`
+	FallbackReason      string    `json:"fallback_reason,omitempty" gorm:"column:fallback_reason;default:''"`
+	RequestID           string    `json:"request_id,omitempty" gorm:"column:request_id;index"`
+	Attempt             int       `json:"attempt" gorm:"column:attempt;default:0"`
+	Error               string    `json:"error,omitempty" gorm:"column:error;type:text;default:''"`
+	ComboChain          []string  `json:"combo_chain,omitempty" gorm:"-"`
 }
 
 // ComboExecution records which combos were traversed for a single upstream
@@ -269,8 +274,8 @@ type ComboExecution struct {
 // hash, health state, etc.). Values are small strings; structured data is
 // encoded by the caller.
 type Setting struct {
-	Key       string    `gorm:"primaryKey"`
-	Value     string    `gorm:"type:text"`
+	Key       string `gorm:"primaryKey"`
+	Value     string `gorm:"type:text"`
 	UpdatedAt time.Time
 }
 

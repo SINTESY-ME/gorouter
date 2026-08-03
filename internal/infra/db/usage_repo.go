@@ -656,13 +656,16 @@ func (r *UsageRepo) SavingsStats(ctx context.Context, period string, apiKey stri
 		return nil, err
 	}
 	var row struct {
-		CacheHits        int64
-		CacheTokensSaved int64
-		CacheCostSaved   float64
-		RTKCompressions  int64
-		RTKBytesSaved    int64
-		RTKTokensSaved   int64
-		RTKCostSaved     float64
+		CacheHits           int64
+		CacheTokensSaved    int64
+		CacheCostSaved      float64
+		RTKCompressions     int64
+		RTKBytesSaved       int64
+		RTKTokensSaved      int64
+		RTKCostSaved        float64
+		SemanticHits        int64
+		SemanticTokensSaved int64
+		SemanticCostSaved   float64
 	}
 	tx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
 	if apiKey != "" {
@@ -676,20 +679,26 @@ func (r *UsageRepo) SavingsStats(ctx context.Context, period string, apiKey stri
 			COALESCE(SUM(CASE WHEN rtk_compressed THEN 1 ELSE 0 END), 0) as rtk_compressions,
 			COALESCE(SUM(rtk_bytes_saved), 0) as rtk_bytes_saved,
 			COALESCE(SUM(rtk_tokens_saved), 0) as rtk_tokens_saved,
-			COALESCE(SUM(rtk_cost_saved), 0) as rtk_cost_saved
+			COALESCE(SUM(rtk_cost_saved), 0) as rtk_cost_saved,
+			COALESCE(SUM(CASE WHEN semantic_cache_hit THEN 1 ELSE 0 END), 0) as semantic_hits,
+			COALESCE(SUM(semantic_tokens_saved), 0) as semantic_tokens_saved,
+			COALESCE(SUM(semantic_cost_saved), 0) as semantic_cost_saved
 		`).
 		Scan(&row).Error
 	if err != nil {
 		return nil, err
 	}
 	return &domain.SavingsAgg{
-		CacheHits:        row.CacheHits,
-		CacheTokensSaved: row.CacheTokensSaved,
-		CacheCostSaved:   row.CacheCostSaved,
-		RTKCompressions:  row.RTKCompressions,
-		RTKBytesSaved:    row.RTKBytesSaved,
-		RTKTokensSaved:   row.RTKTokensSaved,
-		RTKCostSaved:     row.RTKCostSaved,
+		CacheHits:           row.CacheHits,
+		CacheTokensSaved:    row.CacheTokensSaved,
+		CacheCostSaved:      row.CacheCostSaved,
+		RTKCompressions:     row.RTKCompressions,
+		RTKBytesSaved:       row.RTKBytesSaved,
+		RTKTokensSaved:      row.RTKTokensSaved,
+		RTKCostSaved:        row.RTKCostSaved,
+		SemanticHits:        row.SemanticHits,
+		SemanticTokensSaved: row.SemanticTokensSaved,
+		SemanticCostSaved:   row.SemanticCostSaved,
 	}, nil
 }
 
@@ -709,4 +718,20 @@ func periodStart(period string) (time.Time, error) {
 	default:
 		return time.Time{}, fmt.Errorf("%w: unknown period %q", domain.ErrValidation, period)
 	}
+}
+
+// SumCostByApiKey returns the total dollar cost spent by the given API key
+// since the given timestamp. Only successful requests (status < 400) are
+// counted so failed retries don't eat into the budget.
+func (r *UsageRepo) SumCostByApiKey(ctx context.Context, apiKey string, since time.Time) (float64, error) {
+	var total float64
+	err := r.db.WithContext(ctx).
+		Model(&domain.UsageEntry{}).
+		Where("api_key = ? AND timestamp >= ? AND status < 400", apiKey, since).
+		Select("COALESCE(SUM(cost), 0)").
+		Scan(&total).Error
+	if err != nil {
+		return 0, err
+	}
+	return total, nil
 }

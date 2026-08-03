@@ -7,8 +7,11 @@ package httpx
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -53,13 +56,17 @@ type Server struct {
 	RTKCompressorFactory func() domain.RequestCompressor
 	// CacheFactory creates a fresh ResponseCache when the user toggles the
 	// response cache on via the dashboard. Injected at composition root.
-	CacheFactory func() domain.ResponseCache
+	CacheFactory  func() domain.ResponseCache
+	SemanticCache *app.SemanticCacheService
 
 	RequireKey  bool
 	RateLimiter *app.RateLimiter
 	Auth        *app.AuthService
 	Catalog     *providers.Service
 	OAuth       *oauth.Manager
+	// BudgetChecker enforces per-key spending caps. Nil disables budget
+	// enforcement (all requests pass through regardless of spend).
+	BudgetChecker *app.BudgetService
 }
 
 // Routes builds the chi router with all endpoints.
@@ -156,6 +163,8 @@ func (s *Server) Routes() http.Handler {
 
 			r.Get("/cache/stats", s.handleCacheStats)
 			r.Post("/cache/flush", s.handleCacheFlush)
+			r.Get("/semantic-cache/stats", s.handleSemanticCacheStats)
+			r.Post("/semantic-cache/flush", s.handleSemanticCacheFlush)
 			r.Get("/savings", s.handleSavings)
 			r.Get("/settings", s.handleGetSettings)
 			r.Put("/settings", s.handleUpdateSettings)
@@ -210,6 +219,18 @@ func (s *Server) requireApiKey(next http.Handler) http.Handler {
 			w.Header().Set("Retry-After", "60")
 			writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 			return
+		}
+		if s.BudgetChecker != nil && apiKey.BudgetLimitUSD > 0 {
+			result := s.BudgetChecker.Check(r.Context(), key, apiKey.BudgetLimitUSD, apiKey.BudgetPeriod)
+			if !result.Allowed {
+				retryAfter := int(time.Until(result.ResetAt).Seconds())
+				if retryAfter < 1 {
+					retryAfter = 1
+				}
+				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+				writeError(w, http.StatusTooManyRequests, fmt.Sprintf("budget limit exceeded: $%.2f of $%.2f %s", result.Spent, result.Limit, apiKey.BudgetPeriod))
+				return
+			}
 		}
 		ctx := context.WithValue(r.Context(), apiKeyCtxKey{}, key)
 		next.ServeHTTP(w, r.WithContext(ctx))

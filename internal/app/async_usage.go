@@ -74,6 +74,10 @@ func (r *AsyncUsageRecorder) SavingsStats(ctx context.Context, period string, ap
 	return r.repo.SavingsStats(ctx, period, apiKey)
 }
 
+func (r *AsyncUsageRecorder) SumCostByApiKey(ctx context.Context, apiKey string, since time.Time) (float64, error) {
+	return r.repo.SumCostByApiKey(ctx, apiKey, since)
+}
+
 // Close drains pending entries. Call during graceful shutdown.
 func (r *AsyncUsageRecorder) Close() {
 	close(r.entries)

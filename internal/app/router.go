@@ -77,6 +77,8 @@ type RouterService struct {
 	// Strategies resolves a combo's strategy name to a ComboStrategy. Set
 	// in NewRouterService; nil-safe (routeCombo falls back to ordered).
 	Strategies *StrategyRegistry
+	// SemanticCache is optional vector-similarity cache. Nil disables it.
+	SemanticCache *SemanticCacheService
 }
 
 // probeCtxKey is used to mark a context as originating from a health probe
@@ -168,6 +170,8 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 	if opts.InputFormat == "" {
 		opts.InputFormat = domain.FormatOpenAI
 	}
+	ctx = withInputFormat(ctx, opts.InputFormat)
+	ctx = withRequestBody(ctx, body)
 	// Cache lookup: short-circuit on hit. Only for chat (endpoint=="") and
 	// only when cache is enabled and the request doesn't opt out.
 	if s.Cache != nil && s.Cache.Enabled() && opts.Endpoint == "" && !isCacheDisabled(ctx) {
@@ -217,6 +221,67 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 		// Stash the key so the response path can store the result.
 		ctx = withCacheKey(ctx, cacheKey)
 	}
+
+	// Semantic cache: after deterministic miss, before routing. Look up
+	// by vector similarity across all candidate models. The same
+	// x-gr-cache: off opt-out that bypasses the deterministic cache also
+	// bypasses the semantic cache.
+	if s.SemanticCache != nil && s.SemanticCache.Enabled() && opts.Endpoint == "" && !isCacheDisabled(ctx) {
+		var candidates []string
+		if mid, ok := domain.SplitModelID(modelStr); ok {
+			candidates = []string{mid.Provider + "/" + mid.Model}
+		} else if combo, err := s.Combos.GetByName(ctx, modelStr); err == nil {
+			candidates = combo.Models
+		}
+		if len(candidates) > 0 {
+			result := s.SemanticCache.Lookup(ctx, body, candidates, opts.InputFormat)
+			if result.Hit && result.Response != nil {
+				var prompt, completion, cacheRead, cacheCreation int
+				if result.Response.Stream {
+					prompt, completion, cacheRead, cacheCreation = parseUsageFromSSEFull(result.Response.StreamChunks)
+				} else {
+					prompt, completion, cacheRead, cacheCreation = parseUsageFromJSONFull(result.Response.Body)
+				}
+				var costSaved float64
+				var mid domain.ModelID
+				if s.Pricing != nil {
+					if m, ok := domain.SplitModelID(result.Model); ok {
+						mid = m
+						if pricing, ok := s.Pricing.Get(mid); ok {
+							costSaved = CalculateCost(pricing, "", prompt, completion, cacheRead, cacheCreation)
+						}
+					}
+				}
+				go s.recordSemanticCacheHitUsage(mid, result.Model, apiKey, prompt, completion, costSaved)
+				if s.Savings != nil {
+					s.Savings.RecordSemanticCacheHit(prompt+completion, costSaved)
+				}
+				// Clone the cached headers so we don't mutate the shared
+				// cache entry, and tag the response as a semantic hit.
+				outHeaders := result.Response.Headers.Clone()
+				outHeaders.Set("x-gr-semantic-cache-hit", "true")
+				outHeaders.Set("x-gr-similarity", fmt.Sprintf("%.4f", result.Similarity))
+				outHeaders.Set("x-gr-semantic-model", result.Model)
+				if result.Response.Stream {
+					return &RouterResponse{
+						StatusCode: result.Response.StatusCode,
+						Headers:    outHeaders,
+						Body:       io.NopCloser(bytes.NewReader(result.Response.StreamChunks)),
+						Stream:     true,
+						Cached:     true,
+					}, nil
+				}
+				return &RouterResponse{
+					StatusCode: result.Response.StatusCode,
+					Headers:    outHeaders,
+					Body:       io.NopCloser(bytes.NewReader(result.Response.Body)),
+					Stream:     false,
+					Cached:     true,
+				}, nil
+			}
+		}
+	}
+
 	modelID, ok := domain.SplitModelID(modelStr)
 	if ok {
 		requestID := uuid.New().String()
@@ -952,6 +1017,11 @@ func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterRespon
 	if cacheEnabled && hasCacheKey {
 		bufLimit = maxCacheBuf
 	}
+	// Determine the input format from the context (set in RouteChat).
+	inputFmt := domain.FormatOpenAI
+	if v, ok := ctx.Value(inputFormatCtxKey{}).(domain.Format); ok {
+		inputFmt = v
+	}
 	tee := &teeReadCloser{
 		r:     res.Body,
 		limit: bufLimit,
@@ -966,6 +1036,26 @@ func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterRespon
 						s.Cache.Store(ctx, key, res.StatusCode, res.Headers, buf)
 					}
 				}
+			}
+			// Store in semantic cache (both active and lazy modes store
+			// on successful responses). We store the response in client
+			// format so it can be replayed regardless of which model
+			// generated it. The x-gr-cache: off opt-out also disables
+			// semantic cache writes.
+			if s.SemanticCache != nil && s.SemanticCache.Enabled() && endpoint == "" && res.StatusCode < 400 && len(buf) > 0 && !isCacheDisabled(ctx) {
+				modelStr := m.Provider + "/" + m.Model
+				cached := &domain.CachedResponse{
+					StatusCode: res.StatusCode,
+					Headers:    res.Headers,
+				}
+				if res.Stream {
+					cached.StreamChunks = buf
+					cached.Stream = true
+				} else {
+					cached.Body = buf
+				}
+				reqBody, _ := requestBodyFromCtx(ctx)
+				s.SemanticCache.Store(ctx, reqBody, modelStr, inputFmt, cached)
 			}
 		},
 	}
@@ -1044,6 +1134,28 @@ func (s *RouterService) recordCacheHitUsage(m domain.ModelID, modelStr string, a
 		CacheCostSaved:   costSaved,
 		Status:           200,
 		RequestID:        uuid.New().String(),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = s.Usage.Record(ctx, &entry)
+}
+
+// recordSemanticCacheHitUsage writes a UsageEntry for a semantic cache hit.
+// Runs in a goroutine — never blocks the request path.
+func (s *RouterService) recordSemanticCacheHitUsage(m domain.ModelID, modelStr string, apiKey string, prompt, completion int, costSaved float64) {
+	entry := domain.UsageEntry{
+		Timestamp:           time.Now(),
+		Provider:            m.Provider,
+		Model:               m.Model,
+		ApiKey:              apiKey,
+		Endpoint:            "chat/completions",
+		PromptTokens:        prompt,
+		CompletionTokens:    completion,
+		SemanticCacheHit:    true,
+		SemanticTokensSaved: prompt + completion,
+		SemanticCostSaved:   costSaved,
+		Status:              200,
+		RequestID:           uuid.New().String(),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -1302,4 +1414,26 @@ func withCacheKey(ctx context.Context, key string) context.Context {
 func cacheKeyFromCtx(ctx context.Context) (string, bool) {
 	key, ok := ctx.Value(cacheKeyCtxKey{}).(string)
 	return key, ok
+}
+
+// inputFormatCtxKey stores the client's input format in the context so
+// the response path (wrapUsageTracking) knows what format the cached
+// response body is in.
+type inputFormatCtxKey struct{}
+
+func withInputFormat(ctx context.Context, f domain.Format) context.Context {
+	return context.WithValue(ctx, inputFormatCtxKey{}, f)
+}
+
+// requestBodyCtxKey stores the original request body (client format) so
+// the response path can extract prompt text for the semantic cache.
+type requestBodyCtxKey struct{}
+
+func withRequestBody(ctx context.Context, body []byte) context.Context {
+	return context.WithValue(ctx, requestBodyCtxKey{}, body)
+}
+
+func requestBodyFromCtx(ctx context.Context) ([]byte, bool) {
+	body, ok := ctx.Value(requestBodyCtxKey{}).([]byte)
+	return body, ok
 }

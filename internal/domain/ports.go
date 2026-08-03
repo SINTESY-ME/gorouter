@@ -15,11 +15,11 @@ type ExecuteRequest struct {
 	ProviderID    string
 	Connection    *Connection
 	Config        *ProviderConfig
-	UpstreamModel string // the model id at the upstream (after alias resolution)
+	UpstreamModel string        // the model id at the upstream (after alias resolution)
 	Body          io.ReadCloser // already in target format
 	Stream        bool
 	Headers       map[string]string // extra headers (e.g. anthropic-version)
-	Endpoint      string // "" = chat (format-based URL); "embeddings" | "images/generations" force OpenAI-style paths
+	Endpoint      string            // "" = chat (format-based URL); "embeddings" | "images/generations" force OpenAI-style paths
 }
 
 // ExecuteResult is the upstream's response. The caller owns closing Body.
@@ -27,9 +27,9 @@ type ExecuteRequest struct {
 // the Translator (if any) wraps it before writing to the client.
 type ExecuteResult struct {
 	StatusCode int
-	Headers     http.Header
-	Body        io.ReadCloser
-	Stream      bool
+	Headers    http.Header
+	Body       io.ReadCloser
+	Stream     bool
 }
 
 // Executor makes a single upstream HTTP call. Implementations must not
@@ -89,12 +89,12 @@ type RequestCompressor interface {
 // responses, StreamChunks holds the concatenation of SSE chunks (each chunk
 // prefixed with its SSE framing) ready to be replayed verbatim.
 type CachedResponse struct {
-	StatusCode    int
-	Headers       http.Header
-	Body          []byte // non-stream: full JSON response (client format)
-	StreamChunks  []byte // stream: concatenated SSE bytes ready to replay
-	Stream        bool
-	CreatedAt     time.Time
+	StatusCode   int
+	Headers      http.Header
+	Body         []byte // non-stream: full JSON response (client format)
+	StreamChunks []byte // stream: concatenated SSE bytes ready to replay
+	Stream       bool
+	CreatedAt    time.Time
 }
 
 // ResponseCache stores and retrieves cached responses keyed by a deterministic
@@ -122,4 +122,33 @@ type CacheStats struct {
 	Entries int   `json:"entries"`
 	Hits    int64 `json:"hits"`
 	Misses  int64 `json:"misses"`
+}
+
+// EmbeddingProvider generates vector embeddings for text. Used by the
+// semantic cache to compute similarity between prompts.
+type EmbeddingProvider interface {
+	// Embed returns a float32 vector for the given text. Implementations
+	// should cache embeddings for repeated inputs to avoid redundant calls.
+	Embed(ctx context.Context, text string) ([]float32, error)
+}
+
+// SemanticCache stores and retrieves cached responses by vector similarity.
+// The key is a composite of the model ID and input format (e.g.
+// "openai/gpt-4o/openai") so that cache entries are scoped per model —
+// a cache hit for model A is not returned for a request to model B.
+// Implementations must be safe for concurrent use.
+type SemanticCache interface {
+	// Get searches for a cached response whose embedding is within
+	// threshold (cosine similarity) of the given embedding, scoped to the
+	// given key. Returns the cached response, the similarity score, and
+	// true on hit; (nil, 0, false) on miss.
+	Get(ctx context.Context, key string, embedding []float32, threshold float64) (*CachedResponse, float64, bool)
+	// Put stores the response under the given key with its embedding.
+	Put(ctx context.Context, key string, embedding []float32, resp *CachedResponse)
+	// Flush removes all entries.
+	Flush(ctx context.Context)
+	// Stats returns current cache statistics.
+	Stats() CacheStats
+	// Close stops background goroutines. Safe to call multiple times.
+	Close()
 }

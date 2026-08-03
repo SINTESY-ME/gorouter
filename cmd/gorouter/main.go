@@ -23,6 +23,7 @@ import (
 	"github.com/jhon/gorouter/internal/infra/executor"
 	"github.com/jhon/gorouter/internal/infra/responsecache"
 	"github.com/jhon/gorouter/internal/infra/rtk"
+	"github.com/jhon/gorouter/internal/infra/semanticcache"
 	"github.com/jhon/gorouter/internal/infra/translator"
 	httpx "github.com/jhon/gorouter/internal/interfaces/http"
 	"github.com/jhon/gorouter/internal/providers"
@@ -100,6 +101,7 @@ func run() error {
 	router.TPSProber = app.NewTPSProber(router.TPS, router)
 	savings := app.NewSavingsTracker()
 	router.Savings = savings
+	budgetSvc := app.NewBudgetService(asyncUsage)
 
 	// Response cache (direct-hash). Controlled by the dashboard settings
 	// (persisted in SettingRepo). On boot we read the DB setting; if absent
@@ -137,6 +139,46 @@ func run() error {
 		slog.Info("rtk compression enabled")
 	}
 
+	// Semantic cache (vector-similarity). Same pattern: read the DB
+	// settings on boot, fall back to env defaults, persist if absent.
+	// Requires an embedding model to be configured; without one the
+	// feature stays disabled (even if the toggle says on).
+	var semanticSvc *app.SemanticCacheService
+	semanticModel := cfg.SemanticCacheModel
+	if v, err := settingRepo.Get(ctx, "semantic_cache_model"); err == nil && v != "" {
+		semanticModel = v
+	} else if semanticModel != "" {
+		_ = settingRepo.Set(ctx, "semantic_cache_model", semanticModel)
+	}
+	semanticMode := cfg.SemanticCacheMode
+	if v, err := settingRepo.Get(ctx, "semantic_cache_mode"); err == nil {
+		semanticMode = v
+	} else {
+		_ = settingRepo.Set(ctx, "semantic_cache_mode", semanticMode)
+	}
+	semanticEnabled := cfg.SemanticCacheEnabled
+	if v, err := settingRepo.Get(ctx, "semantic_cache_enabled"); err == nil {
+		semanticEnabled = v == "true"
+	} else {
+		_ = settingRepo.Set(ctx, "semantic_cache_enabled", strconv.FormatBool(cfg.SemanticCacheEnabled))
+	}
+	if semanticModel != "" {
+		embedder := semanticcache.NewGorouterEmbeddingProvider("http://127.0.0.1:"+cfg.Port, "", semanticModel)
+		semanticFactory := func() domain.SemanticCache {
+			return semanticcache.NewMemory(1000, 10*time.Minute, time.Minute)
+		}
+		memCache := semanticFactory()
+		defer memCache.Close()
+		semanticSvc = app.NewSemanticCacheService(memCache, embedder, cfg.SemanticCacheThreshold, semanticMode)
+		semanticSvc.SetEnabled(semanticEnabled)
+		router.SemanticCache = semanticSvc
+		if semanticEnabled {
+			slog.Info("semantic cache enabled", "model", semanticModel, "mode", semanticMode, "threshold", cfg.SemanticCacheThreshold)
+		}
+	} else if semanticEnabled {
+		slog.Warn("semantic cache requested but no embedding model configured; disabled")
+	}
+
 	models := &app.ModelsService{Combos: comboRepo, Models: modelRepo}
 	connSvc := &app.ConnectionService{Repo: cachedConns}
 	combos := &app.ComboService{Repo: comboRepo, Models: modelRepo}
@@ -166,27 +208,29 @@ func run() error {
 
 	httpx.SetStaticHandler(web.Handler)
 	srv := &httpx.Server{
-		Router:          router,
-		Models:          models,
-		Providers:       connSvc,
-		ProviderConfigs: providerConfigRepo,
-		Combos:          combos,
-		Keys:            apiKeys,
-		Usage:           usage,
-		Health:          router.Health,
-		Prober:          prober,
-		ModelSync:       modelSync,
-		ModelRepo:       modelRepo,
-		Cache:           cacheSvc,
-		Settings:        settingRepo,
-		Savings:         savings,
+		Router:               router,
+		Models:               models,
+		Providers:            connSvc,
+		ProviderConfigs:      providerConfigRepo,
+		Combos:               combos,
+		Keys:                 apiKeys,
+		Usage:                usage,
+		Health:               router.Health,
+		Prober:               prober,
+		ModelSync:            modelSync,
+		ModelRepo:            modelRepo,
+		Cache:                cacheSvc,
+		Settings:             settingRepo,
+		Savings:              savings,
 		RTKCompressorFactory: rtkFactory,
 		CacheFactory:    cacheFactory,
-		RequireKey:      cfg.RequireKey,
-		Auth:            auth,
-		RateLimiter:     app.NewRateLimiter(),
-		Catalog:         catalogSvc,
-		OAuth:           oauthMgr,
+		SemanticCache:   semanticSvc,
+		RequireKey:           cfg.RequireKey,
+		Auth:                 auth,
+		RateLimiter:          app.NewRateLimiter(),
+		Catalog:              catalogSvc,
+		OAuth:                oauthMgr,
+		BudgetChecker:        budgetSvc,
 	}
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.Port,

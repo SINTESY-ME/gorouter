@@ -31,6 +31,12 @@ type Config struct {
 	// RTK request token compression. Default off (opt-in). When on,
 	// tool_result content is compressed before upstream calls.
 	RTKEnabled bool
+	// Semantic cache (vector-similarity). Default off (opt-in). When on,
+	// prompts are embedded and cached responses are served by similarity.
+	SemanticCacheEnabled   bool
+	SemanticCacheThreshold float64
+	SemanticCacheModel     string
+	SemanticCacheMode      string // "active" (default) | "lazy"
 }
 
 // FromEnv builds Config from environment variables, defaults applied.
@@ -52,6 +58,10 @@ func FromEnv() (*Config, error) {
 		CacheMaxEntries:    envInt("GOROUTER_CACHE_MAX_ENTRIES", 10000),
 		CacheSweepInterval: envDuration("GOROUTER_CACHE_SWEEP_INTERVAL", time.Minute),
 		RTKEnabled:         envBool("GOROUTER_RTK_ENABLED", false),
+		SemanticCacheEnabled:   envBool("GOROUTER_SEMANTIC_CACHE_ENABLED", false),
+		SemanticCacheThreshold: envFloat("GOROUTER_SEMANTIC_CACHE_THRESHOLD", 0.95),
+		SemanticCacheModel:     os.Getenv("GOROUTER_SEMANTIC_CACHE_MODEL"),
+		SemanticCacheMode:      envOr("GOROUTER_SEMANTIC_CACHE_MODE", "active"),
 	}
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return nil, fmt.Errorf("create home dir: %w", err)
@@ -101,6 +111,18 @@ func envInt(key string, def int) int {
 		return def
 	}
 	return n
+}
+
+func envFloat(key string, def float64) float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return def
+	}
+	return f
 }
 
 func envDuration(key string, def time.Duration) time.Duration {

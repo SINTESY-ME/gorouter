@@ -566,9 +566,11 @@ func (s *Server) handleDeleteCombo(w http.ResponseWriter, r *http.Request) {
 // ---- Api keys ----
 
 type keyDTO struct {
-	Name         string `json:"name"`
-	IsActive     *bool  `json:"is_active"`
-	RateLimitRPM *int   `json:"rate_limit_rpm"`
+	Name           string   `json:"name"`
+	IsActive       *bool    `json:"is_active"`
+	RateLimitRPM   *int     `json:"rate_limit_rpm"`
+	BudgetLimitUSD *float64 `json:"budget_limit_usd"`
+	BudgetPeriod   *string  `json:"budget_period"`
 }
 
 func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request) {
@@ -593,7 +595,15 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 	if req.RateLimitRPM != nil {
 		rpm = *req.RateLimitRPM
 	}
-	k, err := s.Keys.Create(r.Context(), req.Name, rpm)
+	var budgetUSD float64
+	if req.BudgetLimitUSD != nil {
+		budgetUSD = *req.BudgetLimitUSD
+	}
+	var budgetPeriod string
+	if req.BudgetPeriod != nil {
+		budgetPeriod = *req.BudgetPeriod
+	}
+	k, err := s.Keys.Create(r.Context(), req.Name, rpm, budgetUSD, budgetPeriod)
 	if err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
@@ -623,6 +633,12 @@ func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.RateLimitRPM != nil {
 		existing.RateLimitRPM = *req.RateLimitRPM
+	}
+	if req.BudgetLimitUSD != nil {
+		existing.BudgetLimitUSD = *req.BudgetLimitUSD
+	}
+	if req.BudgetPeriod != nil {
+		existing.BudgetPeriod = *req.BudgetPeriod
 	}
 	if err := s.Keys.Update(r.Context(), existing); err != nil {
 		writeError(w, statusForError(err), err.Error())
