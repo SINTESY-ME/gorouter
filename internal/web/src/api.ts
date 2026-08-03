@@ -106,9 +106,14 @@ export interface Combo {
   classifier_model?: string;
   created_at: string; updated_at: string;
 }
+export interface KeyLimit {
+  id: string;
+  kind: "rate" | "budget";
+  max: number;
+  duration: string;
+}
 export interface ApiKey {
-  id: string; key: string; name: string; is_active: boolean; rate_limit_rpm: number;
-  budget_limit_usd?: number; budget_period?: string; created_at: string;
+  id: string; key: string; name: string; is_active: boolean; limits: KeyLimit[]; created_at: string;
 }
 export interface UsageStats {
   requests: number; prompt_tokens: number; completion_tokens: number; cost: number;
@@ -253,8 +258,8 @@ export const api = {
   },
   keys: {
     list: () => request<ApiKey[]>("/api/keys"),
-    create: (k: { name: string; rate_limit_rpm?: number; budget_limit_usd?: number; budget_period?: string }) => request<ApiKey>("/api/keys", { method: "POST", body: JSON.stringify(k) }),
-    update: (id: string, k: { name?: string; is_active?: boolean; rate_limit_rpm?: number; budget_limit_usd?: number; budget_period?: string }) => request<ApiKey>(`/api/keys/${id}`, { method: "PUT", body: JSON.stringify(k) }),
+    create: (k: { name: string; limits?: KeyLimit[] }) => request<ApiKey>("/api/keys", { method: "POST", body: JSON.stringify(k) }),
+    update: (id: string, k: { name?: string; is_active?: boolean; limits?: KeyLimit[] }) => request<ApiKey>(`/api/keys/${id}`, { method: "PUT", body: JSON.stringify(k) }),
     remove: (id: string) => request<void>(`/api/keys/${id}`, { method: "DELETE" }),
   },
   usage: {

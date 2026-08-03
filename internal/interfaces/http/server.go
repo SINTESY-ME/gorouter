@@ -187,8 +187,9 @@ func (s *Server) Routes() http.Handler {
 
 // requireApiKey validates the client's API key against the ApiKeyRepo via
 // the ApiKeyService. Both Authorization: Bearer and x-api-key are accepted.
-// When the key has a rate_limit_rpm > 0, the in-memory token bucket is
-// enforced; requests over the limit get 429.
+// When the key carries rate limits, the in-memory sliding-window limiter is
+// enforced; when it carries budget limits, the spend cap is checked. A key
+// with no limits is unlimited. Requests over a limit get 429.
 func (s *Server) requireApiKey(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bearer := bearerToken(r)
@@ -216,21 +217,45 @@ func (s *Server) requireApiKey(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "invalid or revoked api key")
 			return
 		}
-		if s.RateLimiter != nil && !s.RateLimiter.Allow(key, apiKey.RateLimitRPM) {
-			w.Header().Set("Retry-After", "60")
-			writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+		if len(apiKey.Limits) == 0 {
+			ctx := context.WithValue(r.Context(), apiKeyCtxKey{}, key)
+			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
-		if s.BudgetChecker != nil && apiKey.BudgetLimitUSD > 0 {
-			result := s.BudgetChecker.Check(r.Context(), key, apiKey.BudgetLimitUSD, apiKey.BudgetPeriod)
-			if !result.Allowed {
-				retryAfter := int(time.Until(result.ResetAt).Seconds())
-				if retryAfter < 1 {
-					retryAfter = 1
+		// Rate limits: all must pass (AND).
+		var rateLimits []domain.KeyLimit
+		for _, l := range apiKey.Limits {
+			if l.Kind == domain.KeyLimitRate {
+				rateLimits = append(rateLimits, l)
+			}
+		}
+		if s.RateLimiter != nil && len(rateLimits) > 0 {
+			allowed, retryAfter := s.RateLimiter.Allow(key, rateLimits)
+			if !allowed {
+				if retryAfter <= 0 {
+					retryAfter = 60 * time.Second
 				}
-				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
-				writeError(w, http.StatusTooManyRequests, fmt.Sprintf("budget limit exceeded: $%.2f of $%.2f %s", result.Spent, result.Limit, apiKey.BudgetPeriod))
+				w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
+				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 				return
+			}
+		}
+		// Budget limits: blocked if any is exceeded.
+		if s.BudgetChecker != nil {
+			for _, l := range apiKey.Limits {
+				if l.Kind != domain.KeyLimitBudget || l.Max <= 0 {
+					continue
+				}
+				dur, err := domain.ParseWindowDuration(l.Duration)
+				if err != nil || dur <= 0 {
+					continue
+				}
+				result := s.BudgetChecker.Check(r.Context(), key, l.Max, dur)
+				if !result.Allowed {
+					w.Header().Set("Retry-After", "60")
+					writeError(w, http.StatusTooManyRequests, fmt.Sprintf("budget limit exceeded: $%.2f of $%.2f per %s", result.Spent, result.Limit, l.Duration))
+					return
+				}
 			}
 		}
 		ctx := context.WithValue(r.Context(), apiKeyCtxKey{}, key)

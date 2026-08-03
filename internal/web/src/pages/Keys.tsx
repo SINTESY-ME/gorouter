@@ -1,18 +1,69 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Table, Button, Modal, Input, Chip, TextField, Label, Description, Card, AlertDialog,
+  ToggleButton, ToggleButtonGroup, Select, ListBox,
 } from "@heroui/react";
-import { api, type ApiKey } from "../api";
-import { IconPlus, IconTrash, IconApi, IconCopy, IconCheck } from "../icons";
+import { api, type ApiKey, type KeyLimit } from "../api";
+import { IconPlus, IconTrash, IconPencil, IconApi, IconCopy, IconCheck, IconX } from "../icons";
+
+type LimitKind = "rate" | "budget";
+
+const DURATION_PRESETS = [
+  { value: "1h", label: "1 hora" },
+  { value: "5h", label: "5 horas" },
+  { value: "12h", label: "12 horas" },
+  { value: "24h", label: "1 dia" },
+  { value: "7d", label: "7 dias" },
+  { value: "30d", label: "30 dias" },
+];
+
+function formatLimit(l: KeyLimit): string {
+  return l.kind === "rate" ? `${Math.round(l.max)} req/${l.duration}` : `$${l.max}/${l.duration}`;
+}
+
+function genId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `l-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// LimitsCell renders up to 3 limit chips and collapses the rest into a
+// "+N" chip with a full tooltip, keeping the row compact.
+function LimitsCell({ limits }: { limits: KeyLimit[] }) {
+  const shown = limits.slice(0, 3);
+  const extra = limits.length - shown.length;
+  if (limits.length === 0) {
+    return <span className="text-xs text-muted">—</span>;
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {shown.map((l) => (
+        <Chip key={l.id} size="sm" variant="soft" className="text-[10px]" title={formatLimit(l)}>
+          {formatLimit(l)}
+        </Chip>
+      ))}
+      {extra > 0 && (
+        <Chip size="sm" variant="soft" className="text-[10px]" title={limits.map(formatLimit).join(", ")}>
+          +{extra}
+        </Chip>
+      )}
+    </div>
+  );
+}
 
 export default function Keys() {
   const [items, setItems] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [rpm, setRpm] = useState("");
-  const [budgetUSD, setBudgetUSD] = useState("");
-  const [budgetPeriod, setBudgetPeriod] = useState("");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<ApiKey | null>(null);
+  const [formName, setFormName] = useState("");
+  const [formLimits, setFormLimits] = useState<KeyLimit[]>([]);
+  const [activeTab, setActiveTab] = useState<LimitKind>("rate");
+  const [draftMax, setDraftMax] = useState("");
+  const [draftDuration, setDraftDuration] = useState<string>("1h");
+  const [draftCustom, setDraftCustom] = useState("");
+  const [draftCustomMode, setDraftCustomMode] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -30,18 +81,64 @@ export default function Keys() {
   };
   useEffect(load, []);
 
-  const create = async () => {
+  const resetDraft = () => {
+    setDraftMax("");
+    setDraftDuration("1h");
+    setDraftCustom("");
+    setDraftCustomMode(false);
+  };
+
+  const openCreate = () => {
+    setEditing(null);
+    setFormName("");
+    setFormLimits([]);
+    setActiveTab("rate");
+    setError(null);
+    resetDraft();
+    setModalOpen(true);
+  };
+
+  const openEdit = (k: ApiKey) => {
+    setEditing(k);
+    setFormName(k.name);
+    setFormLimits(k.limits ? k.limits.map((l) => ({ ...l })) : []);
+    setActiveTab("rate");
+    setError(null);
+    resetDraft();
+    setModalOpen(true);
+  };
+
+  const save = async () => {
     setSaving(true);
+    setError(null);
     try {
-      const k = await api.keys.create({
-        name,
-        rate_limit_rpm: rpm ? parseInt(rpm) : 0,
-        budget_limit_usd: budgetUSD ? parseFloat(budgetUSD) : 0,
-        budget_period: budgetPeriod || "",
-      });
-      setName(""); setRpm(""); setBudgetUSD(""); setBudgetPeriod(""); setCreateOpen(false); load();
-      setCopied(k.key);
-    } finally { setSaving(false); }
+      if (editing) {
+        await api.keys.update(editing.id, { name: formName, limits: formLimits });
+        setModalOpen(false);
+        load();
+      } else {
+        const k = await api.keys.create({ name: formName, limits: formLimits });
+        setModalOpen(false);
+        load();
+        setCopied(k.key);
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "falha ao salvar");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addLimit = () => {
+    const max = parseFloat(draftMax);
+    const duration = draftCustomMode ? draftCustom.trim() : draftDuration;
+    if (!max || max <= 0 || !duration) return;
+    setFormLimits((prev) => [...prev, { id: genId(), kind: activeTab, max, duration }]);
+    resetDraft();
+  };
+
+  const removeLimit = (id: string) => {
+    setFormLimits((prev) => prev.filter((l) => l.id !== id));
   };
 
   const remove = async (id: string) => {
@@ -50,18 +147,6 @@ export default function Keys() {
 
   const toggleActive = async (k: ApiKey) => {
     await api.keys.update(k.id, { is_active: !k.is_active });
-    load();
-  };
-
-  const updateRpm = async (k: ApiKey, value: string) => {
-    const n = value ? parseInt(value) : 0;
-    await api.keys.update(k.id, { rate_limit_rpm: n });
-    load();
-  };
-
-  const updateBudget = async (k: ApiKey, usd: string, period: string) => {
-    const n = usd ? parseFloat(usd) : 0;
-    await api.keys.update(k.id, { budget_limit_usd: n, budget_period: period });
     load();
   };
 
@@ -77,6 +162,8 @@ export default function Keys() {
     try { await navigator.clipboard.writeText(endpoint); setEndpointCopied(true); setTimeout(() => setEndpointCopied(false), 1500); } catch {}
   };
 
+  const activeLimits = useMemo(() => formLimits.filter((l) => l.kind === activeTab), [formLimits, activeTab]);
+
   return (
     <div className="space-y-5">
       <div className="flex justify-between items-center">
@@ -84,7 +171,7 @@ export default function Keys() {
           <h1 className="text-2xl font-bold tracking-tight">API Keys</h1>
           <p className="text-sm text-muted mt-0.5">{items.length} chaves cadastradas</p>
         </div>
-        <Button variant="outline" onPress={() => setCreateOpen(true)}><IconPlus className="w-4 h-4" /> Nova chave</Button>
+        <Button variant="outline" onPress={openCreate}><IconPlus className="w-4 h-4" /> Nova chave</Button>
       </div>
 
       <Card className="p-5">
@@ -120,12 +207,11 @@ export default function Keys() {
         ) : (
           <Table>
             <Table.ScrollContainer>
-              <Table.Content aria-label="keys" className="min-w-[820px]">
+              <Table.Content aria-label="keys" className="min-w-[760px]">
                 <Table.Header>
                   <Table.Column isRowHeader id="name">Nome</Table.Column>
                   <Table.Column id="key">Chave</Table.Column>
-                  <Table.Column id="rpm">Rate Limit</Table.Column>
-                  <Table.Column id="budget">Budget</Table.Column>
+                  <Table.Column id="limits">Limites</Table.Column>
                   <Table.Column id="status">Status</Table.Column>
                   <Table.Column id="created">Criada</Table.Column>
                   <Table.Column id="actions">Ações</Table.Column>
@@ -144,45 +230,7 @@ export default function Keys() {
                           {copiedKeyId === k.id ? <IconCheck className="text-success shrink-0 w-3 h-3" /> : <IconCopy className="w-3 h-3 text-muted/70 shrink-0 group-hover:text-accent transition-colors" />}
                         </div>
                       </Table.Cell>
-                      <Table.Cell>
-                        <Input
-                          type="number"
-                          defaultValue={k.rate_limit_rpm != null ? String(k.rate_limit_rpm) : ""}
-                          placeholder="0"
-                          className="w-20"
-                          aria-label="Rate limit"
-                          onBlur={(e) => {
-                            const v = e.target.value;
-                            if (v !== String(k.rate_limit_rpm || "")) updateRpm(k, v);
-                          }}
-                        />
-                      </Table.Cell>
-                      <Table.Cell>
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs text-muted">$</span>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            defaultValue={k.budget_limit_usd ? String(k.budget_limit_usd) : ""}
-                            placeholder="0"
-                            className="w-16"
-                            aria-label="Budget limit"
-                            onBlur={(e) => {
-                              const v = e.target.value;
-                              if (v !== String(k.budget_limit_usd || "")) updateBudget(k, v, k.budget_period || "");
-                            }}
-                          />
-                          <select
-                            defaultValue={k.budget_period || ""}
-                            className="text-xs bg-transparent border border-border rounded-lg px-1 py-1.5 text-muted outline-none"
-                            onChange={(e) => updateBudget(k, k.budget_limit_usd ? String(k.budget_limit_usd) : "", e.target.value)}
-                          >
-                            <option value="">—</option>
-                            <option value="daily">dia</option>
-                            <option value="monthly">mês</option>
-                          </select>
-                        </div>
-                      </Table.Cell>
+                      <Table.Cell><LimitsCell limits={k.limits || []} /></Table.Cell>
                       <Table.Cell>
                         <Chip size="sm" variant="soft" color={k.is_active ? "success" : "default"}>
                           {k.is_active ? "ativo" : "inativo"}
@@ -191,6 +239,9 @@ export default function Keys() {
                       <Table.Cell><span className="text-xs text-muted">{new Date(k.created_at).toLocaleDateString()}</span></Table.Cell>
                       <Table.Cell>
                         <div className="flex gap-1 justify-end">
+                          <Button size="sm" variant="secondary" onPress={() => openEdit(k)} aria-label={`editar ${k.name}`}>
+                            <IconPencil className="w-3.5 h-3.5" /> Editar
+                          </Button>
                           <Button size="sm" variant="secondary" onPress={() => toggleActive(k)}>
                             {k.is_active ? "Desativar" : "Ativar"}
                           </Button>
@@ -206,38 +257,106 @@ export default function Keys() {
         )}
       </Card>
 
-      <Modal isOpen={createOpen} onOpenChange={setCreateOpen}>
+      <Modal isOpen={modalOpen} onOpenChange={(o) => { if (!o) setModalOpen(false); }}>
         <Modal.Backdrop>
           <Modal.Container>
             <Modal.Dialog>
-              <Modal.Header><Modal.Heading>Nova API Key</Modal.Heading></Modal.Header>
-              <Modal.Body>
-                <TextField value={name} onChange={setName}>
+              <Modal.Header>
+                <Modal.Heading>{editing ? `Editar API Key — ${editing.name}` : "Nova API Key"}</Modal.Heading>
+              </Modal.Header>
+              <Modal.Body className="gap-4">
+                <TextField value={formName} onChange={setFormName}>
                   <Label>Nome</Label>
                   <Input placeholder="ex: dev, prod, mobile" />
                 </TextField>
-                <TextField value={rpm} onChange={setRpm}>
-                  <Label>Rate Limit (req/min)</Label>
-                  <Input type="number" placeholder="0 = ilimitado" />
-                  <Description>Máximo de requisições por minuto. 0 desativa o limite.</Description>
-                </TextField>
-                <TextField value={budgetUSD} onChange={setBudgetUSD}>
-                  <Label>Limite de gasto (USD)</Label>
-                  <Input type="number" step="0.01" placeholder="0 = ilimitado" />
-                  <Description>Rejeita requests quando o gasto exceder este valor no período.</Description>
-                </TextField>
-                <TextField value={budgetPeriod} onChange={setBudgetPeriod}>
-                  <Label>Período do orçamento</Label>
-                  <select className="w-full bg-transparent border border-border rounded-lg px-3 py-2 text-sm outline-none">
-                    <option value="">Sem limite</option>
-                    <option value="daily">Diário</option>
-                    <option value="monthly">Mensal</option>
-                  </select>
-                </TextField>
+
+                <div className="flex flex-col gap-1">
+                  <Label>Limites</Label>
+                  <ToggleButtonGroup
+                    selectedKeys={new Set([activeTab])}
+                    selectionMode="single"
+                    disallowEmptySelection
+                    onSelectionChange={(keys) => {
+                      const k = [...keys][0] as string;
+                      if (k === "rate" || k === "budget") { setActiveTab(k); resetDraft(); }
+                    }}
+                    className="w-full"
+                  >
+                    <ToggleButton id="rate">Rate Limit</ToggleButton>
+                    <ToggleButton id="budget"><ToggleButtonGroup.Separator />Budget Limit</ToggleButton>
+                  </ToggleButtonGroup>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    {activeLimits.map((l) => (
+                      <Chip key={l.id} size="sm" variant="soft" className="text-[11px]">
+                        <span className="flex items-center gap-1">
+                          {formatLimit(l)}
+                          <Button isIconOnly size="sm" variant="ghost" className="size-4 min-w-0 p-0 text-muted" onPress={() => removeLimit(l.id)} aria-label={`remover ${formatLimit(l)}`}>
+                            <IconX className="size-3" />
+                          </Button>
+                        </span>
+                      </Chip>
+                    ))}
+                    {activeLimits.length === 0 && (
+                      <span className="text-xs text-muted">Nenhum limite {activeTab === "rate" ? "de requisições" : "de gasto"}.</span>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-end">
+                    <TextField value={draftMax} onChange={setDraftMax} className="sm:w-36">
+                      <Label>{activeTab === "rate" ? "Máx. requisições" : "Máx. USD"}</Label>
+                      <Input type="number" min="0" step={activeTab === "budget" ? "0.01" : "1"} placeholder={activeTab === "rate" ? "ex: 100" : "ex: 10.00"} />
+                    </TextField>
+                    <div className="flex flex-col gap-1 flex-1 min-w-0">
+                      <Label>Duração</Label>
+                      {draftCustomMode ? (
+                        <Input
+                          value={draftCustom}
+                          onChange={(e) => setDraftCustom(e.target.value)}
+                          placeholder="ex: 90d, 6h, 45m"
+                          aria-label="Duração personalizada"
+                        />
+                      ) : (
+                        <Select
+                          aria-label="Duração"
+                          selectedKey={draftDuration}
+                          onSelectionChange={(key) => setDraftDuration((key as string) || "1h")}
+                        >
+                          <Select.Trigger><Select.Value /></Select.Trigger>
+                          <Select.Popover>
+                            <ListBox>
+                              {DURATION_PRESETS.map((d) => <ListBox.Item key={d.value} id={d.value}>{d.label}</ListBox.Item>)}
+                              <ListBox.Item id="custom">Personalizado...</ListBox.Item>
+                            </ListBox>
+                          </Select.Popover>
+                        </Select>
+                      )}
+                    </div>
+                    <Button variant="secondary" onPress={addLimit} isDisabled={!parseFloat(draftMax) || !(draftCustomMode ? draftCustom.trim() : draftDuration)}>
+                      Adicionar
+                    </Button>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onPress={() => setDraftCustomMode((v) => !v)}
+                    className="text-xs"
+                  >
+                    {draftCustomMode ? "Usar presets" : "Duração personalizada"}
+                  </Button>
+                </div>
+
+                <Description>
+                  A key é bloqueada se <strong>qualquer</strong> limite exceder. Limites são janelas deslizantes.
+                </Description>
+
+                {error && <p className="text-sm text-danger">{error}</p>}
               </Modal.Body>
               <Modal.Footer>
-                <Button variant="secondary" onPress={() => setCreateOpen(false)}>Cancelar</Button>
-                <Button variant="primary" onPress={create} isDisabled={saving}>Criar</Button>
+                <Button variant="secondary" onPress={() => setModalOpen(false)}>Cancelar</Button>
+                <Button variant="primary" onPress={save} isDisabled={saving || !formName}>{editing ? "Salvar" : "Criar"}</Button>
               </Modal.Footer>
             </Modal.Dialog>
           </Modal.Container>

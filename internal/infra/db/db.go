@@ -29,7 +29,7 @@ import (
 func Open(ctx context.Context, driver, dsn string) (*gorm.DB, error) {
 	cfg := &gorm.Config{
 		TranslateError: true, // map duplicate-key / not-found to gorm.Err*
-		Logger:        logger.Default.LogMode(logger.Warn),
+		Logger:         logger.Default.LogMode(logger.Warn),
 	}
 	var db *gorm.DB
 	var err error
@@ -75,6 +75,12 @@ func Open(ctx context.Context, driver, dsn string) (*gorm.DB, error) {
 	// in connections but has no ProviderConfig row yet. This ensures
 	// existing deployments get the Provider entity without manual migration.
 	backfillProviderConfigs(db)
+	// Drop the legacy scalar limit columns from api_keys. Limits are now
+	// stored as a JSON slice on the ApiKey.Limits field; these columns were
+	// a short-lived earlier design.
+	dropColumnIfExists(db, "api_keys", "rate_limit_rpm")
+	dropColumnIfExists(db, "api_keys", "budget_limit_usd")
+	dropColumnIfExists(db, "api_keys", "budget_period")
 	return db, nil
 }
 

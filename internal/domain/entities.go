@@ -7,6 +7,9 @@
 package domain
 
 import (
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -209,14 +212,72 @@ type ComboModelMeta struct {
 // ApiKey is a client-facing key created in the dashboard. Clients send it
 // as Authorization: Bearer or x-api-key.
 type ApiKey struct {
-	ID             string    `json:"id" gorm:"primaryKey"`
-	Key            string    `json:"key" gorm:"uniqueIndex"`
-	Name           string    `json:"name"`
-	IsActive       bool      `json:"is_active" gorm:"column:is_active;default:true"`
-	RateLimitRPM   int       `json:"rate_limit_rpm" gorm:"column:rate_limit_rpm;default:0"`
-	BudgetLimitUSD float64   `json:"budget_limit_usd,omitempty" gorm:"column:budget_limit_usd;default:0"`
-	BudgetPeriod   string    `json:"budget_period,omitempty"  gorm:"column:budget_period;default:''"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID       string `json:"id" gorm:"primaryKey"`
+	Key      string `json:"key" gorm:"uniqueIndex"`
+	Name     string `json:"name"`
+	IsActive bool   `json:"is_active" gorm:"column:is_active;default:true"`
+	// Limits holds every rate/spend limit applied to this key. An empty
+	// (or nil) slice means the key is unlimited.
+	Limits    []KeyLimit `json:"limits,omitempty" gorm:"serializer:json;type:text"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+// KeyLimitKind distinguishes the two kinds of limits a key can carry.
+type KeyLimitKind string
+
+const (
+	KeyLimitRate   KeyLimitKind = "rate"   // max requests per rolling window
+	KeyLimitBudget KeyLimitKind = "budget" // max USD spend per rolling window
+)
+
+// KeyLimit is one limit applied to an API key: a request-rate cap or a
+// spend cap over a rolling window. A key can hold any number of limits of
+// either kind, all of which must be satisfied (a request is blocked if any
+// limit is exceeded). Max is in requests (rate) or USD (budget). Duration
+// is a window string parseable by ParseWindowDuration (e.g. "5h", "7d",
+// "30d").
+type KeyLimit struct {
+	ID       string       `json:"id"`
+	Kind     KeyLimitKind `json:"kind"`
+	Max      float64      `json:"max"`
+	Duration string       `json:"duration"`
+}
+
+// ParseWindowDuration parses a limit window string. It accepts Go duration
+// syntax (e.g. "30m", "5h", "72h") plus day and week suffixes ("7d",
+// "2w") that time.ParseDuration does not support. Non-positive and invalid
+// values return an error.
+func ParseWindowDuration(s string) (time.Duration, error) {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return 0, fmt.Errorf("invalid duration %q", s)
+	}
+	if d, err := time.ParseDuration(trimmed); err == nil {
+		if d <= 0 {
+			return 0, fmt.Errorf("invalid duration %q", s)
+		}
+		return d, nil
+	}
+	n := len(trimmed)
+	if n < 2 {
+		return 0, fmt.Errorf("invalid duration %q", s)
+	}
+	unit := trimmed[n-1]
+	num := trimmed[:n-1]
+	var mult time.Duration
+	switch unit {
+	case 'd':
+		mult = 24 * time.Hour
+	case 'w':
+		mult = 7 * 24 * time.Hour
+	default:
+		return 0, fmt.Errorf("invalid duration %q", s)
+	}
+	v, err := strconv.ParseFloat(num, 64)
+	if err != nil || v <= 0 {
+		return 0, fmt.Errorf("invalid duration %q", s)
+	}
+	return time.Duration(v * float64(mult)), nil
 }
 
 // UsageEntry is a single upstream call's resource accounting. One row per

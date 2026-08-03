@@ -13,14 +13,10 @@ type costSource interface {
 	SumCostByApiKey(ctx context.Context, apiKey string, since time.Time) (float64, error)
 }
 
-// BudgetService checks whether an API key has exceeded its spending cap.
-// It wraps a costSource with a short-TTL in-memory cache so the hot path
-// (every /v1 request) doesn't hit the database on each call.
-//
-// Budget periods:
-//   - "" (empty): no limit, always allowed
-//   - "daily":   resets at 00:00 local time
-//   - "monthly": resets on the 1st of the month at 00:00 local time
+// BudgetService checks whether an API key has exceeded a spend cap over a
+// rolling window. It wraps a costSource with a short-TTL in-memory cache so
+// the hot path (every /v1 request) doesn't hit the database on each call.
+// A limit of 0 or less means no cap (always allowed).
 type BudgetService struct {
 	usage costSource
 	ttl   time.Duration
@@ -51,32 +47,32 @@ type BudgetResult struct {
 	ResetAt time.Time
 }
 
-// Check reports whether the API key is within its budget. When limit <= 0
-// or period is empty, the key is always allowed. Otherwise the cumulative
-// cost since the period start is compared against the limit. The result
-// is cached for ttl to avoid a DB query on every request.
-func (bs *BudgetService) Check(ctx context.Context, apiKey string, limit float64, period string) BudgetResult {
-	if limit <= 0 || period == "" {
+// Check reports whether the key's spend since (now - duration) is within
+// limit. When limit <= 0 the key is always allowed. The result is cached for
+// ttl per (key, duration) so the rolling sum isn't recomputed on every
+// request. ResetAt marks when the current window rolls over (now, for a
+// rolling window) — used for Retry-After on a blocked request.
+func (bs *BudgetService) Check(ctx context.Context, apiKey string, limit float64, duration time.Duration) BudgetResult {
+	if limit <= 0 || duration <= 0 {
 		return BudgetResult{Allowed: true}
 	}
 
-	cacheKey := apiKey + "|" + period
+	cacheKey := apiKey + "|" + duration.String()
 	now := time.Now()
 
 	bs.mu.RLock()
 	if entry, ok := bs.cache[cacheKey]; ok && now.Sub(entry.cachedAt) < bs.ttl {
 		bs.mu.RUnlock()
-		allowed := entry.spent < limit
 		return BudgetResult{
-			Allowed: allowed,
+			Allowed: entry.spent < limit,
 			Spent:   entry.spent,
 			Limit:   limit,
-			ResetAt: budgetPeriodStart(period, now),
+			ResetAt: now,
 		}
 	}
 	bs.mu.RUnlock()
 
-	since := budgetPeriodStart(period, now)
+	since := now.Add(-duration)
 	spent, err := bs.usage.SumCostByApiKey(ctx, apiKey, since)
 	if err != nil {
 		return BudgetResult{Allowed: true}
@@ -86,44 +82,10 @@ func (bs *BudgetService) Check(ctx context.Context, apiKey string, limit float64
 	bs.cache[cacheKey] = budgetCacheEntry{spent: spent, cachedAt: now}
 	bs.mu.Unlock()
 
-	allowed := spent < limit
 	return BudgetResult{
-		Allowed: allowed,
+		Allowed: spent < limit,
 		Spent:   spent,
 		Limit:   limit,
-		ResetAt: since.Add(budgetPeriodDuration(period)),
-	}
-}
-
-// Invalidate removes the cached spent amount for a key. Call this after
-// recording a usage entry so the next Check reflects the new spend.
-func (bs *BudgetService) Invalidate(apiKey, period string) {
-	if apiKey == "" || period == "" {
-		return
-	}
-	bs.mu.Lock()
-	delete(bs.cache, apiKey+"|"+period)
-	bs.mu.Unlock()
-}
-
-// budgetPeriodStart returns the start of the current budget period.
-func budgetPeriodStart(period string, now time.Time) time.Time {
-	switch period {
-	case "daily":
-		return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	case "monthly":
-		return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
-	default:
-		return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	}
-}
-
-// budgetPeriodDuration returns the duration of one full budget cycle.
-func budgetPeriodDuration(period string) time.Duration {
-	switch period {
-	case "monthly":
-		return 30 * 24 * time.Hour
-	default:
-		return 24 * time.Hour
+		ResetAt: now,
 	}
 }

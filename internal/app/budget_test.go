@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/jhon/gorouter/internal/domain"
 )
 
 type budgetUsageRepo struct {
@@ -16,7 +18,7 @@ func (r *budgetUsageRepo) SumCostByApiKey(ctx context.Context, apiKey string, si
 
 func TestBudgetService_NoLimit(t *testing.T) {
 	svc := NewBudgetService(&budgetUsageRepo{spent: 500})
-	res := svc.Check(context.Background(), "key", 0, "daily")
+	res := svc.Check(context.Background(), "key", 0, 24*time.Hour)
 	if !res.Allowed {
 		t.Fatal("limit 0 should always allow")
 	}
@@ -24,7 +26,7 @@ func TestBudgetService_NoLimit(t *testing.T) {
 
 func TestBudgetService_WithinLimit(t *testing.T) {
 	svc := NewBudgetService(&budgetUsageRepo{spent: 10})
-	res := svc.Check(context.Background(), "key", 100, "daily")
+	res := svc.Check(context.Background(), "key", 100, 24*time.Hour)
 	if !res.Allowed {
 		t.Fatal("spent 10 < limit 100 should allow")
 	}
@@ -35,7 +37,7 @@ func TestBudgetService_WithinLimit(t *testing.T) {
 
 func TestBudgetService_Exceeded(t *testing.T) {
 	svc := NewBudgetService(&budgetUsageRepo{spent: 150})
-	res := svc.Check(context.Background(), "key", 100, "daily")
+	res := svc.Check(context.Background(), "key", 100, 24*time.Hour)
 	if res.Allowed {
 		t.Fatal("spent 150 > limit 100 should deny")
 	}
@@ -44,14 +46,33 @@ func TestBudgetService_Exceeded(t *testing.T) {
 	}
 }
 
-func TestBudgetPeriodStart(t *testing.T) {
-	now := time.Date(2026, 3, 15, 14, 30, 0, 0, time.UTC)
-	day := budgetPeriodStart("daily", now)
-	if day.Day() != 15 || day.Hour() != 0 {
-		t.Fatalf("expected start of day, got %v", day)
+func TestParseWindowDuration(t *testing.T) {
+	cases := []struct {
+		in   string
+		want time.Duration
+	}{
+		{"5h", 5 * time.Hour},
+		{"30m", 30 * time.Minute},
+		{"7d", 7 * 24 * time.Hour},
+		{"30d", 30 * 24 * time.Hour},
+		{"2w", 14 * 24 * time.Hour},
+		{"72h", 72 * time.Hour},
 	}
-	month := budgetPeriodStart("monthly", now)
-	if month.Day() != 1 || month.Hour() != 0 {
-		t.Fatalf("expected start of month, got %v", month)
+	for _, c := range cases {
+		got, err := domain.ParseWindowDuration(c.in)
+		if err != nil {
+			t.Fatalf("ParseWindowDuration(%q) unexpected error: %v", c.in, err)
+		}
+		if got != c.want {
+			t.Fatalf("ParseWindowDuration(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestParseWindowDuration_Invalid(t *testing.T) {
+	for _, in := range []string{"", "5", "abc", "-1h", "0d"} {
+		if d, err := domain.ParseWindowDuration(in); err == nil {
+			t.Fatalf("ParseWindowDuration(%q) expected error, got %v", in, d)
+		}
 	}
 }

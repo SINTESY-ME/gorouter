@@ -3,51 +3,133 @@ package app
 import (
 	"sync"
 	"time"
+
+	"github.com/jhon/gorouter/internal/domain"
 )
 
-// RateLimiter is an in-memory per-key token bucket limiter. A key with
-// rpm=0 is unlimited. Buckets are created lazily on first request and
-// refilled continuously at rpm/60 tokens per second, capped at rpm.
+// RateLimiter enforces in-memory sliding-window request limits per API key.
+// Each key can carry multiple rate limits (each with its own window); a
+// request is allowed only when every limit has room (AND semantics), so a
+// key configured with "5 req/5h" and "100 req/7d" is blocked if either
+// window is full.
+//
+// State is process-local: windows reset on restart. When limits are edited
+// the affected windows are dropped and rebuilt.
 type RateLimiter struct {
 	mu      sync.Mutex
-	buckets map[string]*tokenBucket
+	windows map[string][]rateWindow
 }
 
-type tokenBucket struct {
-	tokens   float64
-	last     time.Time
-	rpm      int
+type rateWindow struct {
+	id         string
+	max        float64
+	duration   time.Duration
+	timestamps []time.Time
 }
 
 func NewRateLimiter() *RateLimiter {
-	return &RateLimiter{buckets: make(map[string]*tokenBucket)}
+	return &RateLimiter{windows: make(map[string][]rateWindow)}
 }
 
-// Allow reports whether a request from the given key is within its rate
-// limit. rpm=0 means unlimited (always allowed).
-func (rl *RateLimiter) Allow(key string, rpm int) bool {
-	if rpm <= 0 {
-		return true
+// Allow reports whether the key is within all of its rate limits. When
+// limits is empty the key is unlimited. On success it records the request
+// timestamp in each window. On a violation it returns the time until the
+// oldest in-window request falls out (so the caller can set Retry-After).
+func (rl *RateLimiter) Allow(key string, limits []domain.KeyLimit) (bool, time.Duration) {
+	if len(limits) == 0 {
+		return true, 0
 	}
+
+	// Normalize the active rate limits, skipping invalid or non-rate ones.
+	type norm struct {
+		max float64
+		dur time.Duration
+	}
+	active := make(map[string]norm, len(limits))
+	for _, l := range limits {
+		if l.Kind != domain.KeyLimitRate || l.Max <= 0 {
+			continue
+		}
+		dur, err := domain.ParseWindowDuration(l.Duration)
+		if err != nil || dur <= 0 {
+			continue
+		}
+		active[l.ID] = norm{max: l.Max, dur: dur}
+	}
+	if len(active) == 0 {
+		return true, 0
+	}
+
+	now := time.Now()
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	b, ok := rl.buckets[key]
-	if !ok || b.rpm != rpm {
-		// First request or RPM changed: start with full bucket.
-		b = &tokenBucket{tokens: float64(rpm), last: time.Now(), rpm: rpm}
-		rl.buckets[key] = b
+	// Reconcile the key's windows to the active limit set: keep + update the
+	// survivors (pruning expired timestamps), drop removed ones, and add new
+	// ones.
+	prev := rl.windows[key]
+	live := make([]rateWindow, 0, len(active))
+	for i := range prev {
+		n, ok := active[prev[i].id]
+		if !ok {
+			continue
+		}
+		prev[i].max = n.max
+		prev[i].duration = n.dur
+		prev[i].prune(now)
+		live = append(live, prev[i])
+	}
+	for id, n := range active {
+		if !hasWindow(live, id) {
+			live = append(live, rateWindow{id: id, max: n.max, duration: n.dur})
+		}
+	}
+	rl.windows[key] = live
+
+	// First pass: every window must have room. If one is full, report the
+	// time until its oldest request falls out of the window.
+	var retry time.Duration
+	for i := range live {
+		w := &live[i]
+		if float64(len(w.timestamps)) >= w.max {
+			remaining := w.duration - now.Sub(w.timestamps[0])
+			if remaining < 0 {
+				remaining = 0
+			}
+			if retry == 0 || remaining > retry {
+				retry = remaining
+			}
+		}
+	}
+	if retry > 0 {
+		return false, retry
 	}
 
-	// Refill: tokens accrue at rpm/60 per second since last request.
-	now := time.Now()
-	elapsed := now.Sub(b.last).Seconds()
-	b.tokens = min(float64(rpm), b.tokens+elapsed*float64(rpm)/60.0)
-	b.last = now
+	// All windows have room: record the request in each.
+	for i := range live {
+		live[i].timestamps = append(live[i].timestamps, now)
+	}
+	rl.windows[key] = live
+	return true, 0
+}
 
-	if b.tokens >= 1 {
-		b.tokens--
-		return true
+func hasWindow(ws []rateWindow, id string) bool {
+	for i := range ws {
+		if ws[i].id == id {
+			return true
+		}
 	}
 	return false
+}
+
+// prune drops timestamps older than the window.
+func (w *rateWindow) prune(now time.Time) {
+	cutoff := now.Add(-w.duration)
+	kept := w.timestamps[:0]
+	for _, ts := range w.timestamps {
+		if ts.After(cutoff) {
+			kept = append(kept, ts)
+		}
+	}
+	w.timestamps = kept
 }

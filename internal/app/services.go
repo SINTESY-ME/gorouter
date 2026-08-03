@@ -234,19 +234,20 @@ func (s *ApiKeyService) List(ctx context.Context) ([]domain.ApiKey, error) {
 	return s.Repo.List(ctx)
 }
 
-func (s *ApiKeyService) Create(ctx context.Context, name string, rateLimitRPM int, budgetLimitUSD float64, budgetPeriod string) (*domain.ApiKey, error) {
+func (s *ApiKeyService) Create(ctx context.Context, name string, limits []domain.KeyLimit) (*domain.ApiKey, error) {
 	key, err := apikeyGenerate(s.Secret)
 	if err != nil {
 		return nil, err
 	}
+	if err := normalizeKeyLimits(limits); err != nil {
+		return nil, err
+	}
 	k := &domain.ApiKey{
-		ID:             uuid.NewString(),
-		Key:            key,
-		Name:           name,
-		IsActive:       true,
-		RateLimitRPM:   rateLimitRPM,
-		BudgetLimitUSD: budgetLimitUSD,
-		BudgetPeriod:   budgetPeriod,
+		ID:       uuid.NewString(),
+		Key:      key,
+		Name:     name,
+		IsActive: true,
+		Limits:   limits,
 	}
 	if err := s.Repo.Create(ctx, k); err != nil {
 		return nil, err
@@ -254,7 +255,42 @@ func (s *ApiKeyService) Create(ctx context.Context, name string, rateLimitRPM in
 	return k, nil
 }
 
+// normalizeKeyLimits validates a key's limits and backfills missing IDs so
+// each limit has a stable identity for the rate-limit windows.
+func normalizeKeyLimits(limits []domain.KeyLimit) error {
+	if len(limits) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	for i := range limits {
+		l := &limits[i]
+		if l.Kind != domain.KeyLimitRate && l.Kind != domain.KeyLimitBudget {
+			return fmtValidation(fmt.Sprintf("invalid limit kind %q: must be rate or budget", l.Kind))
+		}
+		if l.Max <= 0 {
+			return fmtValidation("limit max must be greater than zero")
+		}
+		dur, err := domain.ParseWindowDuration(l.Duration)
+		if err != nil || dur <= 0 {
+			return fmtValidation(fmt.Sprintf("invalid limit duration %q", l.Duration))
+		}
+		if l.ID == "" {
+			l.ID = uuid.NewString()
+		}
+		if seen[l.ID] {
+			return fmtValidation("duplicate limit id")
+		}
+		seen[l.ID] = true
+	}
+	return nil
+}
+
 func (s *ApiKeyService) Update(ctx context.Context, k *domain.ApiKey) error {
+	if k.Limits != nil {
+		if err := normalizeKeyLimits(k.Limits); err != nil {
+			return err
+		}
+	}
 	return s.Repo.Update(ctx, k)
 }
 
