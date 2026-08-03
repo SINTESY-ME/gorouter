@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Table, Button, Modal, Input, Chip, TextField, Label, Description, Card, AlertDialog,
-  ToggleButton, ToggleButtonGroup, Select, ListBox,
+  ToggleButton, Select, ListBox,
 } from "@heroui/react";
 import { api, type ApiKey, type KeyLimit } from "../api";
-import { IconPlus, IconTrash, IconPencil, IconApi, IconCopy, IconCheck, IconX } from "../icons";
+import { IconPlus, IconTrash, IconPencil, IconApi, IconCopy, IconCheck, IconX, IconGauge, IconDollar } from "../icons";
 
 type LimitKind = "rate" | "budget";
 
@@ -16,6 +16,18 @@ const DURATION_PRESETS = [
   { value: "7d", label: "7 dias" },
   { value: "30d", label: "30 dias" },
 ];
+
+// Draft holds the "add a limit" form inputs for one feature section. Each
+// active feature has its own draft so Rate and Budget can be configured
+// independently and both visible at once.
+interface Draft {
+  max: string;
+  duration: string;
+  custom: string;
+  customMode: boolean;
+}
+
+const emptyDraft = (): Draft => ({ max: "", duration: "1h", custom: "", customMode: false });
 
 function formatLimit(l: KeyLimit): string {
   return l.kind === "rate" ? `${Math.round(l.max)} req/${l.duration}` : `$${l.max}/${l.duration}`;
@@ -51,6 +63,84 @@ function LimitsCell({ limits }: { limits: KeyLimit[] }) {
   );
 }
 
+// LimitEditor renders the configuration section for a single feature: the
+// list of configured limits (with remove) and the "add a limit" row.
+function LimitEditor({ kind, limits, draft, onDraftChange, onAdd, onRemove }: {
+  kind: LimitKind;
+  limits: KeyLimit[];
+  draft: Draft;
+  onDraftChange: (d: Draft) => void;
+  onAdd: () => void;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <div className="space-y-3 rounded-xl border border-border bg-surface-secondary/50 p-3">
+      <div className="flex flex-wrap gap-2">
+        {limits.map((l) => (
+          <Chip key={l.id} size="sm" variant="soft" className="text-[11px]">
+            <span className="flex items-center gap-1">
+              {formatLimit(l)}
+              <Button isIconOnly size="sm" variant="ghost" className="size-4 min-w-0 p-0 text-muted" onPress={() => onRemove(l.id)} aria-label={`remover ${formatLimit(l)}`}>
+                <IconX className="size-3" />
+              </Button>
+            </span>
+          </Chip>
+        ))}
+        {limits.length === 0 && (
+          <span className="text-xs text-muted">Nenhum limite {kind === "rate" ? "de requisições" : "de gasto"}.</span>
+        )}
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-end">
+        <TextField value={draft.max} onChange={(v) => onDraftChange({ ...draft, max: v })} className="sm:w-36">
+          <Label>{kind === "rate" ? "Máx. requisições" : "Máx. USD"}</Label>
+          <Input type="number" min="0" step={kind === "budget" ? "0.01" : "1"} placeholder={kind === "rate" ? "ex: 100" : "ex: 10.00"} />
+        </TextField>
+        <div className="flex flex-col gap-1 flex-1 min-w-0">
+          <Label>Duração</Label>
+          {draft.customMode ? (
+            <Input
+              value={draft.custom}
+              onChange={(e) => onDraftChange({ ...draft, custom: e.target.value })}
+              placeholder="ex: 90d, 6h, 45m"
+              aria-label="Duração personalizada"
+            />
+          ) : (
+            <Select
+              aria-label="Duração"
+              selectedKey={draft.duration}
+              onSelectionChange={(key) => {
+                const v = key as string;
+                if (v === "custom") onDraftChange({ ...draft, customMode: true });
+                else onDraftChange({ ...draft, duration: v });
+              }}
+            >
+              <Select.Trigger><Select.Value /></Select.Trigger>
+              <Select.Popover>
+                <ListBox>
+                  {DURATION_PRESETS.map((d) => <ListBox.Item key={d.value} id={d.value}>{d.label}</ListBox.Item>)}
+                  <ListBox.Item id="custom">Personalizado...</ListBox.Item>
+                </ListBox>
+              </Select.Popover>
+            </Select>
+          )}
+        </div>
+        <Button variant="secondary" onPress={onAdd} isDisabled={!parseFloat(draft.max) || !(draft.customMode ? draft.custom.trim() : draft.duration)}>
+          Adicionar
+        </Button>
+      </div>
+      <Button
+        size="sm"
+        variant="ghost"
+        onPress={() => onDraftChange({ ...draft, customMode: !draft.customMode })}
+        className="text-xs"
+      >
+        {draft.customMode ? "Usar presets" : "Duração personalizada"}
+      </Button>
+    </div>
+  );
+}
+
 export default function Keys() {
   const [items, setItems] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,11 +148,12 @@ export default function Keys() {
   const [editing, setEditing] = useState<ApiKey | null>(null);
   const [formName, setFormName] = useState("");
   const [formLimits, setFormLimits] = useState<KeyLimit[]>([]);
-  const [activeTab, setActiveTab] = useState<LimitKind>("rate");
-  const [draftMax, setDraftMax] = useState("");
-  const [draftDuration, setDraftDuration] = useState<string>("1h");
-  const [draftCustom, setDraftCustom] = useState("");
-  const [draftCustomMode, setDraftCustomMode] = useState(false);
+  // features tracks which limit features are toggled ON in the modal. Each
+  // feature is an independent ToggleButton; only active features show their
+  // configuration section. This keeps the modal clean as more features are
+  // added.
+  const [features, setFeatures] = useState<{ rate: boolean; budget: boolean }>({ rate: false, budget: false });
+  const [drafts, setDrafts] = useState<Record<LimitKind, Draft>>({ rate: emptyDraft(), budget: emptyDraft() });
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
@@ -81,30 +172,27 @@ export default function Keys() {
   };
   useEffect(load, []);
 
-  const resetDraft = () => {
-    setDraftMax("");
-    setDraftDuration("1h");
-    setDraftCustom("");
-    setDraftCustomMode(false);
-  };
-
   const openCreate = () => {
     setEditing(null);
     setFormName("");
     setFormLimits([]);
-    setActiveTab("rate");
+    setFeatures({ rate: false, budget: false });
+    setDrafts({ rate: emptyDraft(), budget: emptyDraft() });
     setError(null);
-    resetDraft();
     setModalOpen(true);
   };
 
   const openEdit = (k: ApiKey) => {
+    const limits = k.limits ? k.limits.map((l) => ({ ...l })) : [];
     setEditing(k);
     setFormName(k.name);
-    setFormLimits(k.limits ? k.limits.map((l) => ({ ...l })) : []);
-    setActiveTab("rate");
+    setFormLimits(limits);
+    setFeatures({
+      rate: limits.some((l) => l.kind === "rate"),
+      budget: limits.some((l) => l.kind === "budget"),
+    });
+    setDrafts({ rate: emptyDraft(), budget: emptyDraft() });
     setError(null);
-    resetDraft();
     setModalOpen(true);
   };
 
@@ -129,12 +217,21 @@ export default function Keys() {
     }
   };
 
-  const addLimit = () => {
-    const max = parseFloat(draftMax);
-    const duration = draftCustomMode ? draftCustom.trim() : draftDuration;
+  const toggleFeature = (kind: LimitKind, on: boolean) => {
+    setFeatures((prev) => ({ ...prev, [kind]: on }));
+    // Turning a feature off clears its limits.
+    if (!on) {
+      setFormLimits((prev) => prev.filter((l) => l.kind !== kind));
+    }
+  };
+
+  const addLimit = (kind: LimitKind) => {
+    const d = drafts[kind];
+    const max = parseFloat(d.max);
+    const duration = d.customMode ? d.custom.trim() : d.duration;
     if (!max || max <= 0 || !duration) return;
-    setFormLimits((prev) => [...prev, { id: genId(), kind: activeTab, max, duration }]);
-    resetDraft();
+    setFormLimits((prev) => [...prev, { id: genId(), kind, max, duration }]);
+    setDrafts((prev) => ({ ...prev, [kind]: emptyDraft() }));
   };
 
   const removeLimit = (id: string) => {
@@ -161,8 +258,6 @@ export default function Keys() {
   const copyEndpoint = async () => {
     try { await navigator.clipboard.writeText(endpoint); setEndpointCopied(true); setTimeout(() => setEndpointCopied(false), 1500); } catch {}
   };
-
-  const activeLimits = useMemo(() => formLimits.filter((l) => l.kind === activeTab), [formLimits, activeTab]);
 
   return (
     <div className="space-y-5">
@@ -272,84 +367,39 @@ export default function Keys() {
 
                 <div className="flex flex-col gap-1">
                   <Label>Limites</Label>
-                  <ToggleButtonGroup
-                    selectedKeys={new Set([activeTab])}
-                    selectionMode="single"
-                    disallowEmptySelection
-                    onSelectionChange={(keys) => {
-                      const k = [...keys][0] as string;
-                      if (k === "rate" || k === "budget") { setActiveTab(k); resetDraft(); }
-                    }}
-                    className="w-full"
-                  >
-                    <ToggleButton id="rate">Rate Limit</ToggleButton>
-                    <ToggleButton id="budget"><ToggleButtonGroup.Separator />Budget Limit</ToggleButton>
-                  </ToggleButtonGroup>
-                </div>
-
-                <div className="space-y-3">
                   <div className="flex flex-wrap gap-2">
-                    {activeLimits.map((l) => (
-                      <Chip key={l.id} size="sm" variant="soft" className="text-[11px]">
-                        <span className="flex items-center gap-1">
-                          {formatLimit(l)}
-                          <Button isIconOnly size="sm" variant="ghost" className="size-4 min-w-0 p-0 text-muted" onPress={() => removeLimit(l.id)} aria-label={`remover ${formatLimit(l)}`}>
-                            <IconX className="size-3" />
-                          </Button>
-                        </span>
-                      </Chip>
-                    ))}
-                    {activeLimits.length === 0 && (
-                      <span className="text-xs text-muted">Nenhum limite {activeTab === "rate" ? "de requisições" : "de gasto"}.</span>
-                    )}
+                    <ToggleButton isSelected={features.rate} onChange={(v) => toggleFeature("rate", v)}>
+                      <IconGauge className="w-4 h-4" /> Rate Limit
+                    </ToggleButton>
+                    <ToggleButton isSelected={features.budget} onChange={(v) => toggleFeature("budget", v)}>
+                      <IconDollar className="w-4 h-4" /> Budget Limit
+                    </ToggleButton>
                   </div>
-
-                  <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-end">
-                    <TextField value={draftMax} onChange={setDraftMax} className="sm:w-36">
-                      <Label>{activeTab === "rate" ? "Máx. requisições" : "Máx. USD"}</Label>
-                      <Input type="number" min="0" step={activeTab === "budget" ? "0.01" : "1"} placeholder={activeTab === "rate" ? "ex: 100" : "ex: 10.00"} />
-                    </TextField>
-                    <div className="flex flex-col gap-1 flex-1 min-w-0">
-                      <Label>Duração</Label>
-                      {draftCustomMode ? (
-                        <Input
-                          value={draftCustom}
-                          onChange={(e) => setDraftCustom(e.target.value)}
-                          placeholder="ex: 90d, 6h, 45m"
-                          aria-label="Duração personalizada"
-                        />
-                      ) : (
-                        <Select
-                          aria-label="Duração"
-                          selectedKey={draftDuration}
-                          onSelectionChange={(key) => setDraftDuration((key as string) || "1h")}
-                        >
-                          <Select.Trigger><Select.Value /></Select.Trigger>
-                          <Select.Popover>
-                            <ListBox>
-                              {DURATION_PRESETS.map((d) => <ListBox.Item key={d.value} id={d.value}>{d.label}</ListBox.Item>)}
-                              <ListBox.Item id="custom">Personalizado...</ListBox.Item>
-                            </ListBox>
-                          </Select.Popover>
-                        </Select>
-                      )}
-                    </div>
-                    <Button variant="secondary" onPress={addLimit} isDisabled={!parseFloat(draftMax) || !(draftCustomMode ? draftCustom.trim() : draftDuration)}>
-                      Adicionar
-                    </Button>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onPress={() => setDraftCustomMode((v) => !v)}
-                    className="text-xs"
-                  >
-                    {draftCustomMode ? "Usar presets" : "Duração personalizada"}
-                  </Button>
                 </div>
+
+                {features.rate && (
+                  <LimitEditor
+                    kind="rate"
+                    limits={formLimits.filter((l) => l.kind === "rate")}
+                    draft={drafts.rate}
+                    onDraftChange={(d) => setDrafts((prev) => ({ ...prev, rate: d }))}
+                    onAdd={() => addLimit("rate")}
+                    onRemove={removeLimit}
+                  />
+                )}
+                {features.budget && (
+                  <LimitEditor
+                    kind="budget"
+                    limits={formLimits.filter((l) => l.kind === "budget")}
+                    draft={drafts.budget}
+                    onDraftChange={(d) => setDrafts((prev) => ({ ...prev, budget: d }))}
+                    onAdd={() => addLimit("budget")}
+                    onRemove={removeLimit}
+                  />
+                )}
 
                 <Description>
-                  A key é bloqueada se <strong>qualquer</strong> limite exceder. Limites são janelas deslizantes.
+                  Ative as features que quiser e configure seus limites. A key é bloqueada se <strong>qualquer</strong> limite exceder. Limites são janelas deslizantes.
                 </Description>
 
                 {error && <p className="text-sm text-danger">{error}</p>}
