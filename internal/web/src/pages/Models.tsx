@@ -234,53 +234,49 @@ export default function Models() {
                         {copiedId === m.id ? "copiado!" : m.id}
                       </code>
                       <span
-                        className={`w-2 h-2 rounded-full shrink-0 mt-1 ${m.is_active ? "bg-success" : "bg-default-soft"}`}
+                        className={`w-2 h-2 rounded-full shrink-0 ${m.is_active ? "bg-success" : "bg-default-soft"}`}
                         title={m.is_active ? "ativo" : "inativo"}
                       />
                     </div>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <Chip size="sm" color="default" className="h-5 text-[10px]">{m.kind}</Chip>
-                      <span className="text-[10px] text-muted">{m.source}</span>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <Chip size="sm" color="default" className="h-5 shrink-0 text-[10px]">{m.kind}</Chip>
+                      <span className="min-w-0 truncate text-[10px] text-muted">{m.source}</span>
+                      <div className="ml-auto flex min-w-0 items-center gap-1.5 text-[10px]">
+                        {(() => {
+                          const p = m.pricing;
+                          if (!p || (!p.source && !p.input_cost_per_token && !p.output_cost_per_token && !p.output_cost_per_image)) return null;
+                          const inPrice = formatPricePer1M(p.input_cost_per_token);
+                          const outPrice = formatPricePer1M(p.output_cost_per_token);
+                          const imgPrice = formatPricePerImage(p.output_cost_per_image);
+                          if (!inPrice && !outPrice && !imgPrice) return <span className="truncate text-muted">Free</span>;
+                          return (
+                            <span className="flex min-w-0 items-center gap-1 truncate">
+                              {inPrice && <span className="truncate tabular-nums text-success">{inPrice}</span>}
+                              {outPrice && <span className="truncate tabular-nums text-accent">{outPrice}</span>}
+                              {imgPrice && <span className="truncate tabular-nums text-warning">{imgPrice}</span>}
+                            </span>
+                          );
+                        })()}
+                        <span className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                          <Button isIconOnly size="sm" variant="tertiary" className="size-6 min-w-6 p-0" onPress={() => openPricing(m)} aria-label="Editar preço">
+                            <IconDollar className="size-3" />
+                          </Button>
+                          <Button isIconOnly size="sm" variant="tertiary" className="size-6 min-w-6 p-0" onPress={() => toggleActive(m)} aria-label={m.is_active ? "Desativar" : "Ativar"}>
+                            <IconPower className={`size-3 ${m.is_active ? "text-success" : "text-muted"}`} />
+                          </Button>
+                          <Button isIconOnly size="sm" variant="tertiary" className="size-6 min-w-6 p-0 text-danger hover:bg-danger-soft" onPress={() => removeModel(m)} aria-label="Excluir">
+                            <IconTrash className="size-3" />
+                          </Button>
+                        </span>
+                      </div>
                     </div>
                     {st && st.requests > 0 && (
-                      <div className="flex items-center gap-3 mt-1 text-[10px] text-muted">
+                      <div className="flex items-center gap-3 text-[10px] text-muted">
                         <span className="tabular-nums">{st.avg_tps > 0 ? `${st.avg_tps.toFixed(1)} tok/s` : "—"}</span>
                         <span className="tabular-nums">{st.avg_ttft_ms && st.avg_ttft_ms > 0 ? `ttft ${Math.round(st.avg_ttft_ms)}ms` : ""}{st.avg_ttft_ms && st.avg_ttft_ms > 0 ? " · " : ""}{st.avg_latency_ms > 0 ? `${Math.round(st.avg_latency_ms)}ms` : "—"}</span>
                         <span className="tabular-nums">{st.requests > 999 ? formatCompact(st.requests) : `${st.requests}x`}</span>
                       </div>
                     )}
-                    {(() => {
-                      const p = m.pricing;
-                      if (!p || (!p.source && !p.input_cost_per_token && !p.output_cost_per_token && !p.output_cost_per_image)) return null;
-                      const inPrice = formatPricePer1M(p.input_cost_per_token);
-                      const outPrice = formatPricePer1M(p.output_cost_per_token);
-                      const imgPrice = formatPricePerImage(p.output_cost_per_image);
-                      if (!inPrice && !outPrice && !imgPrice) {
-                        return (
-                          <div className="flex items-center gap-1 mt-1 text-[10px]">
-                            <span className="tabular-nums text-muted">Free</span>
-                          </div>
-                        );
-                      }
-                      return (
-                        <div className="flex items-center gap-2 mt-1 text-[10px]">
-                          {inPrice && <span className="tabular-nums text-success">{inPrice}</span>}
-                          {outPrice && <span className="tabular-nums text-accent">{outPrice}</span>}
-                          {imgPrice && <span className="tabular-nums text-warning">{imgPrice}</span>}
-                        </div>
-                      );
-                    })()}
-                    <div className="flex gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button isIconOnly size="sm" variant="tertiary" onPress={() => openPricing(m)} aria-label="Editar preço">
-                        <IconDollar className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button isIconOnly size="sm" variant="tertiary" onPress={() => toggleActive(m)} aria-label={m.is_active ? "Desativar" : "Ativar"}>
-                        <IconPower className={`w-3.5 h-3.5 ${m.is_active ? "text-success" : "text-muted"}`} />
-                      </Button>
-                      <Button isIconOnly size="sm" variant="tertiary" onPress={() => removeModel(m)} aria-label="Excluir" className="text-danger hover:bg-danger-soft">
-                        <IconTrash className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
                   </Card>
                 );
               })}
