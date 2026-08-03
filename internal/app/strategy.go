@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,6 +21,7 @@ const (
 	StrategyRoundRobin      = "round-robin"
 	StrategyVelocity        = "velocity"     // route to the fastest model (highest observed TPS)
 	StrategyIntelligence    = "intelligence" // classifier picks the best model for the prompt
+	StrategyWeighted        = "weighted"     // weighted random primary, fallback in configured order
 )
 
 // StrategyRequest bundles the per-request data a strategy may need to decide
@@ -58,6 +60,7 @@ func NewStrategyRegistry(r *RouterService) *StrategyRegistry {
 	reg.Register(StrategyRoundRobin, roundRobinStrategy{r: r})
 	reg.Register(StrategyVelocity, velocityStrategy{r: r})
 	reg.Register(StrategyIntelligence, intelligenceStrategy{r: r})
+	reg.Register(StrategyWeighted, weightedStrategy{})
 	return reg
 }
 
@@ -211,6 +214,54 @@ func reorderChosenFirst(models []string, chosen string) []string {
 		}
 	}
 	return out
+}
+
+// --- weighted ---
+
+// weightedStrategy picks a model as the primary by weighted random draw
+// (weights from ComboModelMeta.Weight) and keeps the remaining models in
+// their configured order as fallback. Weights are summed and treated as the
+// full sample space — the same normalization Bifrost uses — so any scale
+// works (1/1/1, 50/30/20, etc.). A model without a weight defaults to 1.
+// When the total weight is zero the configured order is returned unchanged.
+type weightedStrategy struct{}
+
+func (weightedStrategy) Order(_ context.Context, req StrategyRequest) ([]string, error) {
+	return orderWeighted(req.Combo), nil
+}
+
+func orderWeighted(combo *domain.Combo) []string {
+	models := combo.Models
+	if len(models) < 2 {
+		return models
+	}
+	// Resolve weights: a model without an explicit positive weight defaults
+	// to 1 (equal share). The total is treated as the full sample space, so
+	// any scale works (1/1/1, 50/30/20, ...).
+	weights := make([]int, len(models))
+	total := 0
+	for i, m := range models {
+		w := 1
+		if meta, ok := combo.ModelMeta[m]; ok && meta.Weight > 0 {
+			w = meta.Weight
+		}
+		weights[i] = w
+		total += w
+	}
+	if total <= 0 {
+		return models
+	}
+	roll := rand.Intn(total)
+	cum := 0
+	chosen := models[0]
+	for i, m := range models {
+		cum += weights[i]
+		if roll < cum {
+			chosen = m
+			break
+		}
+	}
+	return reorderChosenFirst(models, chosen)
 }
 
 // extractPromptText builds a text representation of the conversation for the

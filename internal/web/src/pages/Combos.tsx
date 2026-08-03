@@ -4,7 +4,7 @@ import {
 } from "@heroui/react";
 import { ModelComboBox, type ModelComboBoxItem } from "../components/ModelComboBox";
 import { api, type Combo, type ModelEntry, type ComboModelMeta, type Provider } from "../api";
-import { IconPlus, IconPencil, IconTrash, IconArrow, IconX, IconSparkles, IconStack } from "../icons";
+import { IconPlus, IconPencil, IconTrash, IconArrow, IconX, IconSparkles, IconStack, IconGauge } from "../icons";
 
 const KIND_COLORS: Record<string, "accent" | "success" | "warning" | "default" | "danger"> = {
   llm: "accent", embedding: "success", image: "warning", tts: "default", stt: "danger",
@@ -16,6 +16,7 @@ const STRATEGY_COLORS: Record<string, "accent" | "success" | "warning" | "defaul
   "round-robin": "warning",
   velocity: "success",
   intelligence: "accent",
+  weighted: "danger",
 };
 
 interface ComboForm {
@@ -256,6 +257,10 @@ export default function Combos() {
                           <span className="font-medium">intelligence</span>
                           <span className="text-xs text-muted">Classificação por IA</span>
                         </ListBox.Item>
+                        <ListBox.Item id="weighted" textValue="weighted">
+                          <span className="font-medium">weighted</span>
+                          <span className="text-xs text-muted">Sorteio ponderado por peso</span>
+                        </ListBox.Item>
                       </ListBox>
                     </Select.Popover>
                   </Select>
@@ -340,6 +345,33 @@ export default function Combos() {
                         })}
                       </div>
                     )}
+                  </div>
+                )}
+                {form.strategy === "weighted" && form.models.length > 0 && (
+                  <div className="space-y-3 p-3.5 bg-surface-secondary/50 rounded-xl border border-border">
+                    <div className="text-xs font-semibold text-danger uppercase tracking-wide flex items-center gap-1.5">
+                      <IconGauge className="w-4 h-4" /> Pesos de roteamento
+                    </div>
+                    <p className="text-[11px] text-muted">
+                      O modelo é sorteado como principal proporcionalmente ao peso. A soma de todos os pesos é tratada como 100%. Ex: 50/30/20 ou 1/1/1. O restante permanece como fallback na ordem configurada.
+                    </p>
+                    {form.models.map((m) => {
+                      const meta = form.model_meta[m] ?? { weight: 1, description: "" };
+                      return (
+                        <div key={m} className="flex items-center gap-2 bg-surface p-3 rounded-lg border border-border">
+                          <code className="text-xs font-mono font-semibold flex-1 truncate">{m}</code>
+                          <span className="text-xs text-muted font-medium shrink-0">Peso:</span>
+                          <Input
+                            type="number"
+                            className="w-24"
+                            min={1}
+                            aria-label={`Peso de ${m}`}
+                            value={String(meta.weight ?? 1)}
+                            onChange={(e) => updateMeta(m, { weight: Math.max(1, Math.min(100, parseInt(e.target.value) || 1)) })}
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </Modal.Body>

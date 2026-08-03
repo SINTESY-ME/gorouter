@@ -213,9 +213,9 @@ func normalizeStrategy(s *string) error {
 	switch *s {
 	case "":
 		*s = StrategyOrderedFallback
-	case StrategyOrderedFallback, StrategyRoundRobin, StrategyVelocity, StrategyIntelligence:
+	case StrategyOrderedFallback, StrategyRoundRobin, StrategyVelocity, StrategyIntelligence, StrategyWeighted:
 	default:
-		return fmtValidation(fmt.Sprintf("invalid strategy %q: must be ordered_fallback, round-robin, velocity, or intelligence", *s))
+		return fmtValidation(fmt.Sprintf("invalid strategy %q: must be ordered_fallback, round-robin, velocity, intelligence, or weighted", *s))
 	}
 	return nil
 }
