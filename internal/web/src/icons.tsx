@@ -6,9 +6,9 @@ export const IconServer = (p: { className?: string }) => <Icon icon="gravity-ui:
 export const IconLayers = (p: { className?: string }) => <Icon icon="gravity-ui:layers" className={p.className} />;
 export const IconBox = (p: { className?: string }) => <Icon icon="gravity-ui:box" className={p.className} />;
 export const IconKey = (p: { className?: string }) => <Icon icon="gravity-ui:key" className={p.className} />;
-export const IconActivity = (p: { className?: string }) => <Icon icon="gravity-ui:activity" className={p.className} />;
-export const IconGauge = (p: { className?: string }) => <Icon icon="gravity-ui:gauge" className={p.className} />;
-export const IconChat = (p: { className?: string }) => <Icon icon="gravity-ui:chat" className={p.className} />;
+export const IconActivity = (p: { className?: string }) => <Icon icon="mdi:clipboard-text-outline" className={p.className} />;
+export const IconGauge = (p: { className?: string }) => <Icon icon="mdi:chart-line" className={p.className} />;
+export const IconChat = (p: { className?: string }) => <Icon icon="mdi:message-text-outline" className={p.className} />;
 export const IconLogout = (p: { className?: string }) => <Icon icon="gravity-ui:sign-out" className={p.className} />;
 
 export const IconPlus = (p: { className?: string }) => <Icon icon="gravity-ui:plus" className={p.className} />;
