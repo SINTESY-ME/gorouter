@@ -453,7 +453,7 @@ export default function Providers() {
                   {providerEditId ? "Editar Endpoint (Provider)" : providerStep === "pick" ? "Escolher Provider" : "Configurar Provider"}
                 </Modal.Heading>
               </Modal.Header>
-              <Modal.Body className="gap-4">
+              <Modal.Body className="flex flex-col gap-4">
                 {!providerEditId && providerStep === "pick" && (
                   <>
                     <div className="relative mb-2">
@@ -583,7 +583,7 @@ export default function Providers() {
                   {connEditId ? "Editar Chave" : "Adicionar Chave"} <span className="text-muted text-sm ml-2 font-normal">({connProviderId})</span>
                 </Modal.Heading>
               </Modal.Header>
-              <Modal.Body className="gap-4">
+              <Modal.Body className="flex flex-col gap-4">
                 <TextField value={connForm.name} onChange={(v) => setConnForm({ ...connForm, name: v })}>
                   <Label>Nome da Chave</Label>
                   <Input placeholder="ex: Produção, Conta Secundária" />

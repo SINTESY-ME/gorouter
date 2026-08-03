@@ -433,7 +433,7 @@ export default function Models() {
           <Modal.Container>
             <Modal.Dialog>
               <Modal.Header><Modal.Heading>Editar preço — {pricingModel?.id}</Modal.Heading></Modal.Header>
-              <Modal.Body className="gap-4">
+              <Modal.Body className="flex flex-col gap-4">
                 <TextField value={pricingForm.inputPer1M} onChange={(v) => setPricingForm({ ...pricingForm, inputPer1M: v })}>
                   <Label>Input ($ / 1M tokens)</Label>
                   <Input type="number" placeholder="ex: 2.50" step="0.01" />
@@ -463,7 +463,7 @@ export default function Models() {
           <Modal.Container>
             <Modal.Dialog>
               <Modal.Header><Modal.Heading>Adicionar modelo</Modal.Heading></Modal.Header>
-              <Modal.Body className="gap-4">
+              <Modal.Body className="flex flex-col gap-4">
                 <TextField value={addForm.model_id} onChange={(v) => setAddForm({ ...addForm, model_id: v })}>
                   <Label>Model ID</Label>
                   <Input placeholder="ex: gpt-4o, whisper-1" />

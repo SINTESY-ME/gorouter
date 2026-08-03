@@ -360,7 +360,7 @@ export default function Keys() {
               <Modal.Header>
                 <Modal.Heading>{editing ? `Editar API Key — ${editing.name}` : "Nova API Key"}</Modal.Heading>
               </Modal.Header>
-              <Modal.Body className="gap-4">
+              <Modal.Body className="flex flex-col gap-4">
                 <TextField value={formName} onChange={setFormName}>
                   <Label>Nome</Label>
                   <Input placeholder="ex: dev, prod, mobile" />

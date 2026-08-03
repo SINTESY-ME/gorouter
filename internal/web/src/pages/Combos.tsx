@@ -201,7 +201,7 @@ export default function Combos() {
           <Modal.Container>
             <Modal.Dialog className="max-w-2xl max-h-[85vh]">
               <Modal.Header><Modal.Heading>{editId ? "Editar combo" : "Novo combo"}</Modal.Heading></Modal.Header>
-              <Modal.Body className="gap-4 overflow-y-auto">
+              <Modal.Body className="flex flex-col gap-4 overflow-y-auto">
                 <TextField value={form.name} onChange={(v) => setForm({ ...form, name: v })}>
                   <Label>Nome</Label>
                   <Input placeholder="ex: smart, fast, balanced" />
