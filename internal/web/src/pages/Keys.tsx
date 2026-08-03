@@ -9,6 +9,7 @@ import { IconPlus, IconTrash, IconPencil, IconApi, IconCopy, IconCheck, IconX, I
 type LimitKind = "rate" | "budget";
 
 const DURATION_PRESETS = [
+  { value: "1m", label: "1 minuto" },
   { value: "1h", label: "1 hora" },
   { value: "5h", label: "5 horas" },
   { value: "12h", label: "12 horas" },
