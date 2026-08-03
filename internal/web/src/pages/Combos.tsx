@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import {
-  Table, Button, Modal, Input, Chip, Select, ListBox, Spinner, TextArea, TextField, Label,
+  Table, Button, Card, Modal, Input, Chip, Select, ListBox, Spinner, TextArea, TextField, Label, AlertDialog,
 } from "@heroui/react";
 import { ModelComboBox, type ModelComboBoxItem } from "../components/ModelComboBox";
 import { api, type Combo, type ModelEntry, type ComboModelMeta, type Provider } from "../api";
+import { IconPlus, IconPencil, IconTrash, IconArrow, IconX, IconSparkles, IconStack } from "../icons";
 
 const KIND_COLORS: Record<string, "accent" | "success" | "warning" | "default" | "danger"> = {
   llm: "accent", embedding: "success", image: "warning", tts: "default", stt: "danger",
@@ -42,6 +43,7 @@ export default function Combos() {
   const [saving, setSaving] = useState(false);
   const [triedSubmit, setTriedSubmit] = useState(false);
   const [allCatalogModels, setAllCatalogModels] = useState<ModelEntry[]>([]);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -110,10 +112,8 @@ export default function Combos() {
   };
 
   const remove = async (id: string) => {
-    if (confirm("Remover este combo?")) {
-      await api.combos.remove(id);
-      load();
-    }
+    await api.combos.remove(id);
+    load();
   };
 
   const updateMeta = (modelId: string, patch: Partial<ComboModelMeta>) => {
@@ -133,10 +133,10 @@ export default function Combos() {
           <h1 className="text-2xl font-bold tracking-tight">Combos</h1>
           <p className="text-sm text-muted mt-0.5">{items.length} combos cadastrados</p>
         </div>
-        <Button variant="outline" onPress={openNew}><IconPlus /> Novo combo</Button>
+        <Button variant="outline" onPress={openNew}><IconPlus className="w-4 h-4" /> Novo combo</Button>
       </div>
 
-      <div className="bg-surface rounded-2xl border border-border overflow-hidden">
+      <Card className="overflow-hidden">
         {loading ? (
           <div className="p-10 text-center text-muted text-sm">Carregando...</div>
         ) : items.length === 0 ? (
@@ -182,10 +182,10 @@ export default function Combos() {
                       <Table.Cell>
                         <div className="flex gap-1 justify-end">
                           <Button isIconOnly size="sm" variant="ghost" onPress={() => openEdit(c)} aria-label="editar">
-                            <IconPencil />
+                            <IconPencil className="w-4 h-4" />
                           </Button>
-                          <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => remove(c.id)} aria-label="excluir">
-                            <IconTrash />
+                          <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => setConfirmId(c.id)} aria-label="excluir">
+                            <IconTrash className="w-4 h-4" />
                           </Button>
                         </div>
                       </Table.Cell>
@@ -196,7 +196,7 @@ export default function Combos() {
             </Table.ScrollContainer>
           </Table>
         )}
-      </div>
+      </Card>
 
       <Modal isOpen={open} onOpenChange={setOpen}>
         <Modal.Backdrop>
@@ -267,7 +267,7 @@ export default function Combos() {
                 {form.strategy === "intelligence" && (
                   <div className="space-y-4 p-3.5 bg-surface-secondary/50 rounded-xl border border-border">
                     <div className="text-xs font-semibold text-accent uppercase tracking-wide flex items-center gap-1.5">
-                      <IconSparkles /> Configurações da Estratégia Intelligence
+                      <IconSparkles className="w-4 h-4" /> Configurações da Estratégia Intelligence
                     </div>
 
                     <div className="flex flex-col gap-1">
@@ -300,9 +300,9 @@ export default function Combos() {
 
                     {form.models.length > 0 && (
                       <div className="space-y-3">
-                        <label className="text-xs font-medium text-foreground/80 uppercase tracking-wide flex items-center gap-1">
+                        <Label className="text-xs font-medium text-foreground/80 uppercase tracking-wide flex items-center gap-1">
                           Capacidade e Descrição dos Modelos <span className="text-danger">*</span>
-                        </label>
+                        </Label>
                         <p className="text-[11px] text-muted">
                           Nível de capacidade (1-10) e descrição. O classificador usa isso para escolher o modelo mais simples que resolve a tarefa.
                         </p>
@@ -353,6 +353,27 @@ export default function Combos() {
           </Modal.Container>
         </Modal.Backdrop>
       </Modal>
+
+      <AlertDialog>
+        <AlertDialog.Backdrop isOpen={!!confirmId} onOpenChange={(o) => !o && setConfirmId(null)}>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className="sm:max-w-[400px]">
+              <AlertDialog.CloseTrigger />
+              <AlertDialog.Header>
+                <AlertDialog.Icon status="danger" />
+                <AlertDialog.Heading>Remover este combo?</AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p>Esta ação não pode ser desfeita.</p>
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button slot="close" variant="tertiary">Cancelar</Button>
+                <Button slot="close" variant="danger" onPress={() => { if (confirmId) remove(confirmId); setConfirmId(null); }}>Remover</Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog>
     </div>
   );
 }
@@ -462,7 +483,7 @@ function ModelSelector({
   return (
     <div className="space-y-3">
       <div>
-        <label className="text-sm text-muted">Modelos</label>
+        <Label className="text-sm text-muted">Modelos</Label>
         <p className="text-xs text-muted mt-0.5 mb-2">
           Selecione modelos ou outros combos como membros.
           {fixedKind && (
@@ -530,7 +551,7 @@ function ModelSelector({
             return (
               <div key={id + i} className="flex items-center gap-2 bg-surface-secondary rounded-lg px-3 py-2">
                 <span className="text-xs text-muted w-5 tabular-nums">{i + 1}.</span>
-                {isCombo && <IconStack />}
+                {isCombo && <IconStack className="w-3 h-3 shrink-0 text-muted" />}
                 <code className="text-xs flex-1 truncate">{id}</code>
                 {isCombo && (
                   <Chip size="sm" variant="soft" color="default" className="text-[10px]">combo</Chip>
@@ -540,13 +561,13 @@ function ModelSelector({
                 </Chip>
                 <div className="flex gap-0.5">
                   <Button isIconOnly size="sm" variant="ghost" isDisabled={i === 0} onPress={() => move(i, -1)} aria-label="subir">
-                    <IconArrow dir="up" />
+                    <IconArrow dir="up" className="w-3.5 h-3.5" />
                   </Button>
                   <Button isIconOnly size="sm" variant="ghost" isDisabled={i === selected.length - 1} onPress={() => move(i, 1)} aria-label="descer">
-                    <IconArrow dir="down" />
+                    <IconArrow dir="down" className="w-3.5 h-3.5" />
                   </Button>
                   <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => removeAt(i)} aria-label="remover">
-                    <IconX />
+                    <IconX className="w-3.5 h-3.5" />
                   </Button>
                 </div>
               </div>
@@ -555,60 +576,5 @@ function ModelSelector({
         </div>
       )}
     </div>
-  );
-}
-
-function IconPlus() {
-  return (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M5 12h14M12 5v14" />
-    </svg>
-  );
-}
-function IconPencil() {
-  return (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-    </svg>
-  );
-}
-function IconTrash() {
-  return (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6l-1.5 14a2 2 0 0 1-2 2H8.5a2 2 0 0 1-2-2L5 6" />
-      <path d="M10 11v6M14 11v6" />
-    </svg>
-  );
-}
-function IconArrow({ dir }: { dir: "up" | "down" }) {
-  return (
-    <svg className={`w-3.5 h-3.5 ${dir === "down" ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="18 15 12 9 6 15" />
-    </svg>
-  );
-}
-function IconX() {
-  return (
-    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M18 6 6 18M6 6l12 12" />
-    </svg>
-  );
-}
-function IconSparkles() {
-  return (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
-    </svg>
-  );
-}
-function IconStack() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3">
-      <polygon points="12 2 2 7 12 12 22 7 12 2" />
-      <polyline points="2 17 12 22 22 17" />
-      <polyline points="2 12 12 17 22 12" />
-    </svg>
   );
 }
