@@ -124,16 +124,17 @@ function DashboardLayout({ onLogout, me }: { onLogout: () => void; me: User | nu
           ))}
         </nav>
         <div className="p-3 border-t border-border space-y-2">
-          <div className="px-3 py-1">
-            <p className="text-sm font-medium truncate">{me?.username ?? "admin"}</p>
-            <p className="text-xs text-muted">{isAdmin ? t("app.roleAdmin") : t("app.roleMember")}</p>
-          </div>
           <ReadinessPill />
           <LanguageSwitcher />
-          <Button variant="tertiary" fullWidth isIconOnly={false} onPress={onLogout} className="justify-start">
-            <IconLogout className="w-4 h-4" />
-            {t("app.logout")}
-          </Button>
+          <div className="px-3 py-1 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-sm font-medium truncate">{me?.username ?? "admin"}</p>
+              <p className="text-xs text-muted">{isAdmin ? t("app.roleAdmin") : t("app.roleMember")}</p>
+            </div>
+            <Button variant="tertiary" isIconOnly onPress={onLogout} aria-label={t("app.logout")}>
+              <IconLogout className="w-4 h-4" />
+            </Button>
+          </div>
           <p className="text-xs text-muted px-3">{t("app.version")}</p>
         </div>
       </aside>
