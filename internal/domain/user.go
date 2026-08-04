@@ -86,6 +86,19 @@ type UserAccess struct {
 	CreatedAt  time.Time      `json:"created_at"`
 }
 
+type UserAdminSummary struct {
+	UserID           string
+	AllowedModels    []string
+	AllowedCombos    []string
+	AllowedProviders []string
+	ApiKeysCount     int
+	SessionActive    bool
+}
+
+type UserAdminSummaryRepo interface {
+	List(ctx context.Context, userIDs []string) (map[string]UserAdminSummary, error)
+}
+
 // UserScope is the authenticated dashboard user attached to the request
 // context by the session middleware. Repos use it to scope list queries to
 // what the user can see. A nil scope means "no user context" (internal

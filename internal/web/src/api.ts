@@ -125,6 +125,7 @@ export interface User {
   id: string; username: string; role: "admin" | "member";
   permissions?: UserPermissions;
   allowed_models?: string[]; allowed_combos?: string[]; allowed_providers?: string[];
+  api_keys_count: number; session_active: boolean;
   created_at: string; updated_at: string;
 }
 export interface UsageStats {

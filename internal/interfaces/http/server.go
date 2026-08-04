@@ -38,6 +38,20 @@ type ModelSyncer interface {
 
 // Server bundles the services and wires the routes. It is constructed once
 // at startup; *http.Server is the caller's responsibility.
+type UserListItem struct {
+	ID               string                 `json:"id"`
+	Username         string                 `json:"username"`
+	Role             domain.UserRole        `json:"role"`
+	Permissions      domain.UserPermissions `json:"permissions"`
+	AllowedModels    []string               `json:"allowed_models,omitempty"`
+	AllowedCombos    []string               `json:"allowed_combos,omitempty"`
+	AllowedProviders []string               `json:"allowed_providers,omitempty"`
+	ApiKeysCount     int                    `json:"api_keys_count"`
+	SessionActive    bool                   `json:"session_active"`
+	CreatedAt        time.Time              `json:"created_at"`
+	UpdatedAt        time.Time              `json:"updated_at"`
+}
+
 type Server struct {
 	Router          *app.RouterService
 	Models          *app.ModelsService

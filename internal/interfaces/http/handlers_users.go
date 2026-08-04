@@ -40,7 +40,27 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, users)
+	summaries, err := s.Users.ListAdminSummaries(r.Context(), users)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	items := make([]UserListItem, 0, len(users))
+	for _, u := range users {
+		item := UserListItem{
+			ID: u.ID, Username: u.Username, Role: u.Role, Permissions: u.Permissions,
+			CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
+		}
+		if summary, ok := summaries[u.ID]; ok {
+			item.AllowedModels = summary.AllowedModels
+			item.AllowedCombos = summary.AllowedCombos
+			item.AllowedProviders = summary.AllowedProviders
+			item.ApiKeysCount = summary.ApiKeysCount
+			item.SessionActive = summary.SessionActive
+		}
+		items = append(items, item)
+	}
+	writeJSON(w, http.StatusOK, items)
 }
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {

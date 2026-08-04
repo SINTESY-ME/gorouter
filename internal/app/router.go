@@ -414,15 +414,22 @@ func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body 
 				s.maybeProbe(modelStr, m, conn.ID)
 				continue
 			}
-			if endpoint == "" && res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
-				s.recordFailedUsage(m, conn, apiKey, endpoint, res.StatusCode, fmt.Sprintf("upstream %d", res.StatusCode), connStart, nil, requestID, *attempt)
+			if endpoint == "" && res.StatusCode >= 400 {
+				message := upstreamErrorMessage(res)
+				if message == "" {
+					message = fmt.Sprintf("upstream %d", res.StatusCode)
+				}
+				s.recordFailedUsage(m, conn, apiKey, endpoint, res.StatusCode, message, connStart, nil, requestID, *attempt)
+				if !domain.ShouldFallback(res.StatusCode, nil) {
+					return res, nil
+				}
 				*attempt++
 				s.Health.MarkUnhealthy(modelStr, conn.ID)
 				s.markRateLimited(ctx, conn, res)
 				s.maybeProbe(modelStr, m, conn.ID)
 				// Remember the last real upstream failure so the client sees
 				// its actual status (e.g. 429, 500) instead of a generic one.
-				lastUpstream = &domain.UpstreamError{Status: res.StatusCode, Message: upstreamErrorMessage(res)}
+				lastUpstream = &domain.UpstreamError{Status: res.StatusCode, Message: message}
 				if res.Body != nil {
 					res.Body.Close()
 				}
@@ -893,14 +900,22 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 			s.maybeProbe(modelStr, m, conn.ID)
 			continue
 		}
-		if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
-			s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, res.StatusCode, fmt.Sprintf("upstream %d", res.StatusCode), connStart, comboChain, requestID, *attempt)
+		if res.StatusCode >= 400 {
+			message := upstreamErrorMessage(res)
+			if message == "" {
+				message = fmt.Sprintf("upstream %d", res.StatusCode)
+			}
+			if !domain.ShouldFallback(res.StatusCode, nil) {
+				s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, res.StatusCode, message, connStart, comboChain, requestID, *attempt)
+				return res, nil
+			}
+			s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, res.StatusCode, message, connStart, comboChain, requestID, *attempt)
 			*attempt++
 			s.Health.MarkUnhealthy(modelStr, conn.ID)
 			s.markRateLimited(ctx, conn, res)
 			s.maybeProbe(modelStr, m, conn.ID)
 			// Remember the last real upstream failure for the client.
-			lastUpstream = &domain.UpstreamError{Status: res.StatusCode, Message: upstreamErrorMessage(res)}
+			lastUpstream = &domain.UpstreamError{Status: res.StatusCode, Message: message}
 			if res.Body != nil {
 				res.Body.Close()
 			}
@@ -1348,7 +1363,8 @@ func (s *RouterService) finishRoute(ctx context.Context, hc *domain.HookContext,
 // response body (best-effort; the body is consumed). Returns the upstream
 // error.message when the body is JSON, otherwise the raw body, capped.
 func upstreamErrorMessage(res *RouterResponse) string {
-	body, _ := io.ReadAll(io.LimitReader(res.Body, 2<<10))
+	body, _ := io.ReadAll(res.Body)
+	res.Body = io.NopCloser(bytes.NewReader(body))
 	var parsed struct {
 		Error struct {
 			Message string `json:"message"`

@@ -14,8 +14,9 @@ import (
 // UserService is the dashboard use case for managing users and their access
 // grants. Only admins call these methods (enforced in the HTTP layer).
 type UserService struct {
-	Users  domain.UserRepo
-	Access domain.UserAccessRepo
+	Users   domain.UserRepo
+	Access  domain.UserAccessRepo
+	Summary domain.UserAdminSummaryRepo
 }
 
 // CreateUser creates a user. The plaintext password is hashed before
@@ -103,6 +104,14 @@ func (s *UserService) DeleteUser(ctx context.Context, id string) error {
 // List returns all users, oldest first.
 func (s *UserService) List(ctx context.Context) ([]domain.User, error) {
 	return s.Users.List(ctx)
+}
+
+func (s *UserService) ListAdminSummaries(ctx context.Context, users []domain.User) (map[string]domain.UserAdminSummary, error) {
+	ids := make([]string, 0, len(users))
+	for _, u := range users {
+		ids = append(ids, u.ID)
+	}
+	return s.Summary.List(ctx, ids)
 }
 
 // Get returns a user by ID.

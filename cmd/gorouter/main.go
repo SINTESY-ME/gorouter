@@ -121,8 +121,9 @@ func run() error {
 	userRepo := db.NewUserRepo(gdb)
 	sessionRepo := db.NewSessionRepo(gdb)
 	accessRepo := db.NewUserAccessRepo(gdb)
+	summaryRepo := db.NewUserAdminSummaryRepo(gdb)
 	auth := &app.AuthService{EnvToken: cfg.DashboardToken, Users: userRepo, Sessions: sessionRepo, Setting: settingRepo}
-	usersSvc := &app.UserService{Users: userRepo, Access: accessRepo}
+	usersSvc := &app.UserService{Users: userRepo, Access: accessRepo, Summary: summaryRepo}
 	apiKeys := &app.ApiKeyService{Repo: cachedKeys, Secret: cfg.KeySecret}
 	router := app.NewRouterService(comboRepo, cachedConns, exec, tr, asyncUsage)
 	router.Tokens = tokenRefresher
