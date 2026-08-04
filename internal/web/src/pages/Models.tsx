@@ -355,7 +355,7 @@ export default function Models() {
           <h1 className="text-2xl font-bold tracking-tight">Models</h1>
           <p className="text-sm text-muted mt-0.5">{items.length} modelos · {items.filter(m => m.is_active).length} ativos</p>
         </div>
-        <div className="relative max-w-xs w-full">
+        <div className="relative max-w-xs">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><IconSearch className="w-4 h-4 text-muted" /></span>
           <Input
             value={query}
@@ -382,20 +382,22 @@ export default function Models() {
         {visibleGroups.map((g) => (
           <div key={g.providerId}>
             <div className="flex items-center gap-2 mb-3">
-              <Button
-                size="sm"
-                variant="ghost"
+              <button
+                type="button"
+                onClick={() => toggleGroup(g.providerId)}
                 aria-label={g.collapsed ? `Expandir ${g.providerId}` : `Recolher ${g.providerId}`}
-                onPress={() => toggleGroup(g.providerId)}
-                className="px-0 text-muted shrink-0"
+                className="flex items-center gap-2 text-left group cursor-pointer"
               >
-                <Icon className={`w-4 h-4 transition-transform ${g.collapsed ? "" : "rotate-90"}`} icon="gravity-ui:chevron-right" />
-              </Button>
-              <Chip size="sm" color="default" className="font-mono">{g.providerId}</Chip>
-              <span className="text-xs text-muted">
-                {g.models.length} modelo{g.models.length === 1 ? "" : "s"}
-                {!g.collapsed && g.shown < g.models.length ? ` · mostrando ${g.shown}` : ""}
-              </span>
+                <Icon
+                  className={`w-4 h-4 text-muted transition-transform shrink-0 ${g.collapsed ? "" : "rotate-90"}`}
+                  icon="gravity-ui:chevron-right"
+                />
+                <Chip size="sm" color="default" className="font-mono group-hover:opacity-80 transition-opacity">{g.providerId}</Chip>
+                <span className="text-xs text-muted">
+                  {g.models.length} modelo{g.models.length === 1 ? "" : "s"}
+                  {!g.collapsed && g.shown < g.models.length ? ` · mostrando ${g.shown}` : ""}
+                </span>
+              </button>
               <div className="flex gap-1 ml-auto">
                 <Button size="sm" variant="secondary" onPress={() => sync(g.providerId)} isDisabled={syncing === providers.find(p => p.id === g.providerId)?.id}>
                   Sincronizar

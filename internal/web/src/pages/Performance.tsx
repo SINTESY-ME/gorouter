@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { Spinner, Switch, Button, Card, Select, ListBox } from "@heroui/react";
+import { Spinner, Switch, Button, Card, Select, ListBox, Input, Chip } from "@heroui/react";
 import { api } from "../api";
+import { ModelComboBox, type ModelComboBoxItem } from "../components/ModelComboBox";
 import { formatCompact } from "../format";
+import { IconPlus, IconTrash, IconX } from "../icons";
 
 interface CacheStats {
   enabled: boolean;
@@ -23,6 +25,10 @@ export default function Performance() {
   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
   const [semanticStats, setSemanticStats] = useState<CacheStats | null>(null);
   const [flushing, setFlushing] = useState(false);
+  // Caching groups: group name -> model list.
+  const [groups, setGroups] = useState<Record<string, string[]>>({});
+  const [newGroupName, setNewGroupName] = useState("");
+  const [modelItems, setModelItems] = useState<ModelComboBoxItem[]>([]);
 
   const refresh = () => {
     Promise.all([
@@ -32,12 +38,14 @@ export default function Performance() {
         setSemanticEnabled(s.semantic_cache_enabled ?? false);
         setSemanticMode(s.semantic_cache_mode || "active");
         setEmbeddingModel(s.semantic_cache_model || "");
+        setGroups(s.caching_groups || {});
       }).catch(() => {}),
       api.cache.stats().then((s) => setCacheStats({ enabled: s.enabled, entries: s.entries ?? 0, hits: s.hits ?? 0, misses: s.misses ?? 0 })).catch(() => setCacheStats(null)),
       api.semanticCache.stats().then((s) => setSemanticStats({ enabled: s.enabled, entries: s.entries ?? 0, hits: s.hits ?? 0, misses: s.misses ?? 0 })).catch(() => setSemanticStats(null)),
       api.models.list().then((ms) => {
         const em = ms.filter((m) => m.kind === "embedding").map((m) => m.id);
         setEmbeddingModels(em);
+        setModelItems(ms.filter((m) => m.owned_by !== "combo").map((m) => ({ id: m.id, itemType: "model", kind: m.kind || "llm", isActive: true })));
       }).catch(() => {}),
     ]).finally(() => setLoading(false));
   };
@@ -94,6 +102,33 @@ export default function Performance() {
     api.semanticCache.flush()
       .then(() => setTimeout(refresh, 200))
       .catch(() => {});
+  };
+
+  const persistGroups = (next: Record<string, string[]>) => {
+    setGroups(next);
+    api.settings.update({ caching_groups: next }).catch(() => refresh());
+  };
+
+  const addGroup = () => {
+    const name = newGroupName.trim();
+    if (!name || groups[name]) return;
+    persistGroups({ ...groups, [name]: [] });
+    setNewGroupName("");
+  };
+
+  const removeGroup = (name: string) => {
+    const next = { ...groups };
+    delete next[name];
+    persistGroups(next);
+  };
+
+  const addModelToGroup = (group: string, id: string) => {
+    if (groups[group]?.includes(id)) return;
+    persistGroups({ ...groups, [group]: [...(groups[group] || []), id] });
+  };
+
+  const removeModelFromGroup = (group: string, id: string) => {
+    persistGroups({ ...groups, [group]: groups[group].filter((m) => m !== id) });
   };
 
   if (loading) return <div className="flex justify-center py-20"><Spinner /></div>;
@@ -303,6 +338,71 @@ export default function Performance() {
             )}
           </div>
         )}
+      </Card>
+
+      {/* Caching groups */}
+      <Card className="p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1">
+            <h3 className="font-semibold">Caching Groups</h3>
+            <p className="text-sm text-muted mt-1">
+              Modelos intercambiáveis compartilham a mesma entrada de cache. A resposta de um é servida para request que rotearia para outro — os modelos do grupo precisam ser equivalentes.
+            </p>
+          </div>
+        </div>
+        <div className="mt-4 flex gap-2">
+          <Input
+            value={newGroupName}
+            onChange={(e) => setNewGroupName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") addGroup(); }}
+            placeholder="Nome do grupo (ex: gpt-family)"
+            className="flex-1"
+          />
+          <Button variant="primary" onPress={addGroup} isDisabled={!newGroupName.trim()}>
+            <IconPlus className="w-4 h-4" /> Adicionar grupo
+          </Button>
+        </div>
+        <div className="mt-4 space-y-3">
+          {Object.entries(groups).map(([name, models]) => (
+            <div key={name} className="border border-border rounded-lg p-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium truncate">{name}</p>
+                <Button size="sm" variant="danger-soft" isIconOnly aria-label={`Remover grupo ${name}`} onPress={() => removeGroup(name)}>
+                  <IconTrash className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {models.length === 0 && <span className="text-xs text-muted">Nenhum modelo — adicione abaixo.</span>}
+                {models.map((m) => (
+                  <Chip key={m} size="sm" variant="soft">
+                    <span className="flex items-center gap-1">
+                      {m}
+                      <button
+                        className="text-muted hover:text-danger transition-colors"
+                        onClick={() => removeModelFromGroup(name, m)}
+                        aria-label={`Remover ${m} do grupo ${name}`}
+                      >
+                        <IconX className="w-3 h-3" />
+                      </button>
+                    </span>
+                  </Chip>
+                ))}
+              </div>
+              <ModelComboBox
+                items={modelItems.filter((i) => !models.includes(i.id))}
+                ariaLabel={`Adicionar modelo ao grupo ${name}`}
+                inputPlaceholder="Adicionar modelo..."
+                inputClassName="text-xs"
+                className="mt-2 max-w-xs"
+                selectedKey={null}
+                onSelectionChange={(id) => addModelToGroup(name, id)}
+              />
+            </div>
+          ))}
+          {Object.keys(groups).length === 0 && (
+            <p className="text-sm text-muted">Nenhum grupo ainda. Crie um acima para compartilhar cache entre modelos equivalentes.</p>
+          )}
+        </div>
       </Card>
 
       {/* Info note */}

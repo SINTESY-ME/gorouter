@@ -4,7 +4,8 @@ import {
   ToggleButton, Select, ListBox,
 } from "@heroui/react";
 import { api, type ApiKey, type KeyLimit } from "../api";
-import { IconPlus, IconTrash, IconPencil, IconApi, IconCopy, IconCheck, IconX, IconGauge, IconDollar } from "../icons";
+import { ModelComboBox, type ModelComboBoxItem } from "../components/ModelComboBox";
+import { IconPlus, IconTrash, IconPencil, IconApi, IconCopy, IconCheck, IconX, IconGauge, IconDollar, IconBox } from "../icons";
 
 type LimitKind = "rate" | "budget";
 
@@ -149,12 +150,12 @@ export default function Keys() {
   const [editing, setEditing] = useState<ApiKey | null>(null);
   const [formName, setFormName] = useState("");
   const [formLimits, setFormLimits] = useState<KeyLimit[]>([]);
-  const [formAllowed, setFormAllowed] = useState("");
+  const [formAllowed, setFormAllowed] = useState<string[]>([]);
   // features tracks which limit features are toggled ON in the modal. Each
   // feature is an independent ToggleButton; only active features show their
   // configuration section. This keeps the modal clean as more features are
   // added.
-  const [features, setFeatures] = useState<{ rate: boolean; budget: boolean }>({ rate: false, budget: false });
+  const [features, setFeatures] = useState<{ rate: boolean; budget: boolean; allowedModels: boolean }>({ rate: false, budget: false, allowedModels: false });
   const [drafts, setDrafts] = useState<Record<LimitKind, Draft>>({ rate: emptyDraft(), budget: emptyDraft() });
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -163,6 +164,13 @@ export default function Keys() {
   const [endpoint, setEndpoint] = useState("/v1");
   const [endpointCopied, setEndpointCopied] = useState(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [modelItems, setModelItems] = useState<ModelComboBoxItem[]>([]);
+
+  useEffect(() => {
+    api.models.list()
+      .then((ms) => setModelItems(ms.filter((m) => m.owned_by !== "combo").map((m) => ({ id: m.id, itemType: "model", kind: m.kind || "llm", isActive: true }))))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (typeof window !== "undefined") setEndpoint(`${window.location.origin}/v1`);
@@ -178,8 +186,8 @@ export default function Keys() {
     setEditing(null);
     setFormName("");
     setFormLimits([]);
-    setFormAllowed("");
-    setFeatures({ rate: false, budget: false });
+    setFormAllowed([]);
+    setFeatures({ rate: false, budget: false, allowedModels: false });
     setDrafts({ rate: emptyDraft(), budget: emptyDraft() });
     setError(null);
     setModalOpen(true);
@@ -190,10 +198,11 @@ export default function Keys() {
     setEditing(k);
     setFormName(k.name);
     setFormLimits(limits);
-    setFormAllowed((k.allowed_models || []).join(", "));
+    setFormAllowed(k.allowed_models || []);
     setFeatures({
       rate: limits.some((l) => l.kind === "rate"),
       budget: limits.some((l) => l.kind === "budget"),
+      allowedModels: !!(k.allowed_models && k.allowed_models.length),
     });
     setDrafts({ rate: emptyDraft(), budget: emptyDraft() });
     setError(null);
@@ -203,14 +212,13 @@ export default function Keys() {
   const save = async () => {
     setSaving(true);
     setError(null);
-    const allowed = formAllowed.split(",").map((s) => s.trim()).filter(Boolean);
     try {
       if (editing) {
-        await api.keys.update(editing.id, { name: formName, limits: formLimits, allowed_models: allowed });
+        await api.keys.update(editing.id, { name: formName, limits: formLimits, allowed_models: formAllowed });
         setModalOpen(false);
         load();
       } else {
-        const k = await api.keys.create({ name: formName, limits: formLimits, allowed_models: allowed });
+        const k = await api.keys.create({ name: formName, limits: formLimits, allowed_models: formAllowed });
         setModalOpen(false);
         load();
         setCopied(k.key);
@@ -222,12 +230,17 @@ export default function Keys() {
     }
   };
 
-  const toggleFeature = (kind: LimitKind, on: boolean) => {
+  const toggleFeature = (kind: LimitKind | "allowedModels", on: boolean) => {
     setFeatures((prev) => ({ ...prev, [kind]: on }));
-    // Turning a feature off clears its limits.
+    // Turning a feature off clears its configuration.
     if (!on) {
-      setFormLimits((prev) => prev.filter((l) => l.kind !== kind));
+      if (kind === "allowedModels") setFormAllowed([]);
+      else setFormLimits((prev) => prev.filter((l) => l.kind !== kind));
     }
+  };
+
+  const toggleAllowedModel = (id: string) => {
+    setFormAllowed((prev) => (prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]));
   };
 
   const addLimit = (kind: LimitKind) => {
@@ -383,13 +396,46 @@ export default function Keys() {
                   <Input placeholder="ex: dev, prod, mobile" />
                 </TextField>
 
-                <TextField value={formAllowed} onChange={setFormAllowed}>
-                  <Label>Modelos permitidos</Label>
-                  <Input placeholder="ex: gpt-4o, smart (vazio = todos)" />
-                  <Description>
-                    Modelos e combos que esta key pode usar, separados por vírgula. Vazio = todos.
-                  </Description>
-                </TextField>
+                <div className="flex flex-col gap-1">
+                  <Label>Acesso a modelos</Label>
+                  <ToggleButton isSelected={features.allowedModels} onChange={(v) => toggleFeature("allowedModels", v)}>
+                    <IconBox className="w-4 h-4" /> Modelos permitidos
+                  </ToggleButton>
+                </div>
+
+                {features.allowedModels && (
+                  <div className="flex flex-col gap-2">
+                    {formAllowed.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {formAllowed.map((m) => (
+                          <Chip key={m} size="sm" variant="soft">
+                            <span className="flex items-center gap-1">
+                              {m}
+                              <button
+                                className="text-muted hover:text-danger transition-colors"
+                                onClick={() => toggleAllowedModel(m)}
+                                aria-label={`Remover ${m}`}
+                              >
+                                <IconX className="w-3 h-3" />
+                              </button>
+                            </span>
+                          </Chip>
+                        ))}
+                      </div>
+                    )}
+                    <ModelComboBox
+                      items={modelItems.filter((i) => !formAllowed.includes(i.id))}
+                      ariaLabel="Adicionar modelo permitido"
+                      inputPlaceholder="Adicionar modelo..."
+                      inputClassName="text-xs"
+                      selectedKey={null}
+                      onSelectionChange={toggleAllowedModel}
+                    />
+                    <Description>
+                      Modelos e combos que esta key pode usar. Vazio = todos.
+                    </Description>
+                  </div>
+                )}
 
                 <div className="flex flex-col gap-1">
                   <Label>Limites</Label>

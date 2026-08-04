@@ -23,11 +23,8 @@ export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [hooks, setHooks] = useState<string[]>([]);
   const [webhookUrl, setWebhookUrl] = useState("");
-  const [groupsText, setGroupsText] = useState("{}");
   const [savingHook, setSavingHook] = useState<string | null>(null);
   const [webhookSaved, setWebhookSaved] = useState(false);
-  const [groupsSaved, setGroupsSaved] = useState(false);
-  const [groupsError, setGroupsError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [origin, setOrigin] = useState("");
 
@@ -39,7 +36,6 @@ export default function Settings() {
       .then((s) => {
         setHooks(s.hooks_enabled || []);
         setWebhookUrl(s.webhook_url || "");
-        setGroupsText(JSON.stringify(s.caching_groups || {}, null, 2));
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -59,24 +55,6 @@ export default function Settings() {
     api.settings.update({ webhook_url: webhookUrl.trim() })
       .then(() => { setWebhookSaved(true); setTimeout(() => setWebhookSaved(false), 1500); })
       .catch(() => {});
-  };
-
-  const saveGroups = () => {
-    try {
-      const parsed = JSON.parse(groupsText);
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("espera um objeto { \"grupo\": [\"modelo1\", ...] }");
-      for (const [k, v] of Object.entries(parsed)) {
-        if (!Array.isArray(v) || v.some((m) => typeof m !== "string")) {
-          throw new Error(`\"${k}\" deve ser uma lista de strings`);
-        }
-      }
-      setGroupsError(null);
-      api.settings.update({ caching_groups: parsed as Record<string, string[]> })
-        .then(() => { setGroupsSaved(true); setTimeout(() => setGroupsSaved(false), 1500); })
-        .catch(() => {});
-    } catch (e: any) {
-      setGroupsError(e?.message ?? "JSON inválido");
-    }
   };
 
   const copy = async (s: string) => {
@@ -139,32 +117,6 @@ export default function Settings() {
           </Description>
         </Card>
       )}
-
-      {/* Caching groups */}
-      <Card className="p-6">
-        <h3 className="font-semibold">Caching groups</h3>
-        <p className="text-sm text-muted mt-1">
-          Modelos intercambiáveis compartilham a mesma entrada de cache. Responsabilidade do operador — as respostas precisam ser equivalentes.
-        </p>
-        <div className="mt-4 flex gap-2">
-          <Input
-            value={groupsText}
-            onChange={(e) => setGroupsText(e.target.value)}
-            className="flex-1 font-mono text-xs"
-            placeholder='{"gpt-family": ["gpt-4o", "gpt-4o-mini"]}'
-          />
-          <Button variant="primary" onPress={saveGroups}>{groupsSaved ? "Salvo ✓" : "Salvar"}</Button>
-        </div>
-        <div className="mt-2 space-y-0.5">
-          <Description>
-            Estrutura — um objeto com nome do grupo → lista de modelos:
-          </Description>
-          <code className="block text-xs text-muted bg-default-soft px-2 py-1 rounded">
-            {"{ \"nome-do-grupo\": [\"modelo1\", \"modelo2\"], \"outro\": [\"modelo3\"] }"}
-          </code>
-          {groupsError && <p className="text-xs text-danger mt-1">{groupsError}</p>}
-        </div>
-      </Card>
 
       {/* Endpoints */}
       <Card className="p-6">
