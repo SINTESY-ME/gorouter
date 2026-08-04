@@ -488,12 +488,18 @@ export default function Dashboard() {
       </div>
 
       {status && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
           <SystemCard label="Combos" value={status.combos.total} sub="estratégias" />
           <SystemCard
             label="Conexões"
             value={status.connections.total}
             sub={`${status.connections.active} ativas${status.connections.rate_limited > 0 ? ` · ${status.connections.rate_limited} rate-limited` : ""}`}
+          />
+          <SystemCard
+            label="Saúde"
+            value={`${status.health.healthy}/${status.health.total_keys}`}
+            sub={`${status.health.unhealthy} unhealthy · ${status.health.probing} probing`}
+            variant={status.health.unhealthy > 0 ? "danger" : "success"}
           />
           <SystemCard
             label="Taxa de erro"

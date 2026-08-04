@@ -89,6 +89,11 @@ const ModelCard = memo(function ModelCard({
       />
       <div className="flex min-w-0 items-center gap-1.5">
         <Chip size="sm" color="default" className="h-5 shrink-0 text-[10px] opacity-70">{m.kind}</Chip>
+        {m.context > 0 && (
+          <Chip size="sm" color="accent" variant="soft" className="h-5 shrink-0 text-[10px]" title="Context window (tokens)">
+            {m.context >= 1000 ? `${(m.context / 1000).toLocaleString("en-US", { maximumFractionDigits: 0 })}k` : m.context} ctx
+          </Chip>
+        )}
         <span className="min-w-0 truncate text-[10px] text-muted">{m.source}</span>
         <div className="ml-auto flex min-w-0 items-center gap-1.5 text-[10px] opacity-70">
           {(() => {

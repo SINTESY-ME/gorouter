@@ -293,9 +293,22 @@ export const api = {
     },
   },
   settings: {
-    get: () => request<{ rtk_enabled: boolean; cache_enabled: boolean; semantic_cache_enabled: boolean; semantic_cache_mode: string; semantic_cache_model: string }>("/api/settings"),
-    update: (s: { rtk_enabled?: boolean; cache_enabled?: boolean; semantic_cache_enabled?: boolean; semantic_cache_mode?: string; semantic_cache_model?: string }) =>
-      request<{ status: string }>("/api/settings", { method: "PUT", body: JSON.stringify(s) }),
+    get: () => request<{
+      rtk_enabled: boolean; cache_enabled: boolean;
+      semantic_cache_enabled: boolean; semantic_cache_mode: string; semantic_cache_model: string;
+      hooks_enabled: string[]; caching_groups: Record<string, string[]>; webhook_url: string;
+    }>("/api/settings"),
+    update: (s: {
+      rtk_enabled?: boolean; cache_enabled?: boolean;
+      semantic_cache_enabled?: boolean; semantic_cache_mode?: string; semantic_cache_model?: string;
+      hooks_enabled?: string[]; caching_groups?: Record<string, string[]>; webhook_url?: string;
+    }) => request<{ status: string }>("/api/settings", { method: "PUT", body: JSON.stringify(s) }),
+  },
+  metrics: {
+    fetch: () => fetch("/metrics").then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`)))),
+  },
+  health: {
+    ready: () => fetch("/health/readiness").then((r) => r.ok),
   },
   cache: {
     stats: () => request<{ enabled: boolean; entries?: number; hits?: number; misses?: number }>("/api/cache/stats"),

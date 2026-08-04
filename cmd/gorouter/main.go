@@ -260,6 +260,16 @@ func run() error {
 			}
 		}
 	}
+	// Webhook URL: a persisted setting overrides the env default; applied to
+	// the active webhook_logging hook (and the settings API).
+	webhookURL := os.Getenv("GOROUTER_HOOK_WEBHOOK_URL")
+	if v, err := settingRepo.Get(ctx, "webhook_url"); err == nil && v != "" {
+		webhookURL = v
+	}
+	app.SetWebhookURL(webhookURL)
+	if webhookURL != "" {
+		slog.Info("webhook_logging url set", "url", webhookURL)
+	}
 
 	// Provider catalog + store (YAML presets; install from origin repo)
 	providersDir := filepath.Join(cfg.HomeDir, "providers")

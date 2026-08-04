@@ -9,10 +9,12 @@ import Keys from "./pages/Keys";
 import Logs from "./pages/Logs";
 import Models from "./pages/Models";
 import Performance from "./pages/Performance";
+import Settings from "./pages/Settings";
+import Metrics from "./pages/Metrics";
 import Playground from "./pages/Playground";
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
-import { IconRoute, IconHome, IconServer, IconLayers, IconBox, IconKey, IconActivity, IconGauge, IconChat, IconLogout } from "./icons";
+import { IconRoute, IconHome, IconServer, IconLayers, IconBox, IconKey, IconActivity, IconGauge, IconChat, IconLogout, IconSettings, IconChart } from "./icons";
 
 const nav = [
   { to: "/", label: "Dashboard", icon: IconHome, end: true },
@@ -23,6 +25,8 @@ const nav = [
   { to: "/playground", label: "Playground", icon: IconChat },
   { to: "/logs", label: "Logs", icon: IconActivity },
   { to: "/performance", label: "Performance", icon: IconGauge },
+  { to: "/metrics", label: "Metrics", icon: IconChart },
+  { to: "/settings", label: "Configurações", icon: IconSettings },
 ];
 
 
@@ -95,6 +99,7 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
           ))}
         </nav>
         <div className="p-3 border-t border-border space-y-2">
+          <ReadinessPill />
           <Button variant="tertiary" fullWidth isIconOnly={false} onPress={onLogout} className="justify-start">
             <IconLogout className="w-4 h-4" />
             Sair
@@ -113,10 +118,34 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
               <Route path="/keys" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Keys /></div></div>} />
               <Route path="/logs" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Logs /></div></div>} />
               <Route path="/performance" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Performance /></div></div>} />
+              <Route path="/metrics" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Metrics /></div></div>} />
+              <Route path="/settings" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Settings /></div></div>} />
             </Routes>
         </main>
       </div>
     </div>
     </>
+  );
+}
+
+// ReadinessPill shows a live ready/not-ready indicator from /health/readiness.
+function ReadinessPill() {
+  const [ready, setReady] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = () => api.health.ready().then((ok) => { if (!cancelled) setReady(ok); }).catch(() => { if (!cancelled) setReady(false); });
+    check();
+    const t = setInterval(check, 15000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5">
+      <span className={`w-2 h-2 rounded-full ${ready === null ? "bg-warning" : ready ? "bg-success" : "bg-danger"}`} />
+      <span className="text-xs text-muted">
+        {ready === null ? "verificando…" : ready ? "Pronto" : "Indisponível"}
+      </span>
+    </div>
   );
 }

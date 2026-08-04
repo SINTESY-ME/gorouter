@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/jhon/gorouter/internal/domain"
@@ -31,23 +32,65 @@ type webhookPayload struct {
 
 // WebhookLoggingHook posts request events (success and failure) to an HTTP
 // webhook. It is fail-open: a webhook outage is logged and never affects the
-// request path. Configure the target URL via GOROUTER_HOOK_WEBHOOK_URL and
+// request path. The target URL is runtime-settable (env default via
+// GOROUTER_HOOK_WEBHOOK_URL, overridable live through the dashboard settings);
 // enable it with "webhook_logging" in hooks_enabled.
 type WebhookLoggingHook struct {
 	url     string
+	mu      sync.RWMutex
 	client  *http.Client
 	timeout time.Duration
 }
 
-// NewWebhookLoggingHook builds a hook that posts to url. An empty url makes
-// the hook a no-op.
+// runtime webhook URL holder: SetWebhookURL/CurrentWebhookURL let the settings
+// handler change the URL live, and NewWebhookLoggingHook links the active hook.
+var (
+	webhookMu     sync.RWMutex
+	webhookURL    string
+	activeWebhook *WebhookLoggingHook
+)
+
+// SetWebhookURL updates the runtime webhook URL (and the active hook, if any).
+func SetWebhookURL(url string) {
+	webhookMu.Lock()
+	webhookURL = url
+	if activeWebhook != nil {
+		activeWebhook.SetURL(url)
+	}
+	webhookMu.Unlock()
+}
+
+// CurrentWebhookURL returns the runtime webhook URL ("" when unset).
+func CurrentWebhookURL() string {
+	webhookMu.RLock()
+	defer webhookMu.RUnlock()
+	return webhookURL
+}
+
+// NewWebhookLoggingHook builds a hook posting to url (env default at boot).
+// It registers itself so SetWebhookURL can update it live.
 func NewWebhookLoggingHook(url string) *WebhookLoggingHook {
-	return &WebhookLoggingHook{url: url, client: &http.Client{Timeout: 5 * time.Second}, timeout: 5 * time.Second}
+	h := &WebhookLoggingHook{client: &http.Client{Timeout: 5 * time.Second}, timeout: 5 * time.Second}
+	h.SetURL(url)
+	webhookMu.Lock()
+	activeWebhook = h
+	webhookMu.Unlock()
+	return h
+}
+
+// SetURL replaces the hook's target URL.
+func (h *WebhookLoggingHook) SetURL(url string) {
+	h.mu.Lock()
+	h.url = url
+	h.mu.Unlock()
 }
 
 // fire posts the payload asynchronously. Never blocks the request path.
 func (h *WebhookLoggingHook) fire(p webhookPayload) {
-	if h.url == "" {
+	h.mu.RLock()
+	url := h.url
+	h.mu.RUnlock()
+	if url == "" {
 		return
 	}
 	body, err := json.Marshal(p)
@@ -57,14 +100,14 @@ func (h *WebhookLoggingHook) fire(p webhookPayload) {
 	go func() {
 		dctx, cancel := context.WithTimeout(context.Background(), h.timeout)
 		defer cancel()
-		req, err := http.NewRequestWithContext(dctx, http.MethodPost, h.url, bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(dctx, http.MethodPost, url, bytes.NewReader(body))
 		if err != nil {
 			return
 		}
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := h.client.Do(req)
 		if err != nil {
-			slog.Warn("webhook_logging: post failed", "url", h.url, "err", err)
+			slog.Warn("webhook_logging: post failed", "url", url, "err", err)
 			return
 		}
 		resp.Body.Close()

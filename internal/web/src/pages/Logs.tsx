@@ -37,6 +37,7 @@ interface LogRow {
   ttft: number;
   tps: string | null;
   cacheHit: boolean;
+  attempt: number;
   error?: string;
   children: LogRow[];
 }
@@ -61,6 +62,7 @@ function toRow(e: UsageEntry, key: string): LogRow {
     ttft,
     tps,
     cacheHit: !!e.cache_hit,
+    attempt: e.attempt || 0,
     error: e.error,
     children: [],
   };
@@ -188,6 +190,11 @@ export default function Logs() {
               <span className="inline-block w-5" />
             )}
             <code className="text-xs">{item.label}</code>
+            {item.attempt > 1 && (
+              <Chip size="sm" color="warning" variant="soft" className="h-4 px-1 text-[9px] shrink-0" title={`${item.attempt} tentativas (retries/fallback)`}>
+                {item.attempt - 1} fallback
+              </Chip>
+            )}
           </span>
         )}
       </Table.Cell>

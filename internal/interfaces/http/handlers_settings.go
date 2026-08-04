@@ -17,6 +17,7 @@ const (
 	semanticCacheModelSettingKey = "semantic_cache_model"
 	hooksSettingKey              = "hooks_enabled"
 	cachingGroupsSettingKey      = "caching_groups"
+	webhookURLSettingKey         = "webhook_url"
 )
 
 // handleGetSettings returns user-configurable gorouter settings (RTK + cache
@@ -50,6 +51,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"semantic_cache_model":   semModel,
 		"hooks_enabled":          s.currentHooks(r),
 		"caching_groups":         s.currentCachingGroups(r),
+		"webhook_url":            app.CurrentWebhookURL(),
 	})
 }
 
@@ -88,6 +90,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		SemanticCacheModel   *string             `json:"semantic_cache_model"`
 		HooksEnabled         []string            `json:"hooks_enabled"`
 		CachingGroups        map[string][]string `json:"caching_groups"`
+		WebhookURL           *string             `json:"webhook_url"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -195,6 +198,17 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		if s.Settings != nil {
 			b, _ := json.Marshal(req.CachingGroups)
 			if err := s.Settings.Set(r.Context(), cachingGroupsSettingKey, string(b)); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+	}
+	// Webhook URL: absent leaves it untouched; an explicit "" clears it.
+	// Applied live to the active webhook_logging hook.
+	if req.WebhookURL != nil {
+		app.SetWebhookURL(*req.WebhookURL)
+		if s.Settings != nil {
+			if err := s.Settings.Set(r.Context(), webhookURLSettingKey, *req.WebhookURL); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
