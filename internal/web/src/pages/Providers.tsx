@@ -470,7 +470,7 @@ export default function Providers() {
                         aria-label={t("providers.searchAria")}
                       />
                     </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-80 overflow-y-auto pr-1">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-80 overflow-y-auto pr-1 items-start">
                       {filteredCatalog.map((def) => {
                         const isOauth = oauthProviders.includes(def.id);
                         const isPopular = POPULAR.includes(def.id);
@@ -479,7 +479,7 @@ export default function Providers() {
                             key={def.id}
                             variant="outline"
                             onPress={() => pickTemplate(def)}
-                            className="text-left rounded-xl border border-border p-3 hover:border-accent/50 hover:bg-background transition-colors h-auto items-start flex-col"
+                            className="text-left rounded-xl border border-border p-3 hover:border-accent/50 hover:bg-background transition-colors h-[88px] items-start flex-col justify-start"
                           >
                             <div className="flex items-center gap-2 mb-1">
                               <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-muted" style={def.display.color ? { background: def.display.color } : undefined} />
@@ -563,14 +563,16 @@ export default function Providers() {
 
                 {error && <p className="text-sm text-danger mt-2">{error}</p>}
               </Modal.Body>
-              <Modal.Footer>
-                {(providerEditId || providerStep === "form") && (
-                  <Button variant="primary" onPress={submitProvider} isDisabled={saving}>{t("providers.saveProvider")}</Button>
-                )}
-                {providerStep === "oauth" && (
-                  <Button variant="primary" onPress={completeOAuth} isDisabled={saving || !oauthCode.trim()}>{t("providers.connect")}</Button>
-                )}
-              </Modal.Footer>
+              {(providerEditId || providerStep === "form" || providerStep === "oauth") && (
+                <Modal.Footer>
+                  {(providerEditId || providerStep === "form") && (
+                    <Button variant="primary" onPress={submitProvider} isDisabled={saving}>{t("providers.saveProvider")}</Button>
+                  )}
+                  {providerStep === "oauth" && (
+                    <Button variant="primary" onPress={completeOAuth} isDisabled={saving || !oauthCode.trim()}>{t("providers.connect")}</Button>
+                  )}
+                </Modal.Footer>
+              )}
             </Modal.Dialog>
           </Modal.Container>
         </Modal.Backdrop>
