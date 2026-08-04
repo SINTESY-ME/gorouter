@@ -123,12 +123,12 @@ export default function Users() {
 
       <Card>
         <Table.ScrollContainer>
-          <Table.Content aria-label={t("users.tableAria")}>
+          <Table.Content aria-label={t("users.tableAria")} className="min-w-[720px]">
             <Table.Header>
               <Table.Column isRowHeader id="username">{t("users.colUser")}</Table.Column>
               <Table.Column id="role">{t("users.colRole")}</Table.Column>
               <Table.Column id="access">{t("users.colAccess")}</Table.Column>
-              <Table.Column id="actions">{t("users.colActions")}</Table.Column>
+              <Table.Column id="actions" className="text-right">{t("users.colActions")}</Table.Column>
             </Table.Header>
             <Table.Body items={rows} renderEmptyState={() => (
               <div className="p-10 text-center text-muted text-sm">{loading ? <Spinner /> : t("users.empty")}</div>
@@ -147,7 +147,7 @@ export default function Users() {
                     </span>
                   </Table.Cell>
                   <Table.Cell>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 justify-end">
                       <Button size="sm" variant="secondary" onPress={() => openEdit(u)}>{t("users.edit")}</Button>
                       <Button size="sm" variant="secondary" isIconOnly onPress={() => remove(u.id)} aria-label={t("users.delete")}>
                         <IconTrash className="w-3.5 h-3.5" />
