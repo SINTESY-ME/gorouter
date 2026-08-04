@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Spinner, Switch, Button, Card, Input, TextArea, Description } from "@heroui/react";
+import { Spinner, Switch, Button, Card, Input, Description } from "@heroui/react";
 import { api } from "../api";
 import { IconCopy, IconCheck } from "../icons";
 
@@ -119,24 +119,26 @@ export default function Settings() {
       </Card>
 
       {/* Webhook */}
-      <Card className="p-6">
-        <h3 className="font-semibold">Webhook de observabilidade</h3>
-        <p className="text-sm text-muted mt-1">
-          Eventos de request (sucesso/falha) enviados por POST. Requer o hook <code className="text-xs">webhook_logging</code> ativo acima.
-        </p>
-        <div className="mt-4 flex gap-2">
-          <Input
-            value={webhookUrl}
-            onChange={(e) => setWebhookUrl(e.target.value)}
-            placeholder="https://hooks.slack.com/services/..."
-            className="flex-1"
-          />
-          <Button variant="primary" onPress={saveWebhook}>{webhookSaved ? "Salvo ✓" : "Salvar"}</Button>
-        </div>
-        <Description className="mt-2">
-          Valor inicial vem de <code className="text-xs">GOROUTER_HOOK_WEBHOOK_URL</code>; salvar aqui persiste e aplica ao vivo.
-        </Description>
-      </Card>
+      {hooks.includes("webhook_logging") && (
+        <Card className="p-6">
+          <h3 className="font-semibold">Webhook de observabilidade</h3>
+          <p className="text-sm text-muted mt-1">
+            Eventos de request (sucesso/falha) enviados por POST ao hook <code className="text-xs">webhook_logging</code>.
+          </p>
+          <div className="mt-4 flex gap-2">
+            <Input
+              value={webhookUrl}
+              onChange={(e) => setWebhookUrl(e.target.value)}
+              placeholder="https://hooks.slack.com/services/..."
+              className="flex-1"
+            />
+            <Button variant="primary" onPress={saveWebhook}>{webhookSaved ? "Salvo ✓" : "Salvar"}</Button>
+          </div>
+          <Description className="mt-2">
+            Valor inicial vem de <code className="text-xs">GOROUTER_HOOK_WEBHOOK_URL</code>; salvar aqui persiste e aplica ao vivo.
+          </Description>
+        </Card>
+      )}
 
       {/* Caching groups */}
       <Card className="p-6">
@@ -144,16 +146,23 @@ export default function Settings() {
         <p className="text-sm text-muted mt-1">
           Modelos intercambiáveis compartilham a mesma entrada de cache. Responsabilidade do operador — as respostas precisam ser equivalentes.
         </p>
-        <TextArea
-          value={groupsText}
-          onChange={(e) => setGroupsText(e.target.value)}
-          rows={5}
-          className="mt-4 font-mono text-xs"
-          placeholder='{ "gpt-family": ["gpt-4o", "gpt-4o-mini"] }'
-        />
-        <div className="mt-3 flex items-center gap-3">
+        <div className="mt-4 flex gap-2">
+          <Input
+            value={groupsText}
+            onChange={(e) => setGroupsText(e.target.value)}
+            className="flex-1 font-mono text-xs"
+            placeholder='{"gpt-family": ["gpt-4o", "gpt-4o-mini"]}'
+          />
           <Button variant="primary" onPress={saveGroups}>{groupsSaved ? "Salvo ✓" : "Salvar"}</Button>
-          {groupsError && <p className="text-xs text-danger">{groupsError}</p>}
+        </div>
+        <div className="mt-2 space-y-0.5">
+          <Description>
+            Estrutura — um objeto com nome do grupo → lista de modelos:
+          </Description>
+          <code className="block text-xs text-muted bg-default-soft px-2 py-1 rounded">
+            {"{ \"nome-do-grupo\": [\"modelo1\", \"modelo2\"], \"outro\": [\"modelo3\"] }"}
+          </code>
+          {groupsError && <p className="text-xs text-danger mt-1">{groupsError}</p>}
         </div>
       </Card>
 
