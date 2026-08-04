@@ -82,7 +82,7 @@ func newBenchService(cacheOn, rtkOn, prewarm bool, body []byte) (*RouterService,
 		closeFns = append(closeFns, c.Close)
 		srv.Cache = NewCacheService(c)
 		if prewarm {
-			key := srv.Cache.ComputeKey(body, "coding", domain.FormatOpenAI)
+			key := srv.Cache.ComputeKey(body, "openai/gpt-4o", domain.FormatOpenAI)
 			srv.Cache.Store(context.Background(), key, http.StatusOK, http.Header{}, []byte(`{"id":"cached","object":"chat.completion","choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":10,"completion_tokens":20}}`))
 		}
 	}

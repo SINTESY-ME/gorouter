@@ -197,8 +197,11 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 	if !s.modelAllowed(ctx, modelStr) {
 		return nil, domain.ErrForbidden
 	}
-	// Cache lookup: short-circuit on hit. Only for chat (endpoint=="") and
-	// only when cache is enabled and the request doesn't opt out.
+	// Deterministic cache lookup: short-circuit on hit. Only for chat
+	// (endpoint=="") and only when cache is enabled and the request doesn't
+	// opt out. Combos skip this — their cache lookup is strategy-aware and
+	// happens inside routeCombo, keyed by the real model that produced the
+	// response.
 	if s.Cache != nil && s.Cache.Enabled() && opts.Endpoint == "" && !isCacheDisabled(ctx) {
 		// Very long conversations rarely repeat exactly and mostly bloat the
 		// cache (Bifrost's conversation-history-threshold guard); skip them.
@@ -209,51 +212,12 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 		}
 	}
 	if s.Cache != nil && s.Cache.Enabled() && opts.Endpoint == "" && !isCacheDisabled(ctx) {
-		cacheKey := s.Cache.ComputeKey(body, modelStr, opts.InputFormat)
-		if cached, ok := s.Cache.Lookup(ctx, cacheKey); ok {
-			var prompt, completion, cacheRead, cacheCreation int
-			if cached.Stream {
-				prompt, completion, cacheRead, cacheCreation = parseUsageFromSSEFull(cached.StreamChunks)
-			} else {
-				prompt, completion, cacheRead, cacheCreation = parseUsageFromJSONFull(cached.Body)
+		if _, isModel := domain.SplitModelID(modelStr); isModel {
+			cacheKey := s.Cache.ComputeKey(body, modelStr, opts.InputFormat)
+			if cached, ok := s.Cache.Lookup(ctx, cacheKey); ok {
+				return s.buildCachedResponse(ctx, cached, modelStr, apiKey), nil
 			}
-			// Calculate the real cost that was avoided by serving from cache.
-			var costSaved float64
-			var mid domain.ModelID
-			if s.Pricing != nil {
-				if m, ok := domain.SplitModelID(modelStr); ok {
-					mid = m
-					if pricing, ok := s.Pricing.Get(mid); ok {
-						costSaved = CalculateCost(pricing, "", prompt, completion, cacheRead, cacheCreation)
-					}
-				}
-			}
-			// Record a usage entry so savings survive restarts and can be
-			// aggregated per model/combo. Cache hits have zero cost (no
-			// upstream call) and zero latency.
-			go s.recordCacheHitUsage(mid, modelStr, apiKey, prompt, completion, costSaved)
-			if s.Savings != nil {
-				s.Savings.RecordCacheHit(prompt+completion, costSaved)
-			}
-			if cached.Stream {
-				return &RouterResponse{
-					StatusCode: cached.StatusCode,
-					Headers:    cached.Headers,
-					Body:       io.NopCloser(bytes.NewReader(cached.StreamChunks)),
-					Stream:     true,
-					Cached:     true,
-				}, nil
-			}
-			return &RouterResponse{
-				StatusCode: cached.StatusCode,
-				Headers:    cached.Headers,
-				Body:       io.NopCloser(bytes.NewReader(cached.Body)),
-				Stream:     false,
-				Cached:     true,
-			}, nil
 		}
-		// Stash the key so the response path can store the result.
-		ctx = withCacheKey(ctx, cacheKey)
 	}
 
 	// Semantic cache: after deterministic miss, before routing. Look up
@@ -652,8 +616,9 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 		ct = contentType[0]
 	}
 	models := combo.Models
+	var strat ComboStrategy
 	if s.Strategies != nil {
-		strat := s.Strategies.For(combo.Strategy)
+		strat = s.Strategies.For(combo.Strategy)
 		ordered, err := strat.Order(ctx, StrategyRequest{Combo: combo, Body: body, APIKey: apiKey})
 		if err != nil {
 			slog.Warn("combo strategy failed; using configured order", "combo", combo.Name, "strategy", combo.Strategy, "err", err)
@@ -732,6 +697,15 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 			}
 			return res, nil
 		}
+		// Deterministic cache check: the strategy decides which models'
+		// caches to check before attempting this model. Cache hits are
+		// independent of health — a cached response from a previous
+		// healthy call can be served even if the model is now unhealthy.
+		if strat != nil {
+			if cached, ok := s.checkComboCache(ctx, body, strat, combo, modelStr, models, opts, apiKey); ok {
+				return cached, nil
+			}
+		}
 		conns, err := s.Connections.ListByProvider(ctx, m.Provider)
 		if err != nil {
 			lastErr = err
@@ -772,6 +746,14 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 	// phase 1 are not retried: each key is tried at most once per request.
 	for i := range attempts {
 		p := &attempts[i]
+		modelStr := p.m.Provider + "/" + p.m.Model
+		// Same cache check as Phase 1: a hit serves immediately, even
+		// for a model whose connections are all unhealthy.
+		if strat != nil {
+			if cached, ok := s.checkComboCache(ctx, body, strat, combo, modelStr, models, opts, apiKey); ok {
+				return cached, nil
+			}
+		}
 		childChain := append(append([]string{}, comboChain...), combo.Name)
 		res, err := s.tryModelWithConns(ctx, p.m, p.conns, body, stream, apiKey, opts, childChain, start, false, p.unhealthy, p.startIdx, requestID, attempt, ct)
 		if err != nil {
@@ -1176,13 +1158,14 @@ func (s *RouterService) executeOneWithRetry(ctx context.Context, m domain.ModelI
 // handler has finished writing to the client) the buffer is parsed for token
 // usage and a UsageEntry is recorded. This keeps the hot path (streaming to
 // the client) untouched while still capturing usage asynchronously.
-// When a cache key is present in the context, the buffered response is also
-// stored in the response cache.
+// On success, the buffered response is stored in the deterministic cache,
+// keyed by the real model (m.Provider/m.Model) — not the combo name — so
+// cache entries are shared across combos and direct model calls alike.
 func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterResponse, m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, comboChain []string, start time.Time, requestID string, attempt int) {
 	cacheEnabled := s.Cache != nil && s.Cache.Enabled()
-	_, hasCacheKey := cacheKeyFromCtx(ctx)
+	cacheEligible := cacheEnabled && !isCacheDisabled(ctx) && endpoint == ""
 	bufLimit := maxUsageBuf
-	if cacheEnabled && hasCacheKey {
+	if cacheEligible {
 		bufLimit = maxCacheBuf
 	}
 	// Determine the input format from the context (set in RouteChat).
@@ -1196,13 +1179,14 @@ func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterRespon
 		start: start,
 		onClose: func(buf []byte, ttftMs int64) {
 			s.recordUsage(m, conn, apiKey, endpoint, res.StatusCode, res.Stream, buf, comboChain, start, ttftMs, res.RTKBytesSaved, res.RTKTokensSaved, res.RTKCostSaved, requestID, attempt)
-			if cacheEnabled && hasCacheKey && res.StatusCode < 400 {
-				if key, ok := cacheKeyFromCtx(ctx); ok {
-					if res.Stream {
-						s.Cache.StoreStream(ctx, key, res.StatusCode, res.Headers, buf)
-					} else {
-						s.Cache.Store(ctx, key, res.StatusCode, res.Headers, buf)
-					}
+			if cacheEligible && res.StatusCode < 400 {
+				actualModel := m.Provider + "/" + m.Model
+				reqBody, _ := requestBodyFromCtx(ctx)
+				key := s.Cache.ComputeKey(reqBody, actualModel, inputFmt)
+				if res.Stream {
+					s.Cache.StoreStream(ctx, key, res.StatusCode, res.Headers, buf)
+				} else {
+					s.Cache.Store(ctx, key, res.StatusCode, res.Headers, buf)
 				}
 			}
 			// Store in semantic cache (both active and lazy modes store
@@ -1490,6 +1474,66 @@ func (s *RouterService) recordSemanticCacheHitUsage(m domain.ModelID, modelStr s
 	_ = s.Usage.Record(ctx, &entry)
 }
 
+// buildCachedResponse constructs a RouterResponse from a cached entry, parses
+// token usage, records the cost saved, and fires the usage + savings records
+// asynchronously. Used by both the individual-model cache lookup in RouteChat
+// and the per-strategy combo cache lookup in routeCombo.
+func (s *RouterService) buildCachedResponse(ctx context.Context, cached *domain.CachedResponse, modelStr string, apiKey string) *RouterResponse {
+	var prompt, completion, cacheRead, cacheCreation int
+	if cached.Stream {
+		prompt, completion, cacheRead, cacheCreation = parseUsageFromSSEFull(cached.StreamChunks)
+	} else {
+		prompt, completion, cacheRead, cacheCreation = parseUsageFromJSONFull(cached.Body)
+	}
+	var costSaved float64
+	var mid domain.ModelID
+	if s.Pricing != nil {
+		if m, ok := domain.SplitModelID(modelStr); ok {
+			mid = m
+			if pricing, ok := s.Pricing.Get(mid); ok {
+				costSaved = CalculateCost(pricing, "", prompt, completion, cacheRead, cacheCreation)
+			}
+		}
+	}
+	go s.recordCacheHitUsage(mid, modelStr, apiKey, prompt, completion, costSaved)
+	if s.Savings != nil {
+		s.Savings.RecordCacheHit(prompt+completion, costSaved)
+	}
+	if cached.Stream {
+		return &RouterResponse{
+			StatusCode: cached.StatusCode,
+			Headers:    cached.Headers,
+			Body:       io.NopCloser(bytes.NewReader(cached.StreamChunks)),
+			Stream:     true,
+			Cached:     true,
+		}
+	}
+	return &RouterResponse{
+		StatusCode: cached.StatusCode,
+		Headers:    cached.Headers,
+		Body:       io.NopCloser(bytes.NewReader(cached.Body)),
+		Stream:     false,
+		Cached:     true,
+	}
+}
+
+// checkComboCache checks the deterministic cache for the candidate models
+// determined by the combo's strategy. Returns a cached response on the first
+// hit, or nil on miss. The strategy decides which models to check and in
+// what order (see ComboStrategy.CacheCandidates).
+func (s *RouterService) checkComboCache(ctx context.Context, body []byte, strat ComboStrategy, combo *domain.Combo, currentModel string, orderedModels []string, opts RouteOptions, apiKey string) (*RouterResponse, bool) {
+	if s.Cache == nil || !s.Cache.Enabled() || opts.Endpoint != "" || isCacheDisabled(ctx) {
+		return nil, false
+	}
+	for _, cand := range strat.CacheCandidates(combo, currentModel, orderedModels) {
+		key := s.Cache.ComputeKey(body, cand, opts.InputFormat)
+		if cached, ok := s.Cache.Lookup(ctx, key); ok {
+			return s.buildCachedResponse(ctx, cached, cand, apiKey), true
+		}
+	}
+	return nil, false
+}
+
 func (s *RouterService) recordFailedUsage(m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, status int, errMsg string, start time.Time, comboChain []string, requestID string, attempt int) {
 	if endpoint == "" {
 		endpoint = "chat/completions"
@@ -1730,18 +1774,6 @@ func (s *ModelsService) List(ctx context.Context) ([]domain.ModelInfo, error) {
 		}
 	}
 	return out, nil
-}
-
-// cacheKeyCtxKey is the context key for stashing the response cache key.
-type cacheKeyCtxKey struct{}
-
-func withCacheKey(ctx context.Context, key string) context.Context {
-	return context.WithValue(ctx, cacheKeyCtxKey{}, key)
-}
-
-func cacheKeyFromCtx(ctx context.Context) (string, bool) {
-	key, ok := ctx.Value(cacheKeyCtxKey{}).(string)
-	return key, ok
 }
 
 // inputFormatCtxKey stores the client's input format in the context so

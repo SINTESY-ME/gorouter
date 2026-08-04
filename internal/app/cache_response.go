@@ -199,12 +199,16 @@ func normalizeBody(body []byte) []byte {
 }
 
 // ephemeralFields are request fields that should not affect the cache key
-// because they vary per request without changing the response.
+// because they vary per request without changing the response. The "model"
+// field is included because ComputeKey receives the resolved model separately
+// (as its own hash input), so the body's model field — which may be a combo
+// name or a direct model id — must not fragment cache entries.
 var ephemeralFields = []string{
 	"user",
 	"request_id",
 	"metadata",
 	"idempotency_key",
+	"model",
 }
 
 // setArrayFields are request fields that are semantically sets encoded as

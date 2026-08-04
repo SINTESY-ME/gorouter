@@ -41,6 +41,19 @@ type StrategyRequest struct {
 // concurrent use.
 type ComboStrategy interface {
 	Order(ctx context.Context, req StrategyRequest) ([]string, error)
+
+	// CacheCandidates returns the models whose deterministic cache should be
+	// checked before attempting currentModel. The strategy decides which
+	// models to check based on its semantics:
+	//   - ordered_fallback / intelligence: only the current model (follow
+	//     fallback order — check cache of the model being tried, not all)
+	//   - round-robin / velocity: all ordered models (any cache hit serves
+	//     because all models are equivalent or speed is the priority)
+	//   - weighted: models sharing the same weight as the current model
+	//
+	// The returned slice is ordered by cache-check priority. An empty slice
+	// means "check only the current model".
+	CacheCandidates(combo *domain.Combo, currentModel string, orderedModels []string) []string
 }
 
 // StrategyRegistry maps strategy names to implementations. The default
@@ -87,6 +100,10 @@ func (orderedFallbackStrategy) Order(_ context.Context, req StrategyRequest) ([]
 	return req.Combo.Models, nil
 }
 
+func (orderedFallbackStrategy) CacheCandidates(_ *domain.Combo, currentModel string, _ []string) []string {
+	return []string{currentModel}
+}
+
 // --- round-robin ---
 
 // roundRobinStrategy rotates the starting index each request so load is
@@ -96,6 +113,10 @@ type roundRobinStrategy struct{ r *RouterService }
 
 func (s roundRobinStrategy) Order(_ context.Context, req StrategyRequest) ([]string, error) {
 	return s.r.rotatedModels(req.Combo.Name, req.Combo.Models), nil
+}
+
+func (roundRobinStrategy) CacheCandidates(_ *domain.Combo, _ string, orderedModels []string) []string {
+	return orderedModels
 }
 
 // --- velocity (tps) ---
@@ -116,6 +137,10 @@ func (s velocityStrategy) Order(_ context.Context, req StrategyRequest) ([]strin
 		}
 	}
 	return orderVelocity(req.Combo.Models, s.r.TPS), nil
+}
+
+func (velocityStrategy) CacheCandidates(_ *domain.Combo, _ string, orderedModels []string) []string {
+	return orderedModels
 }
 
 // orderVelocity returns a copy of models sorted by TPS descending. A nil
@@ -154,6 +179,10 @@ func (s intelligenceStrategy) Order(ctx context.Context, req StrategyRequest) ([
 		return combo.Models, nil
 	}
 	return reorderChosenFirst(combo.Models, chosen), nil
+}
+
+func (intelligenceStrategy) CacheCandidates(_ *domain.Combo, currentModel string, _ []string) []string {
+	return []string{currentModel}
 }
 
 // classify asks the classifier model to pick the best model for the prompt.
@@ -228,6 +257,32 @@ type weightedStrategy struct{}
 
 func (weightedStrategy) Order(_ context.Context, req StrategyRequest) ([]string, error) {
 	return orderWeighted(req.Combo), nil
+}
+
+func (weightedStrategy) CacheCandidates(combo *domain.Combo, currentModel string, _ []string) []string {
+	return modelsWithSameWeight(combo, currentModel)
+}
+
+// modelsWithSameWeight returns all models in the combo that share the same
+// weight as the given model. Models without an explicit positive weight
+// default to 1. Used by the weighted strategy to check caches of equivalent
+// models (same weight tier) before attempting the chosen one.
+func modelsWithSameWeight(combo *domain.Combo, model string) []string {
+	targetW := 1
+	if meta, ok := combo.ModelMeta[model]; ok && meta.Weight > 0 {
+		targetW = meta.Weight
+	}
+	var out []string
+	for _, m := range combo.Models {
+		w := 1
+		if meta, ok := combo.ModelMeta[m]; ok && meta.Weight > 0 {
+			w = meta.Weight
+		}
+		if w == targetW {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 func orderWeighted(combo *domain.Combo) []string {
