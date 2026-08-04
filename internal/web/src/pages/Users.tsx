@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Card, Chip, Input, Label, ListBox, Modal, Select, Spinner, Switch, Table, TextField } from "@heroui/react";
+import { Button, Card, Chip, Input, Label, ListBox, Modal, Select, Switch, Table, TextField } from "@heroui/react";
 import { useTranslation } from "react-i18next";
 import { api, User, UserPermissions } from "../api";
 import { IconPlus, IconTrash, IconX } from "../icons";
@@ -122,43 +122,46 @@ export default function Users() {
       </div>
 
       <Card>
-        <Table.ScrollContainer>
-          <Table.Content aria-label={t("users.tableAria")} className="min-w-[720px]">
-            <Table.Header>
-              <Table.Column isRowHeader id="username">{t("users.colUser")}</Table.Column>
-              <Table.Column id="role">{t("users.colRole")}</Table.Column>
-              <Table.Column id="access">{t("users.colAccess")}</Table.Column>
-              <Table.Column id="actions" className="text-right">{t("users.colActions")}</Table.Column>
-            </Table.Header>
-            <Table.Body items={rows} renderEmptyState={() => (
-              <div className="p-10 text-center text-muted text-sm">{loading ? <Spinner /> : t("users.empty")}</div>
-            )}>
-              {(u) => (
-                <Table.Row key={u.id} id={u.id}>
-                  <Table.Cell><span className="font-medium">{u.username}</span></Table.Cell>
-                  <Table.Cell>
-                    <Chip size="sm" variant={u.role === "admin" ? "primary" : "soft"} color={u.role === "admin" ? "accent" : "default"}>
-                      {u.role === "admin" ? t("users.roleAdmin") : t("users.roleMember")}
-                    </Chip>
-                  </Table.Cell>
-                  <Table.Cell>
-                    <span className="text-xs text-muted">
-                      {u.role === "admin" ? t("users.allAccess") : `${(u.allowed_models ?? []).length} ${t("users.models")} · ${(u.allowed_combos ?? []).length} ${t("users.combos")}`}
-                    </span>
-                  </Table.Cell>
-                  <Table.Cell>
-                    <div className="flex items-center gap-2 justify-end">
-                      <Button size="sm" variant="secondary" onPress={() => openEdit(u)}>{t("users.edit")}</Button>
-                      <Button size="sm" variant="secondary" isIconOnly onPress={() => remove(u.id)} aria-label={t("users.delete")}>
-                        <IconTrash className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </Table.Cell>
-                </Table.Row>
-              )}
-            </Table.Body>
-          </Table.Content>
-        </Table.ScrollContainer>
+        <Table variant="secondary">
+          <Table.ScrollContainer>
+            <Table.Content aria-label={t("users.tableAria")} className="min-w-[720px]">
+              <Table.Header>
+                <Table.Column isRowHeader>{t("users.colUser")}</Table.Column>
+                <Table.Column>{t("users.colRole")}</Table.Column>
+                <Table.Column>{t("users.colAccess")}</Table.Column>
+                <Table.Column>{t("users.colActions")}</Table.Column>
+              </Table.Header>
+              <Table.Body>
+                {rows.map((u) => (
+                  <Table.Row key={u.id} id={u.id}>
+                    <Table.Cell><span className="font-medium">{u.username}</span></Table.Cell>
+                    <Table.Cell>
+                      <Chip size="sm" variant={u.role === "admin" ? "primary" : "soft"} color={u.role === "admin" ? "accent" : "default"}>
+                        {u.role === "admin" ? t("users.roleAdmin") : t("users.roleMember")}
+                      </Chip>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <span className="text-xs text-muted">
+                        {u.role === "admin" ? t("users.allAccess") : `${(u.allowed_models ?? []).length} ${t("users.models")} · ${(u.allowed_combos ?? []).length} ${t("users.combos")}`}
+                      </span>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" variant="secondary" onPress={() => openEdit(u)}>{t("users.edit")}</Button>
+                        <Button size="sm" variant="secondary" isIconOnly onPress={() => remove(u.id)} aria-label={t("users.delete")}>
+                          <IconTrash className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </Table.Cell>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </Table.Content>
+          </Table.ScrollContainer>
+        </Table>
+        {!loading && rows.length === 0 && (
+          <div className="p-10 text-center text-muted text-sm">{t("users.empty")}</div>
+        )}
       </Card>
 
       <Modal isOpen={modalOpen} onOpenChange={setModalOpen}>
