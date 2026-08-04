@@ -404,7 +404,6 @@ export default function Providers() {
                         {t("providers.noKeys")}
                       </div>
                     ) : (
-                      <div className="border border-border rounded-xl overflow-hidden">
                         <Table>
                           <Table.ScrollContainer>
                             <Table.Content aria-label={t("providers.connAria")} className="bg-surface-secondary min-w-[420px]">
@@ -436,7 +435,6 @@ export default function Providers() {
                             </Table.Content>
                           </Table.ScrollContainer>
                         </Table>
-                      </div>
                     )}
                   </div>
                 )}
@@ -450,26 +448,28 @@ export default function Providers() {
         <Modal.Backdrop>
           <Modal.Container>
             <Modal.Dialog className={providerStep === "pick" && !providerEditId ? "max-w-2xl" : "max-w-xl"}>
-              <Modal.Header>
-                <Modal.Heading>
+              <Modal.Header className="flex items-center gap-4">
+                <Modal.Heading className="shrink-0">
                   {providerEditId ? t("providers.editEndpoint") : providerStep === "pick" ? t("providers.chooseProvider") : t("providers.configureProvider")}
                 </Modal.Heading>
+                {!providerEditId && providerStep === "pick" && (
+                  <div className="relative ml-auto w-full max-w-xs">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><IconSearch className="w-4 h-4 text-muted" /></span>
+                    <Input
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder={t("providers.searchPlaceholder")}
+                      variant="secondary"
+                      className="pl-9"
+                      autoFocus
+                      aria-label={t("providers.searchAria")}
+                    />
+                  </div>
+                )}
               </Modal.Header>
               <Modal.Body className="flex flex-col gap-4">
                 {!providerEditId && providerStep === "pick" && (
                   <>
-                    <div className="relative mb-2">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><IconSearch className="w-4 h-4 text-muted" /></span>
-                      <Input
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder={t("providers.searchPlaceholder")}
-                        variant="secondary"
-                        className="pl-9"
-                        autoFocus
-                        aria-label={t("providers.searchAria")}
-                      />
-                    </div>
                     <div className="max-h-[420px] overflow-y-auto rounded-lg border border-border divide-y divide-border">
                       {filteredCatalog.map((def) => {
                         const isOauth = oauthProviders.includes(def.id);
@@ -534,25 +534,23 @@ export default function Providers() {
                     {!providerEditId && (
                       <Button size="sm" variant="ghost" className="self-start" onPress={() => setProviderStep("pick")}>{t("providers.back")}</Button>
                     )}
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-4">
                       <TextField value={providerForm.id} onChange={(v) => setProviderForm({ ...providerForm, id: v })} isDisabled={!!providerEditId}>
                         <Label>{t("providers.providerId")}</Label>
-                        <Input placeholder={t("providers.providerIdPlaceholder")} />
+                        <Input variant="secondary" placeholder={t("providers.providerIdPlaceholder")} />
                       </TextField>
                       <TextField value={providerForm.name} onChange={(v) => setProviderForm({ ...providerForm, name: v })}>
                         <Label>{t("providers.friendlyName")}</Label>
-                        <Input placeholder={t("providers.friendlyNamePlaceholder")} />
+                        <Input variant="secondary" placeholder={t("providers.friendlyNamePlaceholder")} />
                       </TextField>
-                    </div>
-                    <TextField value={providerForm.base_url} onChange={(v) => setProviderForm({ ...providerForm, base_url: v })}>
-                      <Label>{t("providers.baseUrl")}</Label>
-                      <Input placeholder={t("providers.baseUrlPlaceholder")} />
-                    </TextField>
-                    <div className="grid grid-cols-2 gap-4">
+                      <TextField value={providerForm.base_url} onChange={(v) => setProviderForm({ ...providerForm, base_url: v })}>
+                        <Label>{t("providers.baseUrl")}</Label>
+                        <Input variant="secondary" placeholder={t("providers.baseUrlPlaceholder")} />
+                      </TextField>
                       <div className="flex flex-col gap-1">
                         <Label>{t("providers.apiFormat")}</Label>
                         <Select aria-label={t("providers.apiFormatAria")} selectedKey={providerForm.format} onSelectionChange={(k) => setProviderForm({ ...providerForm, format: (k as string) ?? "auto" })}>
-                          <Select.Trigger><Select.Value /></Select.Trigger>
+                          <Select.Trigger className="bg-surface-secondary"><Select.Value /></Select.Trigger>
                           <Select.Popover>
                             <ListBox>{FORMATS.map((f) => <ListBox.Item key={f} id={f}>{f}</ListBox.Item>)}</ListBox>
                           </Select.Popover>
@@ -561,7 +559,7 @@ export default function Providers() {
                       <div className="flex flex-col gap-1">
                         <Label>{t("providers.auth")}</Label>
                         <Select aria-label={t("providers.authAria")} selectedKey={providerForm.auth} onSelectionChange={(k) => setProviderForm({ ...providerForm, auth: (k as string) ?? "bearer" })}>
-                          <Select.Trigger><Select.Value /></Select.Trigger>
+                          <Select.Trigger className="bg-surface-secondary"><Select.Value /></Select.Trigger>
                           <Select.Popover>
                             <ListBox>{AUTHS.map((a) => <ListBox.Item key={a} id={a}>{a}</ListBox.Item>)}</ListBox>
                           </Select.Popover>
