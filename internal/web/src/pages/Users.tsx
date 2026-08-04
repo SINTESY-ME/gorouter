@@ -125,7 +125,7 @@ export default function Users() {
         <Table.ScrollContainer>
           <Table.Content aria-label={t("users.tableAria")}>
             <Table.Header>
-              <Table.Column id="username">{t("users.colUser")}</Table.Column>
+              <Table.Column isRowHeader id="username">{t("users.colUser")}</Table.Column>
               <Table.Column id="role">{t("users.colRole")}</Table.Column>
               <Table.Column id="access">{t("users.colAccess")}</Table.Column>
               <Table.Column id="actions">{t("users.colActions")}</Table.Column>
