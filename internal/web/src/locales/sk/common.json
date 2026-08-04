@@ -258,9 +258,7 @@
     "subtitle": "{{count}} registrovaných kľúčov",
     "new": "Nový kľúč",
     "endpointTitle": "API endpoint",
-    "endpointDesc": "Nasmerujte svojho klienta (Claude Code, Cursor, Codex, Cline...) na tento endpoint.",
-    "local": "Lokálny",
-    "endpointAria": "API endpoint",
+    "endpointDesc": "Použite ktorýkoľvek z týchto endpointov s vaším API kľúčom ako Bearer tokenom.",
     "copyEndpointAria": "skopírovať endpoint",
     "loading": "Načítam...",
     "empty": "Zatiaľ žiadne kľúče. Kliknite",
@@ -329,7 +327,13 @@
     "customAria": "Vlastné trvanie",
     "addLimit": "Pridať",
     "usePresets": "Použiť predvoľby",
-    "customDuration": "Vlastné trvanie"
+    "customDuration": "Vlastné trvanie",
+    "endpointChat": "Doplňovanie chatu",
+    "endpointChatDesc": "— kompatibilné s OpenAI",
+    "endpointResponses": "Odpovede",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Správy",
+    "endpointMessagesDesc": "— kompatibilné s Anthropic"
   },
   "logs": {
     "title": "Protokoly využitia",

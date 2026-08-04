@@ -258,9 +258,7 @@
     "subtitle": "{{count}} కీలు నమోదయ్యాయి",
     "new": "కొత్త కీ",
     "endpointTitle": "API ఎండ్‌పాయింట్",
-    "endpointDesc": "మీ క్లయింట్‌ను (Claude Code, Cursor, Codex, Cline...) ఈ ఎండ్‌పాయింట్‌కు పాయింట్ చేయండి.",
-    "local": "లోకల్",
-    "endpointAria": "API ఎండ్‌పాయింట్",
+    "endpointDesc": "మీ API కీని Bearer టోకెన్‌గా ఉపయోగించి ఈ ఎండ్‌పాయింట్‌లలో దేనినైనా ఉపయోగించండి.",
     "copyEndpointAria": "ఎండ్‌పాయింట్ కాపీ చేయండి",
     "loading": "లోడ్ అవుతోంది...",
     "empty": "ఇంకా కీలు లేవు. క్లిక్ చేయండి",
@@ -329,7 +327,13 @@
     "customAria": "అనుకూల వ్యవధి",
     "addLimit": "జోడించు",
     "usePresets": "ప్రీసెట్లు ఉపయోగించండి",
-    "customDuration": "అనుకూల వ్యవధి"
+    "customDuration": "అనుకూల వ్యవధి",
+    "endpointChat": "చాట్ పూర్తులు",
+    "endpointChatDesc": "— OpenAI-అనుకూలమైనది",
+    "endpointResponses": "స్పందనలు",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "సందేశాలు",
+    "endpointMessagesDesc": "— Anthropic-అనుకూలమైనది"
   },
   "logs": {
     "title": "వినియోగ లాగ్స్",

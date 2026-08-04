@@ -258,9 +258,7 @@
     "subtitle": "키 {{count}}개 등록됨",
     "new": "새 키",
     "endpointTitle": "API 엔드포인트",
-    "endpointDesc": "클라이언트(Claude Code, Cursor, Codex, Cline...)를 이 엔드포인트로 지정하세요.",
-    "local": "로컬",
-    "endpointAria": "API 엔드포인트",
+    "endpointDesc": "API 키를 Bearer 토큰으로 사용하여 이 엔드포인트 중 하나를 사용하세요.",
     "copyEndpointAria": "엔드포인트 복사",
     "loading": "로딩 중...",
     "empty": "아직 키가 없습니다. 클릭",
@@ -329,7 +327,13 @@
     "customAria": "사용자 지정 기간",
     "addLimit": "추가",
     "usePresets": "프리셋 사용",
-    "customDuration": "사용자 지정 기간"
+    "customDuration": "사용자 지정 기간",
+    "endpointChat": "채팅 완성",
+    "endpointChatDesc": "— OpenAI 호환",
+    "endpointResponses": "응답",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "메시지",
+    "endpointMessagesDesc": "— Anthropic 호환"
   },
   "logs": {
     "title": "사용 로그",

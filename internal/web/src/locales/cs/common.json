@@ -258,9 +258,7 @@
     "subtitle": "{{count}} registrovaných klíčů",
     "new": "Nový klíč",
     "endpointTitle": "API endpoint",
-    "endpointDesc": "Nasměrujte svého klienta (Claude Code, Cursor, Codex, Cline...) na tento endpoint.",
-    "local": "Lokální",
-    "endpointAria": "API endpoint",
+    "endpointDesc": "Použijte libovolný z těchto endpointů s vaším API klíčem jako Bearer tokenem.",
     "copyEndpointAria": "zkopírovat endpoint",
     "loading": "Načítám...",
     "empty": "Zatím žádné klíče. Klikněte",
@@ -329,7 +327,13 @@
     "customAria": "Vlastní trvání",
     "addLimit": "Přidat",
     "usePresets": "Použít předvolby",
-    "customDuration": "Vlastní trvání"
+    "customDuration": "Vlastní trvání",
+    "endpointChat": "Doplňování chatu",
+    "endpointChatDesc": "— kompatibilní s OpenAI",
+    "endpointResponses": "Odpovědi",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Zprávy",
+    "endpointMessagesDesc": "— kompatibilní s Anthropic"
   },
   "logs": {
     "title": "Protokoly využití",

@@ -258,9 +258,7 @@
     "subtitle": "{{count}} chei înregistrate",
     "new": "Cheie nouă",
     "endpointTitle": "Endpoint API",
-    "endpointDesc": "Direcționează clientul (Claude Code, Cursor, Codex, Cline...) către acest endpoint.",
-    "local": "Local",
-    "endpointAria": "Endpoint API",
+    "endpointDesc": "Folosește oricare dintre aceste endpoint-uri cu cheia ta API ca token Bearer.",
     "copyEndpointAria": "copiază endpoint",
     "loading": "Se încarcă...",
     "empty": "Încă nicio cheie. Click",
@@ -329,7 +327,13 @@
     "customAria": "Durată personalizată",
     "addLimit": "Adaugă",
     "usePresets": "Folosește presetările",
-    "customDuration": "Durată personalizată"
+    "customDuration": "Durată personalizată",
+    "endpointChat": "Completări chat",
+    "endpointChatDesc": "— Compatibil OpenAI",
+    "endpointResponses": "Răspunsuri",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Mesaje",
+    "endpointMessagesDesc": "— Compatibil Anthropic"
   },
   "logs": {
     "title": "Jurnale de utilizare",

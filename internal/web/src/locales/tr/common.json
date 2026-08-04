@@ -258,9 +258,7 @@
     "subtitle": "{{count}} anahtar kayıtlı",
     "new": "Yeni anahtar",
     "endpointTitle": "API Endpoint'i",
-    "endpointDesc": "İstemcinizi (Claude Code, Cursor, Codex, Cline...) bu endpoint'e yönlendirin.",
-    "local": "Yerel",
-    "endpointAria": "API Endpoint'i",
+    "endpointDesc": "API anahtarınızı Bearer token olarak kullanarak bu uç noktalardan birini kullanın.",
     "copyEndpointAria": "endpoint'i kopyala",
     "loading": "Yükleniyor...",
     "empty": "Henüz anahtar yok. Tıklayın",
@@ -329,7 +327,13 @@
     "customAria": "Özel süre",
     "addLimit": "Ekle",
     "usePresets": "Ön ayarları kullan",
-    "customDuration": "Özel süre"
+    "customDuration": "Özel süre",
+    "endpointChat": "Sohbet Tamamlamaları",
+    "endpointChatDesc": "— OpenAI uyumlu",
+    "endpointResponses": "Yanıtlar",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Mesajlar",
+    "endpointMessagesDesc": "— Anthropic uyumlu"
   },
   "logs": {
     "title": "Kullanım günlükleri",

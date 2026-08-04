@@ -258,9 +258,7 @@
     "subtitle": "{{count}} chiavi registrate",
     "new": "Nuova chiave",
     "endpointTitle": "Endpoint API",
-    "endpointDesc": "Punta il tuo client (Claude Code, Cursor, Codex, Cline...) a questo endpoint.",
-    "local": "Locale",
-    "endpointAria": "Endpoint API",
+    "endpointDesc": "Usa uno qualsiasi di questi endpoint con la tua chiave API come token Bearer.",
     "copyEndpointAria": "copia endpoint",
     "loading": "Caricamento...",
     "empty": "Nessuna chiave. Clicca",
@@ -329,7 +327,13 @@
     "customAria": "Durata personalizzata",
     "addLimit": "Aggiungi",
     "usePresets": "Usa i preset",
-    "customDuration": "Durata personalizzata"
+    "customDuration": "Durata personalizzata",
+    "endpointChat": "Completamenti chat",
+    "endpointChatDesc": "— Compatibile con OpenAI",
+    "endpointResponses": "Risposte",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Messaggi",
+    "endpointMessagesDesc": "— Compatibile con Anthropic"
   },
   "logs": {
     "title": "Log di utilizzo",

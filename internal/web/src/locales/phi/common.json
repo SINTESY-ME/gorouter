@@ -258,9 +258,7 @@
     "subtitle": "{{count}} na key na rehistrado",
     "new": "Bagong key",
     "endpointTitle": "API Endpoint",
-    "endpointDesc": "Ituro ang iyong client (Claude Code, Cursor, Codex, Cline...) sa endpoint na ito.",
-    "local": "Lokal",
-    "endpointAria": "API Endpoint",
+    "endpointDesc": "Gamitin ang alinman sa mga endpoint na ito gamit ang iyong API key bilang Bearer token.",
     "copyEndpointAria": "kopyahin ang endpoint",
     "loading": "Naglo-load...",
     "empty": "Wala pang key. I-click",
@@ -329,7 +327,13 @@
     "customAria": "Custom na tagal",
     "addLimit": "Idagdag",
     "usePresets": "Gamitin ang presets",
-    "customDuration": "Custom na tagal"
+    "customDuration": "Custom na tagal",
+    "endpointChat": "Mga Pagkumpleto ng Chat",
+    "endpointChatDesc": "— Tugma sa OpenAI",
+    "endpointResponses": "Mga Tugon",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Mga Mensahe",
+    "endpointMessagesDesc": "— Tugma sa Anthropic"
   },
   "logs": {
     "title": "Usage logs",

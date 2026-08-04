@@ -258,9 +258,7 @@
     "subtitle": "{{count}} registrerte nøkler",
     "new": "Ny nøkkel",
     "endpointTitle": "API-endpoint",
-    "endpointDesc": "Pek klienten din (Claude Code, Cursor, Codex, Cline...) mot denne endpointen.",
-    "local": "Lokal",
-    "endpointAria": "API-endpoint",
+    "endpointDesc": "Bruk et av disse endepunktene med API-nøkkelen din som Bearer-token.",
     "copyEndpointAria": "kopier endpoint",
     "loading": "Laster inn...",
     "empty": "Ingen nøkler ennå. Klikk",
@@ -329,7 +327,13 @@
     "customAria": "Egendefinert varighet",
     "addLimit": "Legg til",
     "usePresets": "Bruk forhåndsinnstillinger",
-    "customDuration": "Egendefinert varighet"
+    "customDuration": "Egendefinert varighet",
+    "endpointChat": "Chat-fullførelser",
+    "endpointChatDesc": "— OpenAI-kompatibel",
+    "endpointResponses": "Svar",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Meldinger",
+    "endpointMessagesDesc": "— Anthropic-kompatibel"
   },
   "logs": {
     "title": "Brukslogger",

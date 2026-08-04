@@ -258,9 +258,7 @@
     "subtitle": "{{count}} clés enregistrées",
     "new": "Nouvelle clé",
     "endpointTitle": "Endpoint API",
-    "endpointDesc": "Pointez votre client (Claude Code, Cursor, Codex, Cline...) vers cet endpoint.",
-    "local": "Local",
-    "endpointAria": "Endpoint API",
+    "endpointDesc": "Utilisez l'un de ces points de terminaison avec votre clé API comme jeton Bearer.",
     "copyEndpointAria": "copier l'endpoint",
     "loading": "Chargement...",
     "empty": "Pas encore de clés. Cliquez",
@@ -329,7 +327,13 @@
     "customAria": "Durée personnalisée",
     "addLimit": "Ajouter",
     "usePresets": "Utiliser les préréglages",
-    "customDuration": "Durée personnalisée"
+    "customDuration": "Durée personnalisée",
+    "endpointChat": "Complétions de chat",
+    "endpointChatDesc": "— Compatible OpenAI",
+    "endpointResponses": "Réponses",
+    "endpointResponsesDesc": "— API Responses d'OpenAI",
+    "endpointMessages": "Messages",
+    "endpointMessagesDesc": "— Compatible Anthropic"
   },
   "logs": {
     "title": "Journaux d'utilisation",

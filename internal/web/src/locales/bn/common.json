@@ -258,9 +258,7 @@
     "subtitle": "{{count}}টি কী নিবন্ধিত",
     "new": "নতুন কী",
     "endpointTitle": "API এন্ডপয়েন্ট",
-    "endpointDesc": "আপনার ক্লায়েন্ট (Claude Code, Cursor, Codex, Cline...) এই এন্ডপয়েন্টে পয়েন্ট করুন।",
-    "local": "লোকাল",
-    "endpointAria": "API এন্ডপয়েন্ট",
+    "endpointDesc": "আপনার API কী-কে Bearer টোকেন হিসেবে ব্যবহার করে এই এন্ডপয়েন্টগুলোর যেকোনো একটি ব্যবহার করুন।",
     "copyEndpointAria": "এন্ডপয়েন্ট কপি করুন",
     "loading": "লোড হচ্ছে...",
     "empty": "এখনও কোনো কী নেই। ক্লিক করুন",
@@ -329,7 +327,13 @@
     "customAria": "কাস্টম সময়কাল",
     "addLimit": "যোগ করুন",
     "usePresets": "প্রিসেট ব্যবহার করুন",
-    "customDuration": "কাস্টম সময়কাল"
+    "customDuration": "কাস্টম সময়কাল",
+    "endpointChat": "চ্যাট সম্পূর্ণতা",
+    "endpointChatDesc": "— OpenAI-সামঞ্জস্যপূর্ণ",
+    "endpointResponses": "প্রতিক্রিয়া",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "বার্তা",
+    "endpointMessagesDesc": "— Anthropic-সামঞ্জস্যপূর্ণ"
   },
   "logs": {
     "title": "ব্যবহারের লগ",

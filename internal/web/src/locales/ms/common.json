@@ -258,9 +258,7 @@
     "subtitle": "{{count}} kunci berdaftar",
     "new": "Kunci baharu",
     "endpointTitle": "Endpoint API",
-    "endpointDesc": "Halakan klien anda (Claude Code, Cursor, Codex, Cline...) ke endpoint ini.",
-    "local": "Setempat",
-    "endpointAria": "Endpoint API",
+    "endpointDesc": "Gunakan mana-mana endpoint ini dengan kunci API anda sebagai token Bearer.",
     "copyEndpointAria": "salin endpoint",
     "loading": "Memuatkan...",
     "empty": "Belum ada kunci. Klik",
@@ -329,7 +327,13 @@
     "customAria": "Tempoh tersuai",
     "addLimit": "Tambah",
     "usePresets": "Gunakan pratetap",
-    "customDuration": "Tempoh tersuai"
+    "customDuration": "Tempoh tersuai",
+    "endpointChat": "Penyelesaian Chat",
+    "endpointChatDesc": "— Serasi dengan OpenAI",
+    "endpointResponses": "Respons",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Mesej",
+    "endpointMessagesDesc": "— Serasi dengan Anthropic"
   },
   "logs": {
     "title": "Log penggunaan",

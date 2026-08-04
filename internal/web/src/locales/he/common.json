@@ -258,9 +258,7 @@
     "subtitle": "{{count}} מפתחות רשומים",
     "new": "מפתח חדש",
     "endpointTitle": "Endpoint של API",
-    "endpointDesc": "כוון את הלקוח שלך (Claude Code, Cursor, Codex, Cline...) אל ה-Endpoint הזה.",
-    "local": "מקומי",
-    "endpointAria": "Endpoint של API",
+    "endpointDesc": "השתמש בכל אחד מהנקודות הקצה האלה עם מפתח ה-API שלך כטוקן Bearer.",
     "copyEndpointAria": "העתקת Endpoint",
     "loading": "טוען...",
     "empty": "אין עדיין מפתחות. לחץ",
@@ -329,7 +327,13 @@
     "customAria": "משך מותאם",
     "addLimit": "הוספה",
     "usePresets": "שימוש בקבועים",
-    "customDuration": "משך מותאם"
+    "customDuration": "משך מותאם",
+    "endpointChat": "השלמות צ'אט",
+    "endpointChatDesc": "— תואם OpenAI",
+    "endpointResponses": "תגובות",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "הודעות",
+    "endpointMessagesDesc": "— תואם Anthropic"
   },
   "logs": {
     "title": "יומני שימוש",

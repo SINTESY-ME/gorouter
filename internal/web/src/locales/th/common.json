@@ -258,9 +258,7 @@
     "subtitle": "ลงทะเบียน {{count}} คีย์แล้ว",
     "new": "คีย์ใหม่",
     "endpointTitle": "API Endpoint",
-    "endpointDesc": "ชี้ไคลเอนต์ของคุณ (Claude Code, Cursor, Codex, Cline...) ไปที่ endpoint นี้",
-    "local": "ในเครื่อง",
-    "endpointAria": "API Endpoint",
+    "endpointDesc": "ใช้ endpoint ใดก็ได้จากเหล่านี้ด้วยคีย์ API ของคุณเป็น Bearer token",
     "copyEndpointAria": "คัดลอก endpoint",
     "loading": "กำลังโหลด...",
     "empty": "ยังไม่มีคีย์ คลิก",
@@ -329,7 +327,13 @@
     "customAria": "ระยะเวลาที่กำหนดเอง",
     "addLimit": "เพิ่ม",
     "usePresets": "ใช้ค่าที่ตั้งไว้",
-    "customDuration": "ระยะเวลาที่กำหนดเอง"
+    "customDuration": "ระยะเวลาที่กำหนดเอง",
+    "endpointChat": "การเติมข้อความแชท",
+    "endpointChatDesc": "— รองรับ OpenAI",
+    "endpointResponses": "การตอบกลับ",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "ข้อความ",
+    "endpointMessagesDesc": "— รองรับ Anthropic"
   },
   "logs": {
     "title": "บันทึกการใช้งาน",

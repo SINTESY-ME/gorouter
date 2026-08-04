@@ -258,9 +258,7 @@
     "subtitle": "{{count}} விசைகள் பதிவு செய்யப்பட்டன",
     "new": "புதிய விசை",
     "endpointTitle": "API Endpoint",
-    "endpointDesc": "உங்கள் கிளையண்டை (Claude Code, Cursor, Codex, Cline...) இந்த endpoint-ஐ நோக்கி சுட்டவும்.",
-    "local": "உள்ளூர்",
-    "endpointAria": "API Endpoint",
+    "endpointDesc": "உங்கள் API விசையை Bearer டோக்கனாகப் பயன்படுத்தி இந்த முனையங்களில் ஏதேனும் ஒன்றைப் பயன்படுத்தவும்.",
     "copyEndpointAria": "endpoint நகலெடு",
     "loading": "ஏற்றப்படுகிறது...",
     "empty": "இன்னும் விசைகள் இல்லை. கிளிக் செய்யவும்",
@@ -329,7 +327,13 @@
     "customAria": "தனிப்பயன் காலம்",
     "addLimit": "சேர்",
     "usePresets": "முன்னமைவுகளைப் பயன்படுத்து",
-    "customDuration": "தனிப்பயன் காலம்"
+    "customDuration": "தனிப்பயன் காலம்",
+    "endpointChat": "அரட்டை நிறைவுகள்",
+    "endpointChatDesc": "— OpenAI-இணக்கமானது",
+    "endpointResponses": "பதில்கள்",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "செய்திகள்",
+    "endpointMessagesDesc": "— Anthropic-இணக்கமானது"
   },
   "logs": {
     "title": "பயன்பாட்டு பதிவுகள்",

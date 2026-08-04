@@ -170,8 +170,8 @@ export default function Keys() {
   const [copied, setCopied] = useState<string | null>(null);
   const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [endpoint, setEndpoint] = useState("/v1");
-  const [endpointCopied, setEndpointCopied] = useState(false);
+  const [endpoint, setEndpoint] = useState("");
+  const [endpointCopied, setEndpointCopied] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [modelItems, setModelItems] = useState<ModelComboBoxItem[]>([]);
 
@@ -182,7 +182,7 @@ export default function Keys() {
   }, []);
 
   useEffect(() => {
-    if (typeof window !== "undefined") setEndpoint(`${window.location.origin}/v1`);
+    if (typeof window !== "undefined") setEndpoint(window.location.origin);
   }, []);
 
   const load = () => {
@@ -282,8 +282,8 @@ export default function Keys() {
     } catch {}
   };
 
-  const copyEndpoint = async () => {
-    try { await navigator.clipboard.writeText(endpoint); setEndpointCopied(true); setTimeout(() => setEndpointCopied(false), 1500); } catch {}
+  const copyToClipboard = async (text: string, key: string) => {
+    try { await navigator.clipboard.writeText(text); setEndpointCopied(key); setTimeout(() => setEndpointCopied(null), 1500); } catch {}
   };
 
   return (
@@ -301,21 +301,67 @@ export default function Keys() {
           <IconApi className="w-4 h-4" />
           <h2 className="text-base font-semibold">{t("keys.endpointTitle")}</h2>
         </div>
-        <p className="text-xs text-muted mb-3">
+        <p className="text-xs text-muted mb-4">
           {t("keys.endpointDesc")}
         </p>
-        <div className="flex items-center gap-2">
-          <Chip size="sm" variant="soft" className="shrink-0 min-w-[70px] justify-center font-mono text-xs">{t("keys.local")}</Chip>
-          <Input value={endpoint} readOnly className="flex-1 font-mono text-sm" aria-label={t("keys.endpointAria")} />
-          <Button
-            isIconOnly
-            variant="secondary"
-            onPress={copyEndpoint}
-            aria-label={t("keys.copyEndpointAria")}
-            className={endpointCopied ? "text-success" : ""}
-          >
-            {endpointCopied ? <IconCheck className="w-4 h-4 text-success" /> : <IconCopy className="w-4 h-4" />}
-          </Button>
+        <div className="space-y-3">
+          <div>
+            <div className="flex items-center gap-2 mb-1.5">
+              <Chip size="sm" variant="soft" color="accent" className="shrink-0 font-mono text-[11px]">POST</Chip>
+              <span className="text-xs font-medium">{t("keys.endpointChat")}</span>
+              <span className="text-[11px] text-muted">{t("keys.endpointChatDesc")}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 bg-surface-secondary px-3 py-2 rounded-lg font-mono text-xs border border-border break-all">{endpoint}/v1/chat/completions</code>
+              <Button
+                isIconOnly
+                variant="secondary"
+                onPress={() => copyToClipboard(`${endpoint}/v1/chat/completions`, "chat")}
+                aria-label={t("keys.copyEndpointAria")}
+                className={endpointCopied === "chat" ? "text-success" : ""}
+              >
+                {endpointCopied === "chat" ? <IconCheck className="w-4 h-4 text-success" /> : <IconCopy className="w-4 h-4" />}
+              </Button>
+            </div>
+          </div>
+          <div>
+            <div className="flex items-center gap-2 mb-1.5">
+              <Chip size="sm" variant="soft" color="accent" className="shrink-0 font-mono text-[11px]">POST</Chip>
+              <span className="text-xs font-medium">{t("keys.endpointResponses")}</span>
+              <span className="text-[11px] text-muted">{t("keys.endpointResponsesDesc")}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 bg-surface-secondary px-3 py-2 rounded-lg font-mono text-xs border border-border break-all">{endpoint}/v1/responses</code>
+              <Button
+                isIconOnly
+                variant="secondary"
+                onPress={() => copyToClipboard(`${endpoint}/v1/responses`, "responses")}
+                aria-label={t("keys.copyEndpointAria")}
+                className={endpointCopied === "responses" ? "text-success" : ""}
+              >
+                {endpointCopied === "responses" ? <IconCheck className="w-4 h-4 text-success" /> : <IconCopy className="w-4 h-4" />}
+              </Button>
+            </div>
+          </div>
+          <div>
+            <div className="flex items-center gap-2 mb-1.5">
+              <Chip size="sm" variant="soft" color="default" className="shrink-0 font-mono text-[11px]">POST</Chip>
+              <span className="text-xs font-medium">{t("keys.endpointMessages")}</span>
+              <span className="text-[11px] text-muted">{t("keys.endpointMessagesDesc")}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 bg-surface-secondary px-3 py-2 rounded-lg font-mono text-xs border border-border break-all">{endpoint}/v1/messages</code>
+              <Button
+                isIconOnly
+                variant="secondary"
+                onPress={() => copyToClipboard(`${endpoint}/v1/messages`, "messages")}
+                aria-label={t("keys.copyEndpointAria")}
+                className={endpointCopied === "messages" ? "text-success" : ""}
+              >
+                {endpointCopied === "messages" ? <IconCheck className="w-4 h-4 text-success" /> : <IconCopy className="w-4 h-4" />}
+              </Button>
+            </div>
+          </div>
         </div>
       </Card>
 

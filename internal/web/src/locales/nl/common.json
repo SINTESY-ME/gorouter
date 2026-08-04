@@ -258,9 +258,7 @@
     "subtitle": "{{count}} keys geregistreerd",
     "new": "Nieuwe key",
     "endpointTitle": "API-endpoint",
-    "endpointDesc": "Wijs je client (Claude Code, Cursor, Codex, Cline...) naar dit endpoint.",
-    "local": "Lokaal",
-    "endpointAria": "API-endpoint",
+    "endpointDesc": "Gebruik een van deze endpoints met uw API-sleutel als Bearer-token.",
     "copyEndpointAria": "endpoint kopiëren",
     "loading": "Laden...",
     "empty": "Nog geen keys. Klik",
@@ -329,7 +327,13 @@
     "customAria": "Aangepaste duur",
     "addLimit": "Toevoegen",
     "usePresets": "Voorinstellingen gebruiken",
-    "customDuration": "Aangepaste duur"
+    "customDuration": "Aangepaste duur",
+    "endpointChat": "Chat-voltooiingen",
+    "endpointChatDesc": "— OpenAI-compatibel",
+    "endpointResponses": "Antwoorden",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Berichten",
+    "endpointMessagesDesc": "— Anthropic-compatibel"
   },
   "logs": {
     "title": "Gebruikslogs",

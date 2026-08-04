@@ -258,9 +258,7 @@
     "subtitle": "{{count}} ключей зарегистрировано",
     "new": "Новый ключ",
     "endpointTitle": "API Endpoint",
-    "endpointDesc": "Укажите ваш клиент (Claude Code, Cursor, Codex, Cline...) на этот endpoint.",
-    "local": "Локальный",
-    "endpointAria": "API Endpoint",
+    "endpointDesc": "Используйте любой из этих эндпоинтов с вашим API-ключом в качестве Bearer-токена.",
     "copyEndpointAria": "скопировать endpoint",
     "loading": "Загрузка...",
     "empty": "Ключей пока нет. Нажмите",
@@ -329,7 +327,13 @@
     "customAria": "Своя длительность",
     "addLimit": "Добавить",
     "usePresets": "Использовать пресеты",
-    "customDuration": "Своя длительность"
+    "customDuration": "Своя длительность",
+    "endpointChat": "Завершения чата",
+    "endpointChatDesc": "— совместимо с OpenAI",
+    "endpointResponses": "Ответы",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Сообщения",
+    "endpointMessagesDesc": "— совместимо с Anthropic"
   },
   "logs": {
     "title": "Журнал использования",

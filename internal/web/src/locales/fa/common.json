@@ -258,9 +258,7 @@
     "subtitle": "{{count}} کلید ثبت‌شده",
     "new": "کلید جدید",
     "endpointTitle": "Endpoint API",
-    "endpointDesc": "کلاینت خود (Claude Code, Cursor, Codex, Cline...) را به این Endpoint نشانه بگیرید.",
-    "local": "محلی",
-    "endpointAria": "Endpoint API",
+    "endpointDesc": "از هر یک از این نقطه‌های پایانی با کلید API خود به عنوان توکن Bearer استفاده کنید.",
     "copyEndpointAria": "کپی Endpoint",
     "loading": "در حال بارگذاری...",
     "empty": "هنوز کلیدی نیست. کلیک کنید",
@@ -329,7 +327,13 @@
     "customAria": "مدت سفارشی",
     "addLimit": "افزودن",
     "usePresets": "استفاده از از پیش تعیین‌ها",
-    "customDuration": "مدت سفارشی"
+    "customDuration": "مدت سفارشی",
+    "endpointChat": "تکمیل چت",
+    "endpointChatDesc": "— سازگار با OpenAI",
+    "endpointResponses": "پاسخ‌ها",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "پیام‌ها",
+    "endpointMessagesDesc": "— سازگار با Anthropic"
   },
   "logs": {
     "title": "لاگ‌های استفاده",

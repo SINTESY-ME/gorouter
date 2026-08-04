@@ -258,9 +258,7 @@
     "subtitle": "{{count}} açar qeydiyyatdadır",
     "new": "Yeni açar",
     "endpointTitle": "API Endpoint-i",
-    "endpointDesc": "İstifadəçinizi (Claude Code, Cursor, Codex, Cline...) bu endpoint-ə yönəldin.",
-    "local": "Yerli",
-    "endpointAria": "API Endpoint-i",
+    "endpointDesc": "Bu endpoint-lərdən birini API açarınızı Bearer token kimi istifadə edin.",
     "copyEndpointAria": "endpoint-i kopyala",
     "loading": "Yüklənir...",
     "empty": "Hələ açar yoxdur. Klikləyin",
@@ -329,7 +327,13 @@
     "customAria": "Xüsusi müddət",
     "addLimit": "Əlavə et",
     "usePresets": "Hazır qurmalardan istifadə et",
-    "customDuration": "Xüsusi müddət"
+    "customDuration": "Xüsusi müddət",
+    "endpointChat": "Söhbət Tamamlamaları",
+    "endpointChatDesc": "— OpenAI-uyğun",
+    "endpointResponses": "Cavablar",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Mesajlar",
+    "endpointMessagesDesc": "— Anthropic-uyğun"
   },
   "logs": {
     "title": "İstifadə jurnalları",

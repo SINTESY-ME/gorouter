@@ -258,9 +258,7 @@
     "subtitle": "已注册 {{count}} 个密钥",
     "new": "新建密钥",
     "endpointTitle": "API 端点",
-    "endpointDesc": "将您的客户端（Claude Code、Cursor、Codex、Cline...）指向此端点。",
-    "local": "本地",
-    "endpointAria": "API 端点",
+    "endpointDesc": "使用您的 API 密钥作为 Bearer 令牌来使用这些端点中的任意一个。",
     "copyEndpointAria": "复制端点",
     "loading": "加载中...",
     "empty": "还没有密钥。点击",
@@ -329,7 +327,13 @@
     "customAria": "自定义时长",
     "addLimit": "添加",
     "usePresets": "使用预设",
-    "customDuration": "自定义时长"
+    "customDuration": "自定义时长",
+    "endpointChat": "聊天补全",
+    "endpointChatDesc": "— OpenAI 兼容",
+    "endpointResponses": "响应",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "消息",
+    "endpointMessagesDesc": "— Anthropic 兼容"
   },
   "logs": {
     "title": "使用日志",

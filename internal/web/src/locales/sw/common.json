@@ -258,9 +258,7 @@
     "subtitle": "{{count}} funguo zilizosajiliwa",
     "new": "Funguo mpya",
     "endpointTitle": "API Endpoint",
-    "endpointDesc": "Elekeza client yako (Claude Code, Cursor, Codex, Cline...) kwenye endpoint hii.",
-    "local": "Ya ndani",
-    "endpointAria": "API Endpoint",
+    "endpointDesc": "Tumia moja ya nukta hizi za mwisho na ufunguo wako wa API kama token ya Bearer.",
     "copyEndpointAria": "nakili endpoint",
     "loading": "Inapakia...",
     "empty": "Hakuna funguo bado. Bonyeza",
@@ -329,7 +327,13 @@
     "customAria": "Muda maalum",
     "addLimit": "Ongeza",
     "usePresets": "Tumia presets",
-    "customDuration": "Muda maalum"
+    "customDuration": "Muda maalum",
+    "endpointChat": "Utimilifu wa Mazungumzo",
+    "endpointChatDesc": "— Inaoanana na OpenAI",
+    "endpointResponses": "Majibu",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Ujumbe",
+    "endpointMessagesDesc": "— Inaoanana na Anthropic"
   },
   "logs": {
     "title": "Rekodi za matumizi",

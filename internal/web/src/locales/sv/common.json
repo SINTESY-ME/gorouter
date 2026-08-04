@@ -258,9 +258,7 @@
     "subtitle": "{{count}} registrerade nycklar",
     "new": "Ny nyckel",
     "endpointTitle": "API-endpoint",
-    "endpointDesc": "Peka din klient (Claude Code, Cursor, Codex, Cline...) mot den här endpointen.",
-    "local": "Lokal",
-    "endpointAria": "API-endpoint",
+    "endpointDesc": "Använd någon av dessa slutpunkter med din API-nyckel som Bearer-token.",
     "copyEndpointAria": "kopiera endpoint",
     "loading": "Läser in...",
     "empty": "Inga nycklar ännu. Klicka",
@@ -329,7 +327,13 @@
     "customAria": "Anpassad varaktighet",
     "addLimit": "Lägg till",
     "usePresets": "Använd förinställningar",
-    "customDuration": "Anpassad varaktighet"
+    "customDuration": "Anpassad varaktighet",
+    "endpointChat": "Chatt-slutföranden",
+    "endpointChatDesc": "— OpenAI-kompatibel",
+    "endpointResponses": "Svar",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Meddelanden",
+    "endpointMessagesDesc": "— Anthropic-kompatibel"
   },
   "logs": {
     "title": "Användningsloggar",

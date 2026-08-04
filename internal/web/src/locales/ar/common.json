@@ -258,9 +258,7 @@
     "subtitle": "{{count}} مفتاحًا مسجّلًا",
     "new": "مفتاح جديد",
     "endpointTitle": "نقطة وصول API",
-    "endpointDesc": "وجّه عميلك (Claude Code, Cursor, Codex, Cline...) إلى هذه النقطة.",
-    "local": "محلي",
-    "endpointAria": "نقطة وصول API",
+    "endpointDesc": "استخدم أي من هذه النقاط مع مفتاح API الخاص بك كرمز Bearer.",
     "copyEndpointAria": "نسخ نقطة الوصول",
     "loading": "جارٍ التحميل...",
     "empty": "لا توجد مفاتيح بعد. انقر",
@@ -329,7 +327,13 @@
     "customAria": "مدة مخصصة",
     "addLimit": "إضافة",
     "usePresets": "استخدام الإعدادات المسبقة",
-    "customDuration": "مدة مخصصة"
+    "customDuration": "مدة مخصصة",
+    "endpointChat": "إكمال الدردشة",
+    "endpointChatDesc": "— متوافق مع OpenAI",
+    "endpointResponses": "الردود",
+    "endpointResponsesDesc": "— واجهة برمجة تطبيقات الردود من OpenAI",
+    "endpointMessages": "الرسائل",
+    "endpointMessagesDesc": "— متوافق مع Anthropic"
   },
   "logs": {
     "title": "سجلات الاستخدام",

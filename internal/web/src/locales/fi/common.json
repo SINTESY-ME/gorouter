@@ -258,9 +258,7 @@
     "subtitle": "{{count}} avainta rekisteröity",
     "new": "Uusi avain",
     "endpointTitle": "API-päätepiste",
-    "endpointDesc": "Suuntaa asiakkaasi (Claude Code, Cursor, Codex, Cline...) tähän päätepisteeseen.",
-    "local": "Paikallinen",
-    "endpointAria": "API-päätepiste",
+    "endpointDesc": "Käytä mitä tahansa näistä päätepisteistä API-avaimesi kanssa Bearer-tokenina.",
     "copyEndpointAria": "kopioi päätepiste",
     "loading": "Ladataan...",
     "empty": "Ei avaimia vielä. Napsauta",
@@ -329,7 +327,13 @@
     "customAria": "Mukautettu kesto",
     "addLimit": "Lisää",
     "usePresets": "Käytä valmiita asetuksia",
-    "customDuration": "Mukautettu kesto"
+    "customDuration": "Mukautettu kesto",
+    "endpointChat": "Keskustelun täydennykset",
+    "endpointChatDesc": "— OpenAI-yhteensopiva",
+    "endpointResponses": "Vastaukset",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Viestit",
+    "endpointMessagesDesc": "— Anthropic-yhteensopiva"
   },
   "logs": {
     "title": "Käyttölokit",

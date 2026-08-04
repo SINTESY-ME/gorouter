@@ -258,9 +258,7 @@
     "subtitle": "{{count}} registrerede nøgler",
     "new": "Ny nøgle",
     "endpointTitle": "API-endpoint",
-    "endpointDesc": "Ret din klient (Claude Code, Cursor, Codex, Cline...) mod dette endpoint.",
-    "local": "Lokal",
-    "endpointAria": "API-endpoint",
+    "endpointDesc": "Brug et af disse endpoints med din API-nøgle som Bearer-token.",
     "copyEndpointAria": "kopier endpoint",
     "loading": "Indlæser...",
     "empty": "Endnu ingen nøgler. Klik",
@@ -329,7 +327,13 @@
     "customAria": "Brugerdefineret varighed",
     "addLimit": "Tilføj",
     "usePresets": "Brug forudindstillinger",
-    "customDuration": "Brugerdefineret varighed"
+    "customDuration": "Brugerdefineret varighed",
+    "endpointChat": "Chat Fuldførelser",
+    "endpointChatDesc": "— OpenAI-kompatibel",
+    "endpointResponses": "Svar",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Beskeder",
+    "endpointMessagesDesc": "— Anthropic-kompatibel"
   },
   "logs": {
     "title": "Brugslogfiler",

@@ -258,9 +258,7 @@
     "subtitle": "{{count}} khóa đã đăng ký",
     "new": "Khóa mới",
     "endpointTitle": "API Endpoint",
-    "endpointDesc": "Trỏ máy khách (Claude Code, Cursor, Codex, Cline...) vào endpoint này.",
-    "local": "Cục bộ",
-    "endpointAria": "API Endpoint",
+    "endpointDesc": "Sử dụng một trong các endpoint này với khóa API của bạn làm token Bearer.",
     "copyEndpointAria": "sao chép endpoint",
     "loading": "Đang tải...",
     "empty": "Chưa có khóa nào. Nhấp",
@@ -329,7 +327,13 @@
     "customAria": "Thời lượng tùy chỉnh",
     "addLimit": "Thêm",
     "usePresets": "Dùng cài đặt sẵn",
-    "customDuration": "Thời lượng tùy chỉnh"
+    "customDuration": "Thời lượng tùy chỉnh",
+    "endpointChat": "Hoàn thành chat",
+    "endpointChatDesc": "— Tương thích OpenAI",
+    "endpointResponses": "Phản hồi",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Tin nhắn",
+    "endpointMessagesDesc": "— Tương thích Anthropic"
   },
   "logs": {
     "title": "Nhật ký sử dụng",

@@ -258,9 +258,7 @@
     "subtitle": "{{count}} regisztrált kulcs",
     "new": "Új kulcs",
     "endpointTitle": "API végpont",
-    "endpointDesc": "Mutasson a kliense (Claude Code, Cursor, Codex, Cline...) erre a végpontra.",
-    "local": "Helyi",
-    "endpointAria": "API végpont",
+    "endpointDesc": "Használja bármelyik végpontot API-kulcsával Bearer tokenként.",
     "copyEndpointAria": "végpont másolása",
     "loading": "Betöltés...",
     "empty": "Még nincsenek kulcsok. Kattintson",
@@ -329,7 +327,13 @@
     "customAria": "Egyéni időtartam",
     "addLimit": "Hozzáadás",
     "usePresets": "Előbeállítások használata",
-    "customDuration": "Egyéni időtartam"
+    "customDuration": "Egyéni időtartam",
+    "endpointChat": "Chat-befejezések",
+    "endpointChatDesc": "— OpenAI-kompatibilis",
+    "endpointResponses": "Válaszok",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Üzenetek",
+    "endpointMessagesDesc": "— Anthropic-kompatibilis"
   },
   "logs": {
     "title": "Használati naplók",

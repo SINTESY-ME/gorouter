@@ -258,9 +258,7 @@
     "subtitle": "{{count}} キー登録済み",
     "new": "新しいキー",
     "endpointTitle": "API エンドポイント",
-    "endpointDesc": "クライアント (Claude Code、Cursor、Codex、Cline...) をこのエンドポイントに向けてください。",
-    "local": "ローカル",
-    "endpointAria": "API エンドポイント",
+    "endpointDesc": "APIキーをBearerトークンとして使用し、いずれかのエンドポイントをご利用ください。",
     "copyEndpointAria": "エンドポイントをコピー",
     "loading": "読み込み中...",
     "empty": "キーがまだありません。クリック",
@@ -329,7 +327,13 @@
     "customAria": "カスタム期間",
     "addLimit": "追加",
     "usePresets": "プリセットを使用",
-    "customDuration": "カスタム期間"
+    "customDuration": "カスタム期間",
+    "endpointChat": "チャット補完",
+    "endpointChatDesc": "— OpenAI互換",
+    "endpointResponses": "レスポンス",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "メッセージ",
+    "endpointMessagesDesc": "— Anthropic互換"
   },
   "logs": {
     "title": "使用ログ",

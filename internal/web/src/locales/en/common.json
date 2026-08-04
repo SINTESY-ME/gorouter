@@ -258,9 +258,7 @@
     "subtitle": "{{count}} keys registered",
     "new": "New key",
     "endpointTitle": "API Endpoint",
-    "endpointDesc": "Point your client (Claude Code, Cursor, Codex, Cline...) at this endpoint.",
-    "local": "Local",
-    "endpointAria": "API Endpoint",
+    "endpointDesc": "Use any of these endpoints with your API key as the Bearer token.",
     "copyEndpointAria": "copy endpoint",
     "loading": "Loading...",
     "empty": "No keys yet. Click",
@@ -329,7 +327,13 @@
     "customAria": "Custom duration",
     "addLimit": "Add",
     "usePresets": "Use presets",
-    "customDuration": "Custom duration"
+    "customDuration": "Custom duration",
+    "endpointChat": "Chat Completions",
+    "endpointChatDesc": "— OpenAI-compatible (Cursor, Continue, custom clients...)",
+    "endpointResponses": "Responses",
+    "endpointResponsesDesc": "— OpenAI Responses API (Codex, custom clients...)",
+    "endpointMessages": "Messages",
+    "endpointMessagesDesc": "— Anthropic-compatible (Claude Code, Cline, custom clients...)"
   },
   "logs": {
     "title": "Usage logs",

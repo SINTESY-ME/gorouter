@@ -258,9 +258,7 @@
     "subtitle": "{{count}} कीज नोंदणीकृत",
     "new": "नवीन की",
     "endpointTitle": "API एंडपॉइंट",
-    "endpointDesc": "तुमचे क्लायंट (Claude Code, Cursor, Codex, Cline...) या एंडपॉइंटवर पॉइंट करा.",
-    "local": "स्थानिक",
-    "endpointAria": "API एंडपॉइंट",
+    "endpointDesc": "तुमची API की Bearer टोकन म्हणून वापरून यापैकी कोणताही एंडपॉइंट वापरा.",
     "copyEndpointAria": "एंडपॉइंट कॉपी करा",
     "loading": "लोड होत आहे...",
     "empty": "अजून कीज नाहीत. क्लिक करा",
@@ -329,7 +327,13 @@
     "customAria": "सानुकूल कालावधी",
     "addLimit": "जोडा",
     "usePresets": "पूर्वनिर्धारित वापरा",
-    "customDuration": "सानुकूल कालावधी"
+    "customDuration": "सानुकूल कालावधी",
+    "endpointChat": "चॅट पूर्णता",
+    "endpointChatDesc": "— OpenAI-सुसंगत",
+    "endpointResponses": "प्रतिसाद",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "संदेश",
+    "endpointMessagesDesc": "— Anthropic-सुसंगत"
   },
   "logs": {
     "title": "वापर लॉग",

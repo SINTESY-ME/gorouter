@@ -258,9 +258,7 @@
     "subtitle": "{{count}} Schlüssel registriert",
     "new": "Neuer Schlüssel",
     "endpointTitle": "API-Endpunkt",
-    "endpointDesc": "Richte deinen Client (Claude Code, Cursor, Codex, Cline...) auf diesen Endpunkt aus.",
-    "local": "Lokal",
-    "endpointAria": "API-Endpunkt",
+    "endpointDesc": "Verwenden Sie einen dieser Endpunkte mit Ihrem API-Schlüssel als Bearer-Token.",
     "copyEndpointAria": "Endpunkt kopieren",
     "loading": "Wird geladen...",
     "empty": "Noch keine Schlüssel. Klicken",
@@ -329,7 +327,13 @@
     "customAria": "Benutzerdefinierte Dauer",
     "addLimit": "Hinzufügen",
     "usePresets": "Voreinstellungen verwenden",
-    "customDuration": "Benutzerdefinierte Dauer"
+    "customDuration": "Benutzerdefinierte Dauer",
+    "endpointChat": "Chat-Vervollständigungen",
+    "endpointChatDesc": "— OpenAI-kompatibel",
+    "endpointResponses": "Antworten",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Nachrichten",
+    "endpointMessagesDesc": "— Anthropic-kompatibel"
   },
   "logs": {
     "title": "Nutzungsprotokolle",

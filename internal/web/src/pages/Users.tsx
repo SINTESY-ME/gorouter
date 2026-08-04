@@ -165,7 +165,8 @@ export default function Users() {
         </Table.ScrollContainer>
       </Card>
 
-      <Modal.Backdrop isOpen={modalOpen} onOpenChange={setModalOpen}>
+      <Modal isOpen={modalOpen} onOpenChange={setModalOpen}>
+        <Modal.Backdrop>
         <Modal.Container>
           <Modal.Dialog>
             <Modal.Header>
@@ -231,7 +232,8 @@ export default function Users() {
             </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>
-      </Modal.Backdrop>
+        </Modal.Backdrop>
+      </Modal>
     </div>
   );
 }

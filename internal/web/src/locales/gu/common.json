@@ -258,9 +258,7 @@
     "subtitle": "{{count}} કી નોંધાયેલી",
     "new": "નવી કી",
     "endpointTitle": "API એન્ડપોઇન્ટ",
-    "endpointDesc": "તમારા ક્લાયંટ (Claude Code, Cursor, Codex, Cline...) ને આ એન્ડપોઇન્ટ પર પોઇન્ટ કરો.",
-    "local": "લોકલ",
-    "endpointAria": "API એન્ડપોઇન્ટ",
+    "endpointDesc": "તમારી API કીને Bearer ટોકન તરીકે વાપરીને આમાંથી કોઈપણ એન્ડપોઇન્ટનો ઉપયોગ કરો.",
     "copyEndpointAria": "એન્ડપોઇન્ટ કૉપિ કરો",
     "loading": "લોડ થઈ રહ્યું છે...",
     "empty": "હજી કોઈ કી નથી. ક્લિક કરો",
@@ -329,7 +327,13 @@
     "customAria": "કસ્ટમ સમયગાળો",
     "addLimit": "ઉમેરો",
     "usePresets": "પ્રીસેટ વાપરો",
-    "customDuration": "કસ્ટમ સમયગાળો"
+    "customDuration": "કસ્ટમ સમયગાળો",
+    "endpointChat": "ચેટ કમ્પ્લીશન્સ",
+    "endpointChatDesc": "— OpenAI-સુસંગત",
+    "endpointResponses": "પ્રતિસાદો",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "સંદેશાઓ",
+    "endpointMessagesDesc": "— Anthropic-સુસંગત"
   },
   "logs": {
     "title": "વપરાશ લોગ",

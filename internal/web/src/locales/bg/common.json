@@ -258,9 +258,7 @@
     "subtitle": "{{count}} регистрирани ключа",
     "new": "Нов ключ",
     "endpointTitle": "API Endpoint",
-    "endpointDesc": "Насочи клиента си (Claude Code, Cursor, Codex, Cline...) към този endpoint.",
-    "local": "Локален",
-    "endpointAria": "API Endpoint",
+    "endpointDesc": "Използвайте която и да е от тези крайни точки с вашия API ключ като Bearer токен.",
     "copyEndpointAria": "копирай endpoint",
     "loading": "Зареждане...",
     "empty": "Все още няма ключове. Щракни",
@@ -329,7 +327,13 @@
     "customAria": "Персонализирана продължителност",
     "addLimit": "Добави",
     "usePresets": "Използвай предварителните",
-    "customDuration": "Персонализирана продължителност"
+    "customDuration": "Персонализирана продължителност",
+    "endpointChat": "Чат Завършвания",
+    "endpointChatDesc": "— съвместим с OpenAI",
+    "endpointResponses": "Отговори",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "Съобщения",
+    "endpointMessagesDesc": "— съвместим с Anthropic"
   },
   "logs": {
     "title": "Логове за използване",

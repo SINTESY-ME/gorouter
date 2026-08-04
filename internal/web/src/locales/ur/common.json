@@ -258,9 +258,7 @@
     "subtitle": "{{count}} کیز رجسٹرڈ",
     "new": "نئی کی",
     "endpointTitle": "API اینڈ پوائنٹ",
-    "endpointDesc": "اپنے کلائنٹ (Claude Code, Cursor, Codex, Cline...) کو اس اینڈ پوائنٹ کی طرف پوائنٹ کریں۔",
-    "local": "لوکل",
-    "endpointAria": "API اینڈ پوائنٹ",
+    "endpointDesc": "اپنی API کلید کو Bearer ٹوکن کے طور پر استعمال کرتے ہوئے ان میں سے کسی بھی اینڈپاؤنٹ کا استعمال کریں۔",
     "copyEndpointAria": "اینڈ پوائنٹ کاپی کریں",
     "loading": "لوڈ ہو رہا ہے...",
     "empty": "ابھی کوئی کیز نہیں۔ کلک کریں",
@@ -329,7 +327,13 @@
     "customAria": "اپنی مرضی کا دورانیہ",
     "addLimit": "شامل کریں",
     "usePresets": "پری سیٹس استعمال کریں",
-    "customDuration": "اپنی مرضی کا دورانیہ"
+    "customDuration": "اپنی مرضی کا دورانیہ",
+    "endpointChat": "چیٹ مکمل",
+    "endpointChatDesc": "— OpenAI کے مطابق",
+    "endpointResponses": "جوابات",
+    "endpointResponsesDesc": "— OpenAI Responses API",
+    "endpointMessages": "پیغامات",
+    "endpointMessagesDesc": "— Anthropic کے مطابق"
   },
   "logs": {
     "title": "استعمال کے لاگز",
