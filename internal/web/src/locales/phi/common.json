@@ -31,6 +31,7 @@
     "allTokens": "Lahat ng token",
     "auto": "Auto",
     "buckets": {
+        "auto": "Awtomatiko",
       "minute": "Minuto",
       "min5": "5 min",
       "min30": "30 min",

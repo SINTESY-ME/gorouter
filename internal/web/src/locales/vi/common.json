@@ -31,6 +31,7 @@
     "allTokens": "Tất cả Token",
     "auto": "Tự động",
     "buckets": {
+        "auto": "Tự động",
       "minute": "Phút",
       "min5": "5 phút",
       "min30": "30 phút",

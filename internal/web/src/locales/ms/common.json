@@ -31,6 +31,7 @@
     "allTokens": "Semua token",
     "auto": "Automatik",
     "buckets": {
+        "auto": "Automatik",
       "minute": "Minit",
       "min5": "5 min",
       "min30": "30 min",

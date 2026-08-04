@@ -31,6 +31,7 @@
     "allTokens": "Tüm token'lar",
     "auto": "Otomatik",
     "buckets": {
+        "auto": "Otomatik",
       "minute": "Dakika",
       "min5": "5 dk",
       "min30": "30 dk",

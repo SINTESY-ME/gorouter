@@ -31,6 +31,7 @@
     "allTokens": "Kaikki tokenit",
     "auto": "Automaattinen",
     "buckets": {
+        "auto": "Automaattinen",
       "minute": "Minuutti",
       "min5": "5 min",
       "min30": "30 min",

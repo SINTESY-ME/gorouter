@@ -31,6 +31,7 @@
     "allTokens": "Semua token",
     "auto": "Otomatis",
     "buckets": {
+        "auto": "Otomatis",
       "minute": "Menit",
       "min5": "5 mnt",
       "min30": "30 mnt",

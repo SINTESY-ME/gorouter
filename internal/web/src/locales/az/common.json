@@ -31,6 +31,7 @@
     "allTokens": "Bütün tokenlər",
     "auto": "Avtomatik",
     "buckets": {
+        "auto": "Avtomatik",
       "minute": "Dəqiqə",
       "min5": "5 dəq",
       "min30": "30 dəq",

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Routes, Route, NavLink, useLocation } from "react-router-dom";
 import { Button, Toast, Select, ListBox } from "@heroui/react";
 import { useTranslation } from "react-i18next";
-import { setLocale, LOCALES } from "./i18n";
+import { setLocale, LOCALES, LANGUAGE_NAMES } from "./i18n";
 import { api, clearDashboardToken } from "./api";
 import Dashboard from "./pages/Dashboard";
 import Providers from "./pages/Providers";
@@ -168,13 +168,13 @@ function LanguageSwitcher() {
         className="w-full"
       >
         <Select.Trigger>
-          <Select.Value>{current}</Select.Value>
+          <Select.Value>{LANGUAGE_NAMES[current] ?? current}</Select.Value>
           <Select.Indicator />
         </Select.Trigger>
         <Select.Popover>
           <ListBox>
             {LOCALES.map((l) => (
-              <ListBox.Item key={l} id={l}>{l}</ListBox.Item>
+              <ListBox.Item key={l} id={l}>{LANGUAGE_NAMES[l] ?? l}</ListBox.Item>
             ))}
           </ListBox>
         </Select.Popover>

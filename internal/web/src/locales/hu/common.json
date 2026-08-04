@@ -31,6 +31,7 @@
     "allTokens": "Összes token",
     "auto": "Auto",
     "buckets": {
+        "auto": "Automatikus",
       "minute": "Perc",
       "min5": "5 perc",
       "min30": "30 perc",

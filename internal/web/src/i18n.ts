@@ -17,6 +17,51 @@ for (const path in resources) {
 
 export const DEFAULT_LOCALE = "en";
 export const LOCALES = Object.keys(loaded);
+// Native names shown in the language switcher (not the locale codes).
+export const LANGUAGE_NAMES: Record<string, string> = {
+  ar: "العربية",
+  az: "Azərbaycanca",
+  bg: "Български",
+  bn: "বাংলা",
+  cs: "Čeština",
+  da: "Dansk",
+  de: "Deutsch",
+  en: "English",
+  es: "Español",
+  fa: "فارسی",
+  fi: "Suomi",
+  fr: "Français",
+  gu: "ગુજરાતી",
+  he: "עברית",
+  hi: "हिन्दी",
+  hu: "Magyar",
+  id: "Bahasa Indonesia",
+  it: "Italiano",
+  ja: "日本語",
+  ko: "한국어",
+  mr: "मराठी",
+  ms: "Bahasa Melayu",
+  nl: "Nederlands",
+  no: "Norsk",
+  phi: "Filipino",
+  pl: "Polski",
+  pt: "Português",
+  "pt-BR": "Português (Brasil)",
+  ro: "Română",
+  ru: "Русский",
+  sk: "Slovenčina",
+  sv: "Svenska",
+  sw: "Kiswahili",
+  ta: "தமிழ்",
+  te: "తెలుగు",
+  th: "ไทย",
+  tr: "Türkçe",
+  "uk-UA": "Українська",
+  ur: "اردو",
+  vi: "Tiếng Việt",
+  "zh-CN": "简体中文",
+  "zh-TW": "繁體中文",
+};
 // RTL locales (mirror OmniRoute).
 export const RTL_LOCALES = new Set(["ar", "fa", "he", "ur"]);
 

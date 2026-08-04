@@ -31,6 +31,7 @@
     "allTokens": "Alle tokens",
     "auto": "Auto",
     "buckets": {
+        "auto": "Automatisch",
       "minute": "Minuut",
       "min5": "5 min",
       "min30": "30 min",

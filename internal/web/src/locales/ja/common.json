@@ -31,6 +31,7 @@
     "allTokens": "すべての Token",
     "auto": "自動",
     "buckets": {
+        "auto": "自動",
       "minute": "分",
       "min5": "5 分",
       "min30": "30 分",
