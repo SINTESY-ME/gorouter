@@ -448,24 +448,26 @@ export default function Providers() {
         <Modal.Backdrop>
           <Modal.Container>
             <Modal.Dialog className={providerStep === "pick" && !providerEditId ? "max-w-2xl" : "max-w-xl"}>
-              <Modal.Header className="flex items-center gap-4">
-                <Modal.Heading className="shrink-0">
-                  {providerEditId ? t("providers.editEndpoint") : providerStep === "pick" ? t("providers.chooseProvider") : t("providers.configureProvider")}
-                </Modal.Heading>
-                {!providerEditId && providerStep === "pick" && (
-                  <div className="relative ml-auto w-full max-w-xs">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><IconSearch className="w-4 h-4 text-muted" /></span>
-                    <Input
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder={t("providers.searchPlaceholder")}
-                      variant="secondary"
-                      className="pl-9"
-                      autoFocus
-                      aria-label={t("providers.searchAria")}
-                    />
-                  </div>
-                )}
+              <Modal.Header>
+                <div className="flex w-full items-center justify-between gap-4">
+                  <Modal.Heading className="shrink-0">
+                    {providerEditId ? t("providers.editEndpoint") : providerStep === "pick" ? t("providers.chooseProvider") : t("providers.configureProvider")}
+                  </Modal.Heading>
+                  {!providerEditId && providerStep === "pick" && (
+                    <div className="relative w-full max-w-xs shrink-0">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><IconSearch className="w-4 h-4 text-muted" /></span>
+                      <Input
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder={t("providers.searchPlaceholder")}
+                        variant="secondary"
+                        className="pl-9"
+                        autoFocus
+                        aria-label={t("providers.searchAria")}
+                      />
+                    </div>
+                  )}
+                </div>
               </Modal.Header>
               <Modal.Body className="flex flex-col gap-4">
                 {!providerEditId && providerStep === "pick" && (
