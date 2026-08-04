@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -9,11 +10,13 @@ import (
 )
 
 const (
-	rtkSettingKey               = "rtk_enabled"
-	cacheSettingKey             = "cache_enabled"
-	semanticCacheSettingKey     = "semantic_cache_enabled"
-	semanticCacheModeSettingKey = "semantic_cache_mode"
+	rtkSettingKey                = "rtk_enabled"
+	cacheSettingKey              = "cache_enabled"
+	semanticCacheSettingKey      = "semantic_cache_enabled"
+	semanticCacheModeSettingKey  = "semantic_cache_mode"
 	semanticCacheModelSettingKey = "semantic_cache_model"
+	hooksSettingKey              = "hooks_enabled"
+	cachingGroupsSettingKey      = "caching_groups"
 )
 
 // handleGetSettings returns user-configurable gorouter settings (RTK + cache
@@ -45,18 +48,46 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"semantic_cache_enabled": semCache,
 		"semantic_cache_mode":    semMode,
 		"semantic_cache_model":   semModel,
+		"hooks_enabled":          s.currentHooks(r),
+		"caching_groups":         s.currentCachingGroups(r),
 	})
+}
+
+// currentCachingGroups returns the caching_groups setting as a model→group map
+// (JSON object of name → model list), defaulting to empty.
+func (s *Server) currentCachingGroups(r *http.Request) map[string][]string {
+	groups := map[string][]string{}
+	if s.Settings != nil {
+		if v, err := s.Settings.Get(r.Context(), cachingGroupsSettingKey); err == nil && v != "" {
+			_ = json.Unmarshal([]byte(v), &groups)
+		}
+	}
+	return groups
+}
+
+// currentHooks returns the enabled hook names from settings (JSON array),
+// defaulting to an empty list.
+func (s *Server) currentHooks(r *http.Request) []string {
+	var names []string
+	if s.Settings != nil {
+		if v, err := s.Settings.Get(r.Context(), hooksSettingKey); err == nil && v != "" {
+			_ = json.Unmarshal([]byte(v), &names)
+		}
+	}
+	return names
 }
 
 // handleUpdateSettings updates gorouter settings. Both toggles are live —
 // the compressor and cache are wired/unwired without a restart.
 func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		RTKEnabled          *bool   `json:"rtk_enabled"`
-		CacheEnabled        *bool   `json:"cache_enabled"`
-		SemanticCacheEnabled *bool   `json:"semantic_cache_enabled"`
-		SemanticCacheMode   *string `json:"semantic_cache_mode"`
-		SemanticCacheModel  *string `json:"semantic_cache_model"`
+		RTKEnabled           *bool               `json:"rtk_enabled"`
+		CacheEnabled         *bool               `json:"cache_enabled"`
+		SemanticCacheEnabled *bool               `json:"semantic_cache_enabled"`
+		SemanticCacheMode    *string             `json:"semantic_cache_mode"`
+		SemanticCacheModel   *string             `json:"semantic_cache_model"`
+		HooksEnabled         []string            `json:"hooks_enabled"`
+		CachingGroups        map[string][]string `json:"caching_groups"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -127,6 +158,46 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if s.SemanticCache != nil {
 			s.SemanticCache.SetModel(*req.SemanticCacheModel)
+		}
+	}
+	// Hooks: absent field leaves hooks untouched; an explicit [] disables
+	// them. Rebuilding is validated against the factory first so an unknown
+	// hook name is rejected without persisting.
+	if req.HooksEnabled != nil {
+		if s.HookFactory != nil {
+			p, err := s.HookFactory(req.HooksEnabled)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			s.Router.Hooks = p
+		}
+		if s.Settings != nil {
+			b, _ := json.Marshal(req.HooksEnabled)
+			if err := s.Settings.Set(r.Context(), hooksSettingKey, string(b)); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+	}
+	// Caching groups: absent leaves them untouched; an explicit {} disables
+	// them. Applied live to the active response cache.
+	if req.CachingGroups != nil {
+		groups := map[string]string{}
+		for name, models := range req.CachingGroups {
+			for _, m := range models {
+				groups[m] = name
+			}
+		}
+		if s.Router.Cache != nil {
+			s.Router.Cache.SetCachingGroups(groups)
+		}
+		if s.Settings != nil {
+			b, _ := json.Marshal(req.CachingGroups)
+			if err := s.Settings.Set(r.Context(), cachingGroupsSettingKey, string(b)); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "updated"})

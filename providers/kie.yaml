@@ -1,0 +1,12 @@
+id: kie
+display:
+  name: Kie
+  color: "#64748B"
+  website: "https://api.kie.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.kie.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

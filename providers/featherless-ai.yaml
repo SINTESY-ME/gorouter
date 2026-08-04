@@ -1,0 +1,12 @@
+id: featherless-ai
+display:
+  name: Featherless Ai
+  color: "#5B9A6D"
+  website: "https://api.featherless.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.featherless.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

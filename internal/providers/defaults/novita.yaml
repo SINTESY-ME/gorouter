@@ -1,0 +1,12 @@
+id: novita
+display:
+  name: Novita
+  color: "#6D7AC7"
+  website: "https://api.novita.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.novita.ai/openai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

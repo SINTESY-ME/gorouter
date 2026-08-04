@@ -1,0 +1,12 @@
+id: v0-vercel
+display:
+  name: V0 Vercel
+  color: "#64748B"
+  website: "https://api.v0.dev"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.v0.dev/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

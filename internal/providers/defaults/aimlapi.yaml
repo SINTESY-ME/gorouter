@@ -1,0 +1,12 @@
+id: aimlapi
+display:
+  name: Aimlapi
+  color: "#5B9A6D"
+  website: "https://api.aimlapi.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.aimlapi.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

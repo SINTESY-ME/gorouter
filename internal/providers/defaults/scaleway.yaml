@@ -1,0 +1,12 @@
+id: scaleway
+display:
+  name: Scaleway
+  color: "#6D7AC7"
+  website: "https://api.scaleway.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.scaleway.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

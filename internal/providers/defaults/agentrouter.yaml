@@ -1,0 +1,12 @@
+id: agentrouter
+display:
+  name: Agentrouter
+  color: "#5BA6A6"
+  website: "https://agentrouter.org"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://agentrouter.org/v1"
+  format: anthropic
+  auth: x-api-key
+capabilities: [chat]

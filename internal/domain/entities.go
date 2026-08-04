@@ -218,8 +218,12 @@ type ApiKey struct {
 	IsActive bool   `json:"is_active" gorm:"column:is_active;default:true"`
 	// Limits holds every rate/spend limit applied to this key. An empty
 	// (or nil) slice means the key is unlimited.
-	Limits    []KeyLimit `json:"limits,omitempty" gorm:"serializer:json;type:text"`
-	CreatedAt time.Time  `json:"created_at"`
+	Limits []KeyLimit `json:"limits,omitempty" gorm:"serializer:json;type:text"`
+	// AllowedModels restricts which models/combos this key may use. Empty
+	// (or nil) means all models are allowed. Entries match a model id
+	// ("openai/gpt-4o"), a bare model name ("gpt-4o"), or a combo name.
+	AllowedModels []string  `json:"allowed_models,omitempty" gorm:"serializer:json;type:text"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // KeyLimitKind distinguishes the two kinds of limits a key can carry.

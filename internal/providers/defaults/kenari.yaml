@@ -1,0 +1,12 @@
+id: kenari
+display:
+  name: Kenari
+  color: "#C79A5B"
+  website: "https://kenari.id"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://kenari.id/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

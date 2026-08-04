@@ -1,0 +1,12 @@
+id: freemodel-dev
+display:
+  name: Freemodel Dev
+  color: "#64748B"
+  website: "https://api.freemodel.dev"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.freemodel.dev/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

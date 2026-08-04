@@ -1,0 +1,12 @@
+id: gigachat
+display:
+  name: Gigachat
+  color: "#5BA6A6"
+  website: "https://gigachat.devices.sberbank.ru"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://gigachat.devices.sberbank.ru/api/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

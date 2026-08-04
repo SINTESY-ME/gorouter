@@ -1,0 +1,12 @@
+id: pollinations
+display:
+  name: Pollinations
+  color: "#64748B"
+  website: "https://gen.pollinations.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://gen.pollinations.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

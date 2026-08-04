@@ -1,0 +1,12 @@
+id: internlm
+display:
+  name: Internlm
+  color: "#64748B"
+  website: "https://chat.intern-ai.org.cn"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://chat.intern-ai.org.cn/api/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

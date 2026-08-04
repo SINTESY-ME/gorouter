@@ -1,0 +1,12 @@
+id: nous-research
+display:
+  name: Nous Research
+  color: "#6D7AC7"
+  website: "https://inference-api.nousresearch.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://inference-api.nousresearch.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

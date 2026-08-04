@@ -1,0 +1,12 @@
+id: nube
+display:
+  name: Nube
+  color: "#5BA6A6"
+  website: "https://ai.nube.sh"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://ai.nube.sh/api/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

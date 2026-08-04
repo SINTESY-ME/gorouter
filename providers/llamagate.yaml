@@ -1,0 +1,12 @@
+id: llamagate
+display:
+  name: Llamagate
+  color: "#8A6DB8"
+  website: "https://llamagate.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://llamagate.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

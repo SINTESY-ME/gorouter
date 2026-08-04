@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -79,6 +80,13 @@ type RouterService struct {
 	Strategies *StrategyRegistry
 	// SemanticCache is optional vector-similarity cache. Nil disables it.
 	SemanticCache *SemanticCacheService
+	// MaxCacheHistory, when > 0, skips caching requests with more than this
+	// many chat messages (conversations that won't repeat just bloat the
+	// cache). 0 disables the guard.
+	MaxCacheHistory int
+	// Hooks is the optional hook pipeline (PreCall/PostCall/PostCallFailure).
+	// Nil disables hooks entirely — every hook point is skipped at zero cost.
+	Hooks *HookPipeline
 }
 
 // probeCtxKey is used to mark a context as originating from a health probe
@@ -109,21 +117,20 @@ func transientBackoff(n int) time.Duration {
 	}
 }
 
-// isTransientStatus reports whether an upstream HTTP status is likely
-// transient (server overloaded, rate-limited, gateway hiccup) and therefore
-// worth a same-connection retry. Permanent client errors (4xx) fall through
-// to the next model immediately.
-func isTransientStatus(status int) bool {
+// retryableStatus reports whether an upstream HTTP status is worth a
+// same-connection retry. Successful statuses and deterministic client errors
+// (400/422/415 — a malformed request fails identically on every retry) never
+// retry. Every other failure status retries when the connection was healthy at
+// request start; health — not the specific error class — is what drives the
+// retry decision (see executeOneWithRetry).
+func retryableStatus(status int) bool {
 	switch status {
-	case http.StatusRequestTimeout, // 408
-		http.StatusTooManyRequests,     // 429
-		http.StatusInternalServerError, // 500
-		http.StatusBadGateway,          // 502
-		http.StatusServiceUnavailable,  // 503
-		http.StatusGatewayTimeout:      // 504
-		return true
+	case http.StatusBadRequest, // 400
+		http.StatusUnprocessableEntity,  // 422
+		http.StatusUnsupportedMediaType: // 415
+		return false
 	}
-	return false
+	return status >= 400
 }
 
 // IsProbeCall reports whether the given context originated from a health
@@ -171,9 +178,36 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 		opts.InputFormat = domain.FormatOpenAI
 	}
 	ctx = withInputFormat(ctx, opts.InputFormat)
+	requestID := uuid.New().String()
+	// Hooks: the pre-call admission gate runs before the cache lookup and
+	// routing. When no hooks are registered hc is nil and every hook point
+	// is skipped at zero cost. A hook may rewrite the body or the model.
+	hc := s.newHookContext(requestID, modelStr, stream, apiKey, opts, body)
+	if hc != nil {
+		ctx = withHookContext(ctx, hc)
+		if err := s.Hooks.RunPreCall(ctx, hc); err != nil {
+			return nil, err
+		}
+		body = hc.Body
+		modelStr = hc.Model
+	}
 	ctx = withRequestBody(ctx, body)
+	// Per-key model access: reject models the authenticated key isn't allowed
+	// to use before any upstream/cache work.
+	if !s.modelAllowed(ctx, modelStr) {
+		return nil, domain.ErrForbidden
+	}
 	// Cache lookup: short-circuit on hit. Only for chat (endpoint=="") and
 	// only when cache is enabled and the request doesn't opt out.
+	if s.Cache != nil && s.Cache.Enabled() && opts.Endpoint == "" && !isCacheDisabled(ctx) {
+		// Very long conversations rarely repeat exactly and mostly bloat the
+		// cache (Bifrost's conversation-history-threshold guard); skip them.
+		if s.MaxCacheHistory > 0 {
+			if n := messageCount(body); n > s.MaxCacheHistory {
+				ctx = WithCacheDisabled(ctx)
+			}
+		}
+	}
 	if s.Cache != nil && s.Cache.Enabled() && opts.Endpoint == "" && !isCacheDisabled(ctx) {
 		cacheKey := s.Cache.ComputeKey(body, modelStr, opts.InputFormat)
 		if cached, ok := s.Cache.Lookup(ctx, cacheKey); ok {
@@ -284,9 +318,9 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 
 	modelID, ok := domain.SplitModelID(modelStr)
 	if ok {
-		requestID := uuid.New().String()
 		attempt := 0
-		return s.routeSingle(ctx, modelID, body, stream, apiKey, opts, "", requestID, &attempt)
+		res, err := s.routeSingle(ctx, modelID, body, stream, apiKey, opts, "", requestID, &attempt)
+		return s.finishRoute(ctx, hc, res, err)
 	}
 	combo, err := s.Combos.GetByName(ctx, modelStr)
 	if err == domain.ErrNotFound {
@@ -295,9 +329,9 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 	if err != nil {
 		return nil, err
 	}
-	requestID := uuid.New().String()
 	attempt := 0
-	return s.routeCombo(ctx, combo, body, stream, apiKey, opts, "", 0, nil, requestID, &attempt)
+	res, err := s.routeCombo(ctx, combo, body, stream, apiKey, opts, "", 0, nil, requestID, &attempt)
+	return s.finishRoute(ctx, hc, res, err)
 }
 
 // RoutePassthrough routes a non-chat endpoint (embeddings, images) to a
@@ -306,11 +340,26 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 // like chat. endpoint is "embeddings" or "images/generations".
 func (s *RouterService) RoutePassthrough(ctx context.Context, body []byte, modelStr string, endpoint string, apiKey string, contentType string) (*RouterResponse, error) {
 	opts := RouteOptions{InputFormat: domain.FormatOpenAI, Endpoint: endpoint, ContentType: contentType}
+	requestID := uuid.New().String()
+	// Same pre-call admission gate as chat. Passthrough responses can be
+	// binary, so post-call hooks are chat-only; failures still notify.
+	hc := s.newHookContext(requestID, modelStr, false, apiKey, opts, body)
+	if hc != nil {
+		ctx = withHookContext(ctx, hc)
+		if err := s.Hooks.RunPreCall(ctx, hc); err != nil {
+			return nil, err
+		}
+		body = hc.Body
+		modelStr = hc.Model
+	}
+	if !s.modelAllowed(ctx, modelStr) {
+		return nil, domain.ErrForbidden
+	}
 	modelID, ok := domain.SplitModelID(modelStr)
 	if ok {
-		requestID := uuid.New().String()
 		attempt := 0
-		return s.routeSingle(ctx, modelID, body, false, apiKey, opts, endpoint, requestID, &attempt, contentType)
+		res, err := s.routeSingle(ctx, modelID, body, false, apiKey, opts, endpoint, requestID, &attempt, contentType)
+		return s.finishRoute(ctx, hc, res, err)
 	}
 	combo, err := s.Combos.GetByName(ctx, modelStr)
 	if err == domain.ErrNotFound {
@@ -319,9 +368,9 @@ func (s *RouterService) RoutePassthrough(ctx context.Context, body []byte, model
 	if err != nil {
 		return nil, err
 	}
-	requestID := uuid.New().String()
 	attempt := 0
-	return s.routeCombo(ctx, combo, body, false, apiKey, opts, endpoint, 0, nil, requestID, &attempt, contentType)
+	res, err := s.routeCombo(ctx, combo, body, false, apiKey, opts, endpoint, 0, nil, requestID, &attempt, contentType)
+	return s.finishRoute(ctx, hc, res, err)
 }
 
 // RouterResponse is what the HTTP handler receives. It is either a buffered
@@ -341,6 +390,9 @@ type RouterResponse struct {
 	// different combo/model than the one chosen by the intelligence
 	// classifier. Empty when no fallback occurred.
 	FallbackReason string
+	// Attempts is the number of upstream calls made before this response
+	// (1 = first try). Exposed as the x-gr-attempted-retries header.
+	Attempts int
 	// RTK savings — populated by executeOne when RTK compression reduced
 	// the request body. Propagated to recordUsage for persistence.
 	RTKBytesSaved  int
@@ -369,47 +421,63 @@ func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body 
 	// Snapshot which keys were already failing before this request so phase
 	// 2 (unhealthy keys) only retries them — keys that fail during phase 1
 	// are not retried, each key is tried at most once per request.
-	unhealthy := s.unhealthySnapshot("", modelStr, conns)
+	unhealthy := s.unhealthySnapshot(modelStr, conns)
+	var lastUpstream *domain.UpstreamError
 	for _, phaseHealthy := range []bool{true, false} {
 		for i := 0; i < len(conns); i++ {
 			conn := &conns[(startIdx+i)%len(conns)]
 			if !conn.IsActive {
 				continue
 			}
+			// Honor the upstream's rate-limit pause: a connection with
+			// RateLimitedUntil in the future is skipped for this request
+			// instead of being hammered again before Retry-After elapses.
+			if conn.RateLimitedUntil.After(time.Now()) {
+				continue
+			}
 			if unhealthy[conn.ID] == phaseHealthy {
 				if phaseHealthy {
-					s.maybeProbe("", modelStr, m, conn.ID)
+					s.maybeProbe(modelStr, m, conn.ID)
 				}
 				continue
 			}
 			connStart := time.Now()
-			res, err := s.executeOne(ctx, m, conn, body, stream, opts, ct)
+			res, err := s.executeOneWithRetry(ctx, m, conn, body, stream, opts, ct, phaseHealthy)
 			if err != nil {
 				s.recordFailedUsage(m, conn, apiKey, endpoint, 0, err.Error(), connStart, nil, requestID, *attempt)
 				*attempt++
-				s.Health.MarkUnhealthy("", modelStr, conn.ID)
-				s.maybeProbe("", modelStr, m, conn.ID)
+				s.Health.MarkUnhealthy(modelStr, conn.ID)
+				s.maybeProbe(modelStr, m, conn.ID)
 				continue
 			}
 			if endpoint == "" && res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
 				s.recordFailedUsage(m, conn, apiKey, endpoint, res.StatusCode, fmt.Sprintf("upstream %d", res.StatusCode), connStart, nil, requestID, *attempt)
 				*attempt++
-				s.Health.MarkUnhealthy("", modelStr, conn.ID)
+				s.Health.MarkUnhealthy(modelStr, conn.ID)
 				s.markRateLimited(ctx, conn, res)
-				s.maybeProbe("", modelStr, m, conn.ID)
+				s.maybeProbe(modelStr, m, conn.ID)
+				// Remember the last real upstream failure so the client sees
+				// its actual status (e.g. 429, 500) instead of a generic one.
+				lastUpstream = &domain.UpstreamError{Status: res.StatusCode, Message: upstreamErrorMessage(res)}
 				if res.Body != nil {
 					res.Body.Close()
 				}
 				continue
 			}
-			s.Health.MarkHealthy("", modelStr, conn.ID)
-			s.wrapUsageTracking(ctx, res, m, conn, apiKey, endpoint, nil, start, requestID, *attempt)
+			s.Health.MarkHealthy(modelStr, conn.ID)
+			if err := s.finalizeSuccess(ctx, res, m, conn, apiKey, endpoint, nil, start, requestID, *attempt); err != nil {
+				return nil, err
+			}
 			*attempt++
 			res.Provider = m.Provider
 			res.Model = m.Model
 			res.ConnectionID = conn.ID
+			res.Attempts = *attempt
 			return res, nil
 		}
+	}
+	if lastUpstream != nil {
+		return nil, lastUpstream
 	}
 	return nil, fmt.Errorf("%w: provider %q", domain.ErrNoConnection, m.Provider)
 }
@@ -599,6 +667,33 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 	var lastErr error
 	attempts := make([]modelAttempt, 0, len(models))
 
+	// Context-window filter: skip models whose window can't fit the prompt —
+	// they would just fail upstream and waste a fallback. Fail-open: without
+	// context data (model not synced) nothing is filtered.
+	if s.Pricing != nil {
+		var fit []string
+		est := 0
+		hasEst := false
+		for _, modelStr := range models {
+			if m, ok := domain.SplitModelID(modelStr); ok {
+				if ctx, ok2 := s.Pricing.Context(m); ok2 && ctx > 0 {
+					if !hasEst {
+						est = estimatePromptTokens(body)
+						hasEst = true
+					}
+					if est > ctx {
+						slog.Debug("combo: skipping model, prompt exceeds context window", "combo", combo.Name, "model", modelStr, "estimate", est, "context", ctx)
+						continue
+					}
+				}
+			}
+			fit = append(fit, modelStr)
+		}
+		if len(fit) > 0 {
+			models = fit
+		}
+	}
+
 	// Phase 1: try the keys that were healthy when the request started,
 	// walking the models in strategy order. Keys already marked unhealthy
 	// are skipped here and watched by background probes.
@@ -622,7 +717,7 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 				slog.Warn("combo fallback: nested combo failed, trying next", "parent_combo", combo.Name, "failed_combo", modelStr, "err", err)
 				s.recordFailedUsage(domain.ModelID{}, nil, apiKey, endpoint, 0, err.Error(), nestedStart, nestedChain, requestID, *attempt)
 				*attempt++
-				lastErr = err
+				lastErr = keepLastError(lastErr, err)
 				continue
 			}
 			if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
@@ -651,13 +746,13 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 			m:         m,
 			conns:     conns,
 			startIdx:  startIdx,
-			unhealthy: s.unhealthySnapshot(combo.Name, modelStr, conns),
+			unhealthy: s.unhealthySnapshot(modelStr, conns),
 		}
 		attempts = append(attempts, p)
 		res, err := s.tryModelWithConns(ctx, m, conns, body, stream, apiKey, opts, childChain, start, true, p.unhealthy, startIdx, requestID, attempt, ct)
 		if err != nil {
 			slog.Warn("combo fallback: model failed, trying next", "combo", combo.Name, "failed_model", modelStr, "err", err)
-			lastErr = err
+			lastErr = keepLastError(lastErr, err)
 			continue
 		}
 		if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
@@ -680,7 +775,7 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 		childChain := append(append([]string{}, comboChain...), combo.Name)
 		res, err := s.tryModelWithConns(ctx, p.m, p.conns, body, stream, apiKey, opts, childChain, start, false, p.unhealthy, p.startIdx, requestID, attempt, ct)
 		if err != nil {
-			lastErr = err
+			lastErr = keepLastError(lastErr, err)
 			continue
 		}
 		if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
@@ -693,6 +788,10 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 		return res, nil
 	}
 	if lastErr != nil {
+		var ue *domain.UpstreamError
+		if errors.As(lastErr, &ue) {
+			return nil, ue // surface the last real upstream status
+		}
 		return nil, fmt.Errorf("%w: %v", domain.ErrAllModelsFailed, lastErr)
 	}
 	return nil, domain.ErrAllModelsFailed
@@ -708,24 +807,66 @@ type modelAttempt struct {
 	unhealthy map[string]bool
 }
 
+// keepLastError preserves a more meaningful failure. Phase 2 calls
+// tryModelWithConns even for models whose connections were all healthy at
+// request start — those are entirely skipped, so tryModelWithConns returns
+// ErrNoConnection ("nothing to try") without a real upstream failure. That
+// sentinel must not clobber a real error already recorded for the request.
+func keepLastError(last, err error) error {
+	if last != nil && errors.Is(err, domain.ErrNoConnection) {
+		return last
+	}
+	return err
+}
+
+// estimatePromptTokens is a cheap heuristic for the prompt's token count
+// (roughly 4 characters per token over the message content). Used by the
+// combo router to skip models whose context window can't fit the request.
+func estimatePromptTokens(body []byte) int {
+	var probe struct {
+		Messages []struct {
+			Content any `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &probe); err != nil {
+		return len(body) / 4
+	}
+	chars := 0
+	for _, msg := range probe.Messages {
+		switch c := msg.Content.(type) {
+		case string:
+			chars += len(c)
+		case []any:
+			for _, b := range c {
+				if m, ok := b.(map[string]any); ok {
+					if t, ok := m["text"].(string); ok {
+						chars += len(t)
+					}
+				}
+			}
+		}
+	}
+	return chars / 4
+}
+
 // unhealthySnapshot returns the set of connection IDs currently marked
-// unhealthy for (comboName, modelStr). It is taken once per request so keys
-// that fail during phase 1 are not retried in phase 2.
-func (s *RouterService) unhealthySnapshot(comboName, modelStr string, conns []domain.Connection) map[string]bool {
+// unhealthy for modelStr. It is taken once per request so keys that fail
+// during phase 1 are not retried in phase 2.
+func (s *RouterService) unhealthySnapshot(modelStr string, conns []domain.Connection) map[string]bool {
 	snap := make(map[string]bool, len(conns))
 	for i := range conns {
-		if s.Health.IsUnhealthy(comboName, modelStr, conns[i].ID) {
+		if s.Health.IsUnhealthy(modelStr, conns[i].ID) {
 			snap[conns[i].ID] = true
 		}
 	}
 	return snap
 }
 
-// maybeProbe launches a background health probe for a (combo, model, conn)
-// triple when it is unhealthy and no probe is already in flight.
-func (s *RouterService) maybeProbe(comboName, modelStr string, m domain.ModelID, connID string) {
-	if s.Prober != nil && s.Health.TryStartProbe(comboName, modelStr, connID) {
-		go s.Prober.RunProbe(comboName, modelStr, m, connID)
+// maybeProbe launches a background health probe for an unhealthy (model,
+// connection) pair when it is unhealthy and no probe is already in flight.
+func (s *RouterService) maybeProbe(modelStr string, m domain.ModelID, connID string) {
+	if s.Prober != nil && s.Health.TryStartProbe(modelStr, connID) {
+		go s.Prober.RunProbe(modelStr, m, connID)
 	}
 }
 
@@ -744,48 +885,58 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 		ct = contentType[0]
 	}
 	modelStr := m.Provider + "/" + m.Model
-	comboName := ""
-	if len(comboChain) > 0 {
-		comboName = comboChain[len(comboChain)-1]
-	}
+	var lastUpstream *domain.UpstreamError
 	for i := 0; i < len(conns); i++ {
 		conn := &conns[(startIdx+i)%len(conns)]
 		if !conn.IsActive {
 			continue
 		}
+		// Same rate-limit pause as routeSingle: skip connections still
+		// cooling down instead of re-hammering them.
+		if conn.RateLimitedUntil.After(time.Now()) {
+			continue
+		}
 		if unhealthy[conn.ID] == phaseHealthy {
 			if phaseHealthy {
-				s.maybeProbe(comboName, modelStr, m, conn.ID)
+				s.maybeProbe(modelStr, m, conn.ID)
 			}
 			continue
 		}
 		connStart := time.Now()
-		res, err := s.executeOneWithRetry(ctx, m, conn, body, stream, opts, ct)
+		res, err := s.executeOneWithRetry(ctx, m, conn, body, stream, opts, ct, phaseHealthy)
 		if err != nil {
 			s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, 0, err.Error(), connStart, comboChain, requestID, *attempt)
 			*attempt++
-			s.Health.MarkUnhealthy(comboName, modelStr, conn.ID)
-			s.maybeProbe(comboName, modelStr, m, conn.ID)
+			s.Health.MarkUnhealthy(modelStr, conn.ID)
+			s.maybeProbe(modelStr, m, conn.ID)
 			continue
 		}
 		if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
 			s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, res.StatusCode, fmt.Sprintf("upstream %d", res.StatusCode), connStart, comboChain, requestID, *attempt)
 			*attempt++
-			s.Health.MarkUnhealthy(comboName, modelStr, conn.ID)
+			s.Health.MarkUnhealthy(modelStr, conn.ID)
 			s.markRateLimited(ctx, conn, res)
-			s.maybeProbe(comboName, modelStr, m, conn.ID)
+			s.maybeProbe(modelStr, m, conn.ID)
+			// Remember the last real upstream failure for the client.
+			lastUpstream = &domain.UpstreamError{Status: res.StatusCode, Message: upstreamErrorMessage(res)}
 			if res.Body != nil {
 				res.Body.Close()
 			}
 			continue
 		}
-		s.Health.MarkHealthy(comboName, modelStr, conn.ID)
-		s.wrapUsageTracking(ctx, res, m, conn, apiKey, opts.Endpoint, comboChain, start, requestID, *attempt)
+		s.Health.MarkHealthy(modelStr, conn.ID)
+		if err := s.finalizeSuccess(ctx, res, m, conn, apiKey, opts.Endpoint, comboChain, start, requestID, *attempt); err != nil {
+			return nil, err
+		}
 		*attempt++
 		res.Provider = m.Provider
 		res.Model = m.Model
 		res.ConnectionID = conn.ID
+		res.Attempts = *attempt
 		return res, nil
+	}
+	if lastUpstream != nil {
+		return nil, lastUpstream
 	}
 	return nil, fmt.Errorf("%w: provider %q", domain.ErrNoConnection, m.Provider)
 }
@@ -824,16 +975,24 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 			}
 			body = t
 		}
-		if stream && targetFmt == domain.FormatOpenAI {
-			body = injectStreamUsage(body)
-		}
-		// Strip empty tool_calls arrays — some providers (Qwen) reject them.
-		body = sanitizeEmptyToolCalls(body)
-		// 2) OpenAI -> upstream format
+		// 2) OpenAI -> upstream format. For the common OpenAI→OpenAI case the
+		// rewrites (model substitution, stream_options injection, empty
+		// tool_calls strip) are applied in a single parse + marshal to avoid
+		// re-parsing the body on every pass.
 		var err error
-		translated, err = s.Translator.TranslateRequest(domain.FormatOpenAI, targetFmt, m.Model, body)
-		if err != nil {
-			return nil, err
+		if inputFmt == domain.FormatOpenAI && targetFmt == domain.FormatOpenAI {
+			body = prepareOpenAIBody(body, m.Model, stream)
+			translated = body
+		} else {
+			if stream && targetFmt == domain.FormatOpenAI {
+				body = injectStreamUsage(body)
+			}
+			// Strip empty tool_calls arrays — some providers (Qwen) reject them.
+			body = sanitizeEmptyToolCalls(body)
+			translated, err = s.Translator.TranslateRequest(domain.FormatOpenAI, targetFmt, m.Model, body)
+			if err != nil {
+				return nil, err
+			}
 		}
 		// RTK: compress tool_result content in the translated body. Fail-open;
 		// nil compressor or passthrough endpoint skips compression.
@@ -862,8 +1021,9 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 			UpstreamModel: m.Model,
 			Body:          io.NopCloser(bytes.NewReader(translated)),
 			Stream:        stream,
+			Timeout:       upstreamTimeoutFromCtx(ctx),
 		}
-		slog.Info("executing upstream request", "provider", m.Provider, "model", m.Model, "payload", string(translated))
+		slog.Debug("executing upstream request", "provider", m.Provider, "model", m.Model)
 		res, err := s.Executor.Execute(ctx, execReq)
 		if err != nil {
 			return nil, err
@@ -962,17 +1122,25 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 	}, nil
 }
 
-// executeOneWithRetry runs executeOne, retrying transient upstream failures
-// (429/5xx statuses and network errors) on the same connection with a short
-// backoff before giving up. Retrying is safe because no bytes have been
-// written to the client yet. The retries are bounded by maxTransientRetries
-// and respect request cancellation. The final result is returned as-is so
-// the caller's existing status/error handling applies unchanged.
-func (s *RouterService) executeOneWithRetry(ctx context.Context, m domain.ModelID, conn *domain.Connection, body []byte, stream bool, opts RouteOptions, ct string) (*RouterResponse, error) {
+// executeOneWithRetry runs executeOne, retrying a failure on the same
+// connection up to maxTransientRetries times — but only when the connection
+// was healthy at request start (phase 1). An endpoint that was already
+// unhealthy (phase-2 last resort) gets a single attempt: retrying a
+// known-failing endpoint only wastes time. Retrying is safe because no bytes
+// have been written to the client yet.
+//
+// The decision is driven by health, not the specific error class: any failure
+// (network error or retryableStatus) is retried when the endpoint was healthy.
+// Deterministic client errors (400/422/415) never retry. The final result is
+// returned as-is so the caller's existing status/error handling applies.
+func (s *RouterService) executeOneWithRetry(ctx context.Context, m domain.ModelID, conn *domain.Connection, body []byte, stream bool, opts RouteOptions, ct string, healthyAtStart bool) (*RouterResponse, error) {
 	var res *RouterResponse
 	var err error
 	for attempt := 0; attempt <= maxTransientRetries; attempt++ {
 		if attempt > 0 {
+			if !healthyAtStart {
+				break // not healthy at request start: single attempt, no retry
+			}
 			select {
 			case <-ctx.Done():
 				if err != nil {
@@ -983,10 +1151,10 @@ func (s *RouterService) executeOneWithRetry(ctx context.Context, m domain.ModelI
 			}
 		}
 		res, err = s.executeOne(ctx, m, conn, body, stream, opts, ct)
-		if err == nil && !isTransientStatus(res.StatusCode) {
+		if err == nil && !retryableStatus(res.StatusCode) {
 			return res, nil
 		}
-		if attempt < maxTransientRetries {
+		if healthyAtStart && attempt < maxTransientRetries {
 			reason := "network error"
 			if err == nil {
 				reason = fmt.Sprintf("upstream %d", res.StatusCode)
@@ -994,7 +1162,7 @@ func (s *RouterService) executeOneWithRetry(ctx context.Context, m domain.ModelI
 					res.Body.Close()
 				}
 			}
-			slog.Warn("transient upstream failure, retrying", "provider", m.Provider, "model", m.Model, "conn", conn.ID, "attempt", attempt+1, "reason", reason)
+			slog.Warn("upstream failure, retrying healthy endpoint", "provider", m.Provider, "model", m.Model, "conn", conn.ID, "attempt", attempt+1, "reason", reason)
 		}
 	}
 	if err != nil {
@@ -1057,9 +1225,169 @@ func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterRespon
 				reqBody, _ := requestBodyFromCtx(ctx)
 				s.SemanticCache.Store(ctx, reqBody, modelStr, inputFmt, cached)
 			}
+			// Streams are piped to the client verbatim, so post-call hooks
+			// get a best-effort notification off the hot path once the body
+			// is consumed (LiteLLM's async_log_success_event pattern).
+			if res.Stream && s.Hooks != nil && s.Hooks.HasPostCall() {
+				if hc, ok := hookContextFromCtx(ctx); ok {
+					s.notifyPostCallStream(hc, res, m, conn, endpoint, buf, ttftMs, start)
+				}
+			}
 		},
 	}
 	res.Body = tee
+}
+
+// finalizeSuccess records usage/cache and, for non-stream chat responses with a
+// registered PostCallHook, hands the fully-buffered body to the hooks before it
+// reaches the client. When no post-call hooks apply it is exactly
+// wrapUsageTracking — the zero-overhead path.
+func (s *RouterService) finalizeSuccess(ctx context.Context, res *RouterResponse, m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, comboChain []string, start time.Time, requestID string, attempt int) error {
+	hc, _ := hookContextFromCtx(ctx)
+	doPostCall := s.Hooks != nil && s.Hooks.HasPostCall() && hc != nil && !res.Stream && endpoint == "" && res.StatusCode < 400
+	if !doPostCall {
+		s.wrapUsageTracking(ctx, res, m, conn, apiKey, endpoint, comboChain, start, requestID, attempt)
+		return nil
+	}
+	s.wrapUsageTracking(ctx, res, m, conn, apiKey, endpoint, comboChain, start, requestID, attempt)
+	buf, rerr := io.ReadAll(res.Body)
+	cerr := res.Body.Close()
+	if rerr != nil || cerr != nil {
+		return fmt.Errorf("read response for post-call hook: %v", firstErr(rerr, cerr))
+	}
+	hres := s.buildHookResponse(res, buf, m, conn, endpoint, 0, start)
+	if err := s.Hooks.RunPostCall(ctx, hc, hres); err != nil {
+		return err
+	}
+	res.Body = io.NopCloser(bytes.NewReader(hres.Body))
+	if hres.Headers != nil {
+		res.Headers = hres.Headers
+	}
+	return nil
+}
+
+// notifyPostCallStream fires post-call hooks asynchronously after a streaming
+// response is fully consumed. Streaming bytes are piped verbatim to the client,
+// so this is a best-effort notification only — modifications are discarded.
+func (s *RouterService) notifyPostCallStream(hc *domain.HookContext, res *RouterResponse, m domain.ModelID, conn *domain.Connection, endpoint string, buf []byte, ttftMs int64, start time.Time) {
+	hres := s.buildHookResponse(res, buf, m, conn, endpoint, ttftMs, start)
+	go func() {
+		dctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.Hooks.RunPostCall(dctx, hc, hres); err != nil {
+			slog.Warn("post-call hook failed", "model", hc.Model, "err", err)
+		}
+	}()
+}
+
+// buildHookResponse assembles a HookResponse from a completed response, parsing
+// token usage from the buffered body and resolving cost from the pricing cache.
+func (s *RouterService) buildHookResponse(res *RouterResponse, buf []byte, m domain.ModelID, conn *domain.Connection, endpoint string, ttftMs int64, start time.Time) *domain.HookResponse {
+	var prompt, completion, cacheRead, cacheCreation int
+	if res.Stream {
+		prompt, completion, cacheRead, cacheCreation = parseUsageFromSSEFull(buf)
+	} else {
+		prompt, completion, cacheRead, cacheCreation = parseUsageFromJSONFull(buf)
+	}
+	var cost float64
+	if s.Pricing != nil {
+		if pricing, ok := s.Pricing.Get(m); ok {
+			cost = CalculateCost(pricing, endpoint, prompt, completion, cacheRead, cacheCreation)
+		}
+	}
+	var connID string
+	if conn != nil {
+		connID = conn.ID
+	}
+	return &domain.HookResponse{
+		StatusCode:          res.StatusCode,
+		Headers:             res.Headers,
+		Body:                buf,
+		Stream:              res.Stream,
+		Provider:            m.Provider,
+		Model:               m.Model,
+		ConnectionID:        connID,
+		PromptTokens:        prompt,
+		CompletionTokens:    completion,
+		CacheReadTokens:     cacheRead,
+		CacheCreationTokens: cacheCreation,
+		Cost:                cost,
+		LatencyMs:           time.Since(start).Milliseconds(),
+		TTFTMs:              ttftMs,
+	}
+}
+
+// newHookContext returns a HookContext for the request, or nil when no hooks
+// are registered. Nil is the zero-cost fast path: every hook point is skipped
+// without allocating anything.
+func (s *RouterService) newHookContext(requestID, modelStr string, stream bool, apiKey string, opts RouteOptions, body []byte) *domain.HookContext {
+	if s.Hooks == nil || s.Hooks.Empty() {
+		return nil
+	}
+	return &domain.HookContext{
+		RequestID:   requestID,
+		Model:       modelStr,
+		Stream:      stream,
+		APIKey:      apiKey,
+		InputFormat: opts.InputFormat,
+		Endpoint:    opts.Endpoint,
+		Body:        body,
+	}
+}
+
+// finishRoute runs post-call failure hooks when a routed request errored or
+// produced an upstream error response, then returns the result.
+func (s *RouterService) finishRoute(ctx context.Context, hc *domain.HookContext, res *RouterResponse, err error) (*RouterResponse, error) {
+	if hc == nil || s.Hooks == nil || !s.Hooks.HasPostCallFailure() {
+		return res, err
+	}
+	if err != nil {
+		status := 0
+		var ue *domain.UpstreamError
+		if errors.As(err, &ue) {
+			status = ue.Status
+		}
+		if nerr := s.Hooks.RunPostCallFailure(ctx, hc, status, err); nerr != nil {
+			return nil, nerr
+		}
+		return nil, err
+	}
+	if res != nil && res.StatusCode >= 400 {
+		if nerr := s.Hooks.RunPostCallFailure(ctx, hc, res.StatusCode, nil); nerr != nil {
+			return nil, nerr
+		}
+	}
+	return res, err
+}
+
+// upstreamErrorMessage extracts a readable message from a failed upstream
+// response body (best-effort; the body is consumed). Returns the upstream
+// error.message when the body is JSON, otherwise the raw body, capped.
+func upstreamErrorMessage(res *RouterResponse) string {
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 2<<10))
+	var parsed struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &parsed); err == nil && parsed.Error.Message != "" {
+		return parsed.Error.Message
+	}
+	msg := strings.TrimSpace(string(body))
+	if len(msg) > 300 {
+		msg = msg[:300] + "..."
+	}
+	return msg
+}
+
+// firstErr returns the first non-nil error in errs, or nil.
+func firstErr(errs ...error) error {
+	for _, e := range errs {
+		if e != nil {
+			return e
+		}
+	}
+	return nil
 }
 
 // recordUsage parses token counts from the buffered response body and writes
@@ -1436,4 +1764,84 @@ func withRequestBody(ctx context.Context, body []byte) context.Context {
 func requestBodyFromCtx(ctx context.Context) ([]byte, bool) {
 	body, ok := ctx.Value(requestBodyCtxKey{}).([]byte)
 	return body, ok
+}
+
+// hookContextCtxKey stores the request's HookContext so the routing internals
+// (finalizeSuccess, stream notification) can reach it without widening their
+// signatures. hc is a pointer, so hook mutations are visible to all readers.
+type hookContextCtxKey struct{}
+
+func withHookContext(ctx context.Context, hc *domain.HookContext) context.Context {
+	return context.WithValue(ctx, hookContextCtxKey{}, hc)
+}
+
+func hookContextFromCtx(ctx context.Context) (*domain.HookContext, bool) {
+	hc, ok := ctx.Value(hookContextCtxKey{}).(*domain.HookContext)
+	return hc, ok
+}
+
+// upstreamTimeoutCtxKey stores a per-request upstream timeout (x-gr-timeout).
+// Zero means use the executor default.
+type upstreamTimeoutCtxKey struct{}
+
+// WithUpstreamTimeout marks the context with a per-request upstream timeout.
+func WithUpstreamTimeout(ctx context.Context, d time.Duration) context.Context {
+	return context.WithValue(ctx, upstreamTimeoutCtxKey{}, d)
+}
+
+func upstreamTimeoutFromCtx(ctx context.Context) time.Duration {
+	d, _ := ctx.Value(upstreamTimeoutCtxKey{}).(time.Duration)
+	return d
+}
+
+// allowedModelsCtxKey stores the authenticated key's allowed-models list.
+type allowedModelsCtxKey struct{}
+
+// WithAllowedModels marks the context with a key's allowed-models restriction
+// (empty = all models allowed).
+func WithAllowedModels(ctx context.Context, models []string) context.Context {
+	return context.WithValue(ctx, allowedModelsCtxKey{}, models)
+}
+
+func allowedModelsFromCtx(ctx context.Context) []string {
+	m, _ := ctx.Value(allowedModelsCtxKey{}).([]string)
+	return m
+}
+
+// modelAllowed reports whether the key on this request may use modelStr. An
+// empty allowed list allows everything. Matches the model id, its bare name,
+// a combo name, or any combo member.
+func (s *RouterService) modelAllowed(ctx context.Context, modelStr string) bool {
+	allowed := allowedModelsFromCtx(ctx)
+	if len(allowed) == 0 {
+		return true
+	}
+	if containsStr(allowed, modelStr) {
+		return true
+	}
+	if m, ok := domain.SplitModelID(modelStr); ok {
+		if containsStr(allowed, m.Model) || containsStr(allowed, m.Provider+"/"+m.Model) {
+			return true
+		}
+	}
+	if combo, err := s.Combos.GetByName(ctx, modelStr); err == nil {
+		for _, member := range combo.Models {
+			if containsStr(allowed, member) {
+				return true
+			}
+			if i := strings.LastIndexByte(member, '/'); i >= 0 && containsStr(allowed, member[i+1:]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func containsStr(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }

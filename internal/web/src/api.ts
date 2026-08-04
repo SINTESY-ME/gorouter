@@ -113,7 +113,7 @@ export interface KeyLimit {
   duration: string;
 }
 export interface ApiKey {
-  id: string; key: string; name: string; is_active: boolean; limits: KeyLimit[]; created_at: string;
+  id: string; key: string; name: string; is_active: boolean; limits: KeyLimit[]; allowed_models?: string[]; created_at: string;
 }
 export interface UsageStats {
   requests: number; prompt_tokens: number; completion_tokens: number; cost: number;
@@ -258,8 +258,8 @@ export const api = {
   },
   keys: {
     list: () => request<ApiKey[]>("/api/keys"),
-    create: (k: { name: string; limits?: KeyLimit[] }) => request<ApiKey>("/api/keys", { method: "POST", body: JSON.stringify(k) }),
-    update: (id: string, k: { name?: string; is_active?: boolean; limits?: KeyLimit[] }) => request<ApiKey>(`/api/keys/${id}`, { method: "PUT", body: JSON.stringify(k) }),
+    create: (k: { name: string; limits?: KeyLimit[]; allowed_models?: string[] }) => request<ApiKey>("/api/keys", { method: "POST", body: JSON.stringify(k) }),
+    update: (id: string, k: { name?: string; is_active?: boolean; limits?: KeyLimit[]; allowed_models?: string[] }) => request<ApiKey>(`/api/keys/${id}`, { method: "PUT", body: JSON.stringify(k) }),
     remove: (id: string) => request<void>(`/api/keys/${id}`, { method: "DELETE" }),
   },
   usage: {

@@ -1,0 +1,12 @@
+id: iflytek
+display:
+  name: Iflytek
+  color: "#8A6DB8"
+  website: "https://spark-api-open.xf-yun.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://spark-api-open.xf-yun.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

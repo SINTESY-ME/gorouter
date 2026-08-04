@@ -1,0 +1,12 @@
+id: hackclub
+display:
+  name: Hackclub
+  color: "#64748B"
+  website: "https://ai.hackclub.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://ai.hackclub.com/proxy/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

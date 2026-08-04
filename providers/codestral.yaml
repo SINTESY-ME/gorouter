@@ -1,0 +1,12 @@
+id: codestral
+display:
+  name: Codestral
+  color: "#6D7AC7"
+  website: "https://codestral.mistral.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://codestral.mistral.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

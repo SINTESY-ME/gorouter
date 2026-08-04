@@ -1,0 +1,12 @@
+id: inception
+display:
+  name: Inception
+  color: "#8A6DB8"
+  website: "https://api.inceptionlabs.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.inceptionlabs.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

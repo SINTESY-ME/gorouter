@@ -1,0 +1,12 @@
+id: heroku
+display:
+  name: Heroku
+  color: "#6D7AC7"
+  website: "https://us.inference.heroku.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://us.inference.heroku.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

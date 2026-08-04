@@ -1,0 +1,12 @@
+id: writer
+display:
+  name: Writer
+  color: "#5B9A6D"
+  website: "https://api.writer.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.writer.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

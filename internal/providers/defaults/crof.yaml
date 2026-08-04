@@ -1,0 +1,12 @@
+id: crof
+display:
+  name: Crof
+  color: "#C79A5B"
+  website: "https://crof.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://crof.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

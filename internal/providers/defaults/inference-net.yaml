@@ -1,0 +1,12 @@
+id: inference-net
+display:
+  name: Inference Net
+  color: "#6D7AC7"
+  website: "https://api.inference.net"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.inference.net/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

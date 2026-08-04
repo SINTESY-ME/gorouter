@@ -1,0 +1,12 @@
+id: nanogpt
+display:
+  name: Nanogpt
+  color: "#64748B"
+  website: "https://nano-gpt.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://nano-gpt.com/api/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

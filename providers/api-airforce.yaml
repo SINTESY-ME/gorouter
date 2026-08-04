@@ -1,0 +1,15 @@
+id: api-airforce
+display:
+  name: Api Airforce
+  color: "#64748B"
+  website: "https://api.airforce"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.airforce/v1"
+  format: openai
+  auth: bearer
+  headers:
+    HTTP-Referer: "https://endpoint-proxy.local"
+    X-Title: "Endpoint Proxy"
+capabilities: [chat]

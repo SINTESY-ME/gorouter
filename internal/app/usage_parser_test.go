@@ -88,3 +88,65 @@ func TestInjectStreamUsage(t *testing.T) {
 		}
 	})
 }
+
+func TestPrepareOpenAIBody(t *testing.T) {
+	t.Run("rewrites model", func(t *testing.T) {
+		out := prepareOpenAIBody([]byte(`{"model":"coding","messages":[]}`), "gpt-4o", false)
+		var m map[string]any
+		if err := json.Unmarshal(out, &m); err != nil {
+			t.Fatal(err)
+		}
+		if m["model"] != "gpt-4o" {
+			t.Fatalf("model not rewritten: %v", m["model"])
+		}
+	})
+	t.Run("adds stream_options on streaming", func(t *testing.T) {
+		out := prepareOpenAIBody([]byte(`{"model":"gpt-4","messages":[]}`), "gpt-4o", true)
+		var m map[string]any
+		if err := json.Unmarshal(out, &m); err != nil {
+			t.Fatal(err)
+		}
+		so := m["stream_options"].(map[string]any)
+		if so["include_usage"] != true {
+			t.Fatalf("include_usage not set: %v", so)
+		}
+	})
+	t.Run("strips empty tool_calls", func(t *testing.T) {
+		out := prepareOpenAIBody([]byte(`{"model":"gpt-4","messages":[{"role":"assistant","content":"","tool_calls":[]}]}`), "gpt-4o", false)
+		var m map[string]any
+		if err := json.Unmarshal(out, &m); err != nil {
+			t.Fatal(err)
+		}
+		msgs := m["messages"].([]any)
+		msg := msgs[0].(map[string]any)
+		if _, exists := msg["tool_calls"]; exists {
+			t.Fatal("empty tool_calls not stripped")
+		}
+	})
+	t.Run("keeps non-empty tool_calls", func(t *testing.T) {
+		out := prepareOpenAIBody([]byte(`{"model":"gpt-4","messages":[{"role":"assistant","content":"","tool_calls":[{"id":"x"}]}]}`), "gpt-4o", false)
+		var m map[string]any
+		if err := json.Unmarshal(out, &m); err != nil {
+			t.Fatal(err)
+		}
+		msgs := m["messages"].([]any)
+		msg := msgs[0].(map[string]any)
+		if _, exists := msg["tool_calls"]; !exists {
+			t.Fatal("non-empty tool_calls must be preserved")
+		}
+	})
+	t.Run("no change returns original bytes", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
+		out := prepareOpenAIBody(body, "gpt-4o", false)
+		if string(out) != string(body) {
+			t.Fatalf("expected byte-identical when nothing changes, got %s", out)
+		}
+	})
+	t.Run("invalid json returns original", func(t *testing.T) {
+		body := []byte(`not json`)
+		out := prepareOpenAIBody(body, "gpt-4o", true)
+		if string(out) != string(body) {
+			t.Fatal("should return original on invalid json")
+		}
+	})
+}

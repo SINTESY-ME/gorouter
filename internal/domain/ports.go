@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -20,6 +21,9 @@ type ExecuteRequest struct {
 	Stream        bool
 	Headers       map[string]string // extra headers (e.g. anthropic-version)
 	Endpoint      string            // "" = chat (format-based URL); "embeddings" | "images/generations" force OpenAI-style paths
+	// Timeout, when > 0, overrides the executor's default upstream timeout
+	// for non-streaming requests (x-gr-timeout header).
+	Timeout time.Duration
 }
 
 // ExecuteResult is the upstream's response. The caller owns closing Body.
@@ -65,12 +69,21 @@ type Translator interface {
 	TranslateResponseStream(ctx context.Context, from, to Format, r io.ReadCloser) (io.ReadCloser, error)
 }
 
-// UpstreamError is parsed from a failed upstream response so the router can
-// decide whether to fall back to the next model/account.
+// UpstreamError is the last real upstream failure surfaced when routing
+// exhausts all connections/models. It preserves the upstream HTTP status so
+// the client sees the actual failure (e.g. 429, 500) instead of a generic
+// error — mirroring LiteLLM, which re-raises the last typed exception.
 type UpstreamError struct {
 	Status     int
 	Message    string
 	RetryAfter time.Duration // 0 if unknown
+}
+
+func (e *UpstreamError) Error() string {
+	if e.Message != "" {
+		return e.Message
+	}
+	return fmt.Sprintf("upstream returned %d", e.Status)
 }
 
 // RequestCompressor transforms a request body to reduce token count
@@ -95,6 +108,10 @@ type CachedResponse struct {
 	StreamChunks []byte // stream: concatenated SSE bytes ready to replay
 	Stream       bool
 	CreatedAt    time.Time
+	// ExpiresAt, when non-zero, is an explicit per-entry expiry requested via
+	// the x-gr-cache-ttl header. Lookup treats entries past it as misses (the
+	// backend's own TTL still bounds the entry).
+	ExpiresAt time.Time
 }
 
 // ResponseCache stores and retrieves cached responses keyed by a deterministic

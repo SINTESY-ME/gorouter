@@ -1,0 +1,12 @@
+id: sensenova
+display:
+  name: Sensenova
+  color: "#5BA6A6"
+  website: "https://token.sensenova.cn"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://token.sensenova.cn/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

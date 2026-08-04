@@ -1,0 +1,12 @@
+id: agnes
+display:
+  name: Agnes
+  color: "#64748B"
+  website: "https://apihub.agnes-ai.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://apihub.agnes-ai.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

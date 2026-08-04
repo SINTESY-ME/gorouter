@@ -1,0 +1,12 @@
+id: dahl
+display:
+  name: Dahl
+  color: "#8A6DB8"
+  website: "https://inference.dahl.global"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://inference.dahl.global/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

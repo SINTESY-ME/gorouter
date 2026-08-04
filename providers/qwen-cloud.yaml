@@ -1,0 +1,12 @@
+id: qwen-cloud
+display:
+  name: Qwen Cloud
+  color: "#C79A5B"
+  website: "https://dashscope-intl.aliyuncs.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

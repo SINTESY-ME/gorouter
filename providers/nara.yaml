@@ -1,0 +1,12 @@
+id: nara
+display:
+  name: Nara
+  color: "#64748B"
+  website: "https://router.bynara.id"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://router.bynara.id/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

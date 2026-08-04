@@ -1,0 +1,12 @@
+id: sambanova
+display:
+  name: Sambanova
+  color: "#5BA6A6"
+  website: "https://api.sambanova.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.sambanova.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

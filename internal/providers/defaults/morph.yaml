@@ -1,0 +1,12 @@
+id: morph
+display:
+  name: Morph
+  color: "#5BA6A6"
+  website: "https://api.morphllm.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.morphllm.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

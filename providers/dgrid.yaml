@@ -1,0 +1,12 @@
+id: dgrid
+display:
+  name: Dgrid
+  color: "#5B9A6D"
+  website: "https://api.dgrid.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.dgrid.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

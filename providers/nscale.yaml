@@ -1,0 +1,12 @@
+id: nscale
+display:
+  name: Nscale
+  color: "#6D7AC7"
+  website: "https://inference.api.nscale.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://inference.api.nscale.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

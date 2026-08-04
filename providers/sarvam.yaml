@@ -1,0 +1,12 @@
+id: sarvam
+display:
+  name: Sarvam
+  color: "#8A6DB8"
+  website: "https://api.sarvam.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.sarvam.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

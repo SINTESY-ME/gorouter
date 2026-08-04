@@ -1,0 +1,12 @@
+id: mimocode
+display:
+  name: Mimocode
+  color: "#64748B"
+  website: "https://api.xiaomimimo.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.xiaomimimo.com"
+  format: openai
+  auth: none
+capabilities: [chat]

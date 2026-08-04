@@ -1,0 +1,12 @@
+id: tencent
+display:
+  name: Tencent
+  color: "#6D7AC7"
+  website: "https://api.hunyuan.cloud.tencent.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.hunyuan.cloud.tencent.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

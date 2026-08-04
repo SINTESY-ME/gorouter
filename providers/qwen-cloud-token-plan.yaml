@@ -1,0 +1,12 @@
+id: qwen-cloud-token-plan
+display:
+  name: Qwen Cloud Token Plan
+  color: "#5BA6A6"
+  website: "https://token-plan.ap-southeast-1.maas.aliyuncs.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

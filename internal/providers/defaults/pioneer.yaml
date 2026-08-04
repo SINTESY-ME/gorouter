@@ -1,0 +1,12 @@
+id: pioneer
+display:
+  name: Pioneer
+  color: "#C79A5B"
+  website: "https://api.pioneer.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.pioneer.ai/v1"
+  format: openai
+  auth: x-api-key
+capabilities: [chat]

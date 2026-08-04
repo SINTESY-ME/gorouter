@@ -1,0 +1,12 @@
+id: plamo
+display:
+  name: Plamo
+  color: "#C79A5B"
+  website: "https://api.platform.preferredai.jp"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.platform.preferredai.jp/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

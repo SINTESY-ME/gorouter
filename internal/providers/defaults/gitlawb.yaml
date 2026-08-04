@@ -1,0 +1,16 @@
+id: gitlawb
+display:
+  name: Gitlawb
+  color: "#64748B"
+  website: "https://opengateway.gitlawb.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://opengateway.gitlawb.com/v1/xiaomi-mimo"
+  format: openai
+  auth: bearer
+  headers:
+    User-Agent: "OpenClaude/1.0 (linux; x86_64)"
+    X-Title: "OpenClaude CLI"
+    HTTP-Referer: "https://github.com/Gitlawb/openclaude"
+capabilities: [chat]

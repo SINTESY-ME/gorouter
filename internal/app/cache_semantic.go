@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 
 	"github.com/jhon/gorouter/internal/domain"
@@ -20,8 +21,8 @@ const (
 // the logic to look up and store responses by vector similarity. It is
 // nil-safe: a nil service disables all semantic caching.
 type SemanticCacheService struct {
-	cache     domain.SemanticCache
-	embedder  domain.EmbeddingProvider
+	cache         domain.SemanticCache
+	embedder      domain.EmbeddingProvider
 	modelSettable interface {
 		SetModel(string)
 	}
@@ -121,7 +122,7 @@ func (s *SemanticCacheService) Lookup(ctx context.Context, body []byte, models [
 		}
 	}
 
-	promptText := extractSemanticPromptText(body)
+	promptText := normalizeSemanticText(extractSemanticPromptText(body))
 	if promptText == "" {
 		return LookupResult{}
 	}
@@ -155,7 +156,7 @@ func (s *SemanticCacheService) Store(ctx context.Context, body []byte, modelStr 
 		return
 	}
 
-	promptText := extractSemanticPromptText(body)
+	promptText := normalizeSemanticText(extractSemanticPromptText(body))
 	if promptText == "" {
 		return
 	}
@@ -184,6 +185,13 @@ func (s *SemanticCacheService) Flush(ctx context.Context) {
 		return
 	}
 	s.cache.Flush(ctx)
+}
+
+// normalizeSemanticText applies consistent normalization (trim + lowercase)
+// before embedding so case/whitespace variations map to the same vector —
+// mirroring Bifrost's normalizeText for higher semantic hit rates.
+func normalizeSemanticText(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
 }
 
 // extractSemanticPromptText extracts a text representation of the prompt

@@ -1,0 +1,12 @@
+id: liquid
+display:
+  name: Liquid
+  color: "#6D7AC7"
+  website: "https://inference.liquid.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://inference.liquid.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

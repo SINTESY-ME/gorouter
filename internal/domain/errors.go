@@ -14,6 +14,7 @@ var (
 	ErrAlreadyExists   = errors.New("gorouter: already exists")
 	ErrValidation      = errors.New("gorouter: validation error")
 	ErrUnauthorized    = errors.New("gorouter: unauthorized")
+	ErrForbidden       = errors.New("gorouter: forbidden")
 	ErrNoConnection    = errors.New("gorouter: no active connection for provider")
 	ErrAllModelsFailed = errors.New("gorouter: all models in the combo failed")
 )
@@ -22,35 +23,32 @@ var (
 // error) should trigger falling through to the next model in a combo or the
 // next account in a connection pool.
 //
-// Any error (status >= 400 or network error) from an upstream call triggers
-// fallback — the next model or connection may have different capabilities,
-// limits, or account state.
+// Fallback is only attempted when the failure might resolve on another model
+// or account: transient infrastructure errors (5xx, 408, 429), account-level
+// failures (401/403/402), or a model that is gone on this provider (404).
+// Deterministic client errors (400, 422, 415, …) fail on every provider the
+// same way, so falling through would only burn requests and latency — they
+// are returned to the client instead.
 func ShouldFallback(status int, err error) bool {
 	if err != nil {
 		return true // network / timeout
 	}
-	// Currently all 4xx/5xx trigger fallback. Preserving fine-grained rules below
-	// for reference or if selective fallback is needed in the future:
-	//
-	// switch {
-	// case status >= 500 && status <= 599:
-	// 	return true
-	// case status == http.StatusTooManyRequests:
-	// 	return true
-	// case status == http.StatusRequestTimeout:
-	// 	return true
-	// case status == http.StatusUnauthorized || status == http.StatusForbidden:
-	// 	return true // try next account
-	// case status == http.StatusPaymentRequired:
-	// 	return true // try next account (402 = out of credit on this key)
-	// case status == http.StatusNotFound:
-	// 	return true // model deprecated/removed on this provider; next may work
-	// case status == http.StatusBadRequest:
-	// 	return true // model may not support this request format; next model may
-	// default:
-	// 	return false
-	// }
-	return status >= 400
+	switch {
+	case status >= 500 && status <= 599:
+		return true // upstream transient failure
+	case status == http.StatusTooManyRequests:
+		return true // rate limited; try next account/model
+	case status == http.StatusRequestTimeout:
+		return true // timeout / unavailable
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		return true // bad account credentials; try next account
+	case status == http.StatusPaymentRequired:
+		return true // out of credit on this key; try next account
+	case status == http.StatusNotFound:
+		return true // model deprecated/removed on this provider; next may work
+	default:
+		return false // deterministic client error: do not fall through
+	}
 }
 
 // ParseRetryAfter extracts a retry delay from a Retry-After header value.

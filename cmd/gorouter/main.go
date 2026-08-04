@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -21,6 +22,8 @@ import (
 	"github.com/jhon/gorouter/internal/domain"
 	"github.com/jhon/gorouter/internal/infra/db"
 	"github.com/jhon/gorouter/internal/infra/executor"
+	"github.com/jhon/gorouter/internal/infra/metrics"
+	"github.com/jhon/gorouter/internal/infra/redis"
 	"github.com/jhon/gorouter/internal/infra/responsecache"
 	"github.com/jhon/gorouter/internal/infra/rtk"
 	"github.com/jhon/gorouter/internal/infra/semanticcache"
@@ -64,6 +67,32 @@ func run() error {
 	modelRepo := db.NewModelRepo(gdb)
 	settingRepo := db.NewSettingRepo(gdb)
 
+	// Multi-instance: when GOROUTER_REDIS_URL is set, enable the shared
+	// response cache and shared health probes. A configured-but-unreachable
+	// Redis degrades gracefully to single-instance behavior with a warning
+	// (fail-open, like every other optional subsystem).
+	var redisClient *redis.Client
+	if cfg.RedisURL != "" {
+		rc, rerr := redis.New(cfg.RedisURL)
+		if rerr != nil {
+			return rerr
+		}
+		pingCtx, pingCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		perr := rc.Ping(pingCtx)
+		pingCancel()
+		if perr != nil {
+			slog.Warn("redis unreachable; running single-instance", "addr", rc.Addr(), "err", perr)
+		} else {
+			redisClient = rc
+			slog.Info("redis enabled (multi-instance)", "addr", rc.Addr())
+		}
+	}
+	defer func() {
+		if redisClient != nil {
+			redisClient.Close()
+		}
+	}()
+
 	// Hot-path caches: wrap repos with short-TTL in-memory caches so the
 	// /v1/* request path doesn't hit the database for key validation or
 	// connection lookup on every request. Dashboard writes invalidate.
@@ -97,6 +126,9 @@ func run() error {
 	router.Pricing = app.NewPricingCache(modelRepo)
 	router.Selector = app.NewConnectionSelector(providerConfigRepo, nil)
 	router.Prober = app.NewHealthProber(router.Health, cachedConns, exec, tr, router.Selector)
+	if redisClient != nil {
+		router.Prober.Shared = redis.NewSharedProbe(redisClient)
+	}
 	router.TPS = app.NewTPSCache(asyncUsage, 1*time.Minute)
 	router.TPSProber = app.NewTPSProber(router.TPS, router)
 	savings := app.NewSavingsTracker()
@@ -109,7 +141,11 @@ func run() error {
 	// toggle it live without a restart.
 	var cacheSvc *app.CacheService
 	cacheFactory := func() domain.ResponseCache {
-		return responsecache.NewMemory(cfg.CacheMaxEntries, cfg.CacheTTL, cfg.CacheSweepInterval)
+		mem := responsecache.NewMemory(cfg.CacheMaxEntries, cfg.CacheTTL, cfg.CacheSweepInterval)
+		if redisClient != nil {
+			return redis.NewDualCache(mem, redisClient, cfg.CacheTTL)
+		}
+		return mem
 	}
 	cacheEnabled := cfg.CacheEnabled
 	if v, err := settingRepo.Get(ctx, "cache_enabled"); err == nil {
@@ -122,7 +158,23 @@ func run() error {
 		defer mc.Close()
 		cacheSvc = app.NewCacheService(mc)
 		router.Cache = cacheSvc
-		slog.Info("response cache enabled", "ttl", cfg.CacheTTL, "max_entries", cfg.CacheMaxEntries)
+		// Caching groups: models listed in the same group share cache entries
+		// (operator responsibility — group members must be interchangeable).
+		if v, err := settingRepo.Get(ctx, "caching_groups"); err == nil && v != "" {
+			var raw map[string][]string
+			if jerr := json.Unmarshal([]byte(v), &raw); jerr == nil && len(raw) > 0 {
+				groups := map[string]string{}
+				for name, models := range raw {
+					for _, m := range models {
+						groups[m] = name
+					}
+				}
+				cacheSvc.SetCachingGroups(groups)
+				slog.Info("caching groups enabled", "groups", len(groups))
+			}
+		}
+		router.MaxCacheHistory = cfg.CacheMaxHistory
+		slog.Info("response cache enabled", "ttl", cfg.CacheTTL, "max_entries", cfg.CacheMaxEntries, "max_history", cfg.CacheMaxHistory)
 	}
 
 	// RTK request token compression. Same pattern as cache: read from DB
@@ -192,6 +244,23 @@ func run() error {
 		OnSynced:    router.RefreshPricingCache,
 	}
 
+	// Hook pipeline (PreCall/PostCall/PostCallFailure). Controlled by the
+	// dashboard settings (persisted in SettingRepo); an empty list leaves
+	// Router.Hooks nil so every hook point is skipped at zero cost.
+	if v, err := settingRepo.Get(ctx, "hooks_enabled"); err == nil && v != "" {
+		var names []string
+		if jerr := json.Unmarshal([]byte(v), &names); jerr == nil {
+			hp, herr := app.NewHookPipeline(names)
+			if herr != nil {
+				return herr // fail fast on unknown hook name
+			}
+			router.Hooks = hp
+			if len(names) > 0 {
+				slog.Info("hooks enabled", "hooks", names)
+			}
+		}
+	}
+
 	// Provider catalog + store (YAML presets; install from origin repo)
 	providersDir := filepath.Join(cfg.HomeDir, "providers")
 	catalog, err := providers.NewCatalog(providersDir)
@@ -207,6 +276,82 @@ func run() error {
 	)
 
 	httpx.SetStaticHandler(web.Handler)
+
+	// Prometheus gauges computed at scrape time from existing in-memory state
+	// (health, cache, savings). Request counters are fed by the "prometheus"
+	// hook when enabled; these gauges work regardless.
+	if router.Health != nil {
+		metrics.Default.Gauge("gorouter_health_unhealthy", "Count of unhealthy model/connection triples", func() float64 {
+			return float64(router.Health.Summary().Unhealthy)
+		})
+		metrics.Default.Gauge("gorouter_health_probing", "Count of triples currently being probed", func() float64 {
+			return float64(router.Health.Summary().Probing)
+		})
+		metrics.Default.Gauge("gorouter_health_healthy", "Count of healthy model/connection triples", func() float64 {
+			return float64(router.Health.Summary().Healthy)
+		})
+		metrics.Default.Gauge("gorouter_health_total_keys", "Total tracked (combo, model, connection) triples", func() float64 {
+			return float64(router.Health.Summary().TotalKeys)
+		})
+	}
+	metrics.Default.Gauge("gorouter_cache_entries", "Response cache entries (0 when disabled)", func() float64 {
+		if cacheSvc == nil {
+			return 0
+		}
+		return float64(cacheSvc.Stats().Entries)
+	})
+	metrics.Default.Gauge("gorouter_cache_hits", "Response cache hits", func() float64 {
+		if cacheSvc == nil {
+			return 0
+		}
+		return float64(cacheSvc.Stats().Hits)
+	})
+	metrics.Default.Gauge("gorouter_cache_misses", "Response cache misses", func() float64 {
+		if cacheSvc == nil {
+			return 0
+		}
+		return float64(cacheSvc.Stats().Misses)
+	})
+	metrics.Default.Gauge("gorouter_semantic_cache_entries", "Semantic cache entries (0 when disabled)", func() float64 {
+		if semanticSvc == nil {
+			return 0
+		}
+		return float64(semanticSvc.Stats().Entries)
+	})
+	metrics.Default.Gauge("gorouter_semantic_cache_hits", "Semantic cache hits", func() float64 {
+		if semanticSvc == nil {
+			return 0
+		}
+		return float64(semanticSvc.Stats().Hits)
+	})
+	metrics.Default.Gauge("gorouter_semantic_cache_misses", "Semantic cache misses", func() float64 {
+		if semanticSvc == nil {
+			return 0
+		}
+		return float64(semanticSvc.Stats().Misses)
+	})
+	metrics.Default.Gauge("gorouter_savings_cache_tokens", "Tokens saved by response cache hits", func() float64 {
+		return float64(savings.Stats().CacheTokensSaved)
+	})
+	metrics.Default.Gauge("gorouter_savings_cache_cost_usd", "USD saved by response cache hits", func() float64 {
+		return savings.Stats().CacheCostSaved
+	})
+	metrics.Default.Gauge("gorouter_savings_rtk_bytes", "Bytes saved by RTK compression", func() float64 {
+		return float64(savings.Stats().RTKBytesSaved)
+	})
+	metrics.Default.Gauge("gorouter_savings_rtk_cost_usd", "USD saved by RTK compression", func() float64 {
+		return savings.Stats().RTKCostSaved
+	})
+	metrics.Default.Gauge("gorouter_savings_semantic_tokens", "Tokens saved by semantic cache hits", func() float64 {
+		return float64(savings.Stats().SemanticTokensSaved)
+	})
+	metrics.Default.Gauge("gorouter_savings_semantic_cost_usd", "USD saved by semantic cache hits", func() float64 {
+		return savings.Stats().SemanticCostSaved
+	})
+	metrics.Default.Gauge("gorouter_uptime_seconds", "Seconds since gorouter started", func() float64 {
+		return metrics.Default.Uptime().Seconds()
+	})
+
 	srv := &httpx.Server{
 		Router:               router,
 		Models:               models,
@@ -223,10 +368,12 @@ func run() error {
 		Settings:             settingRepo,
 		Savings:              savings,
 		RTKCompressorFactory: rtkFactory,
-		CacheFactory:    cacheFactory,
-		SemanticCache:   semanticSvc,
+		CacheFactory:         cacheFactory,
+		HookFactory:          app.NewHookPipeline,
+		SemanticCache:        semanticSvc,
 		RequireKey:           cfg.RequireKey,
 		Auth:                 auth,
+		KeySecret:            cfg.KeySecret,
 		RateLimiter:          app.NewRateLimiter(),
 		Catalog:              catalogSvc,
 		OAuth:                oauthMgr,

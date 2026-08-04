@@ -1,0 +1,12 @@
+id: zai
+display:
+  name: Zai
+  color: "#6D7AC7"
+  website: "https://api.z.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.z.ai/api/anthropic/v1"
+  format: anthropic
+  auth: x-api-key
+capabilities: [chat]

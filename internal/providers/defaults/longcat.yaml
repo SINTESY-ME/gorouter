@@ -1,0 +1,12 @@
+id: longcat
+display:
+  name: Longcat
+  color: "#64748B"
+  website: "https://api.longcat.chat"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.longcat.chat/openai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

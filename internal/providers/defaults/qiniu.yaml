@@ -1,0 +1,12 @@
+id: qiniu
+display:
+  name: Qiniu
+  color: "#64748B"
+  website: "https://api.qnaigc.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.qnaigc.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

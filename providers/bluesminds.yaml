@@ -1,0 +1,12 @@
+id: bluesminds
+display:
+  name: Bluesminds
+  color: "#64748B"
+  website: "https://api.bluesminds.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.bluesminds.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

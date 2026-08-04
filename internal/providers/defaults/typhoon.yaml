@@ -1,0 +1,12 @@
+id: typhoon
+display:
+  name: Typhoon
+  color: "#C79A5B"
+  website: "https://api.opentyphoon.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.opentyphoon.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

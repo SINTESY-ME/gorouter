@@ -1,0 +1,12 @@
+id: baichuan
+display:
+  name: Baichuan
+  color: "#64748B"
+  website: "https://api.baichuan-ai.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.baichuan-ai.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

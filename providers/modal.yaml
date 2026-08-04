@@ -1,0 +1,12 @@
+id: modal
+display:
+  name: Modal
+  color: "#C79A5B"
+  website: "https://api.modal.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.modal.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

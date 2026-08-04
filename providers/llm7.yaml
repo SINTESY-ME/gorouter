@@ -1,0 +1,12 @@
+id: llm7
+display:
+  name: Llm7
+  color: "#5BA6A6"
+  website: "https://api.llm7.io"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.llm7.io/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

@@ -1,0 +1,12 @@
+id: dify
+display:
+  name: Dify
+  color: "#6D7AC7"
+  website: "https://api.dify.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.dify.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

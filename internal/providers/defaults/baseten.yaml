@@ -1,0 +1,12 @@
+id: baseten
+display:
+  name: Baseten
+  color: "#64748B"
+  website: "https://inference.baseten.co"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://inference.baseten.co/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

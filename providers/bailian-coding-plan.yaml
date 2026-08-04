@@ -1,0 +1,12 @@
+id: bailian-coding-plan
+display:
+  name: Bailian Coding Plan
+  color: "#64748B"
+  website: "https://coding-intl.dashscope.aliyuncs.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic/v1"
+  format: anthropic
+  auth: x-api-key
+capabilities: [chat]

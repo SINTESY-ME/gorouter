@@ -1,0 +1,12 @@
+id: charm-hyper
+display:
+  name: Charm Hyper
+  color: "#5BA6A6"
+  website: "https://hyper.charm.land"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://hyper.charm.land/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

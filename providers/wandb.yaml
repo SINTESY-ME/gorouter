@@ -1,0 +1,12 @@
+id: wandb
+display:
+  name: Wandb
+  color: "#6D7AC7"
+  website: "https://api.inference.wandb.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.inference.wandb.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

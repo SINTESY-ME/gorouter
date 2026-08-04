@@ -1,0 +1,12 @@
+id: leonardo
+display:
+  name: Leonardo
+  color: "#C79A5B"
+  website: "https://cloud.leonardo.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://cloud.leonardo.ai/api/rest/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

@@ -1,0 +1,12 @@
+id: x5lab
+display:
+  name: X5lab
+  color: "#64748B"
+  website: "https://api.x5lab.dev"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.x5lab.dev/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

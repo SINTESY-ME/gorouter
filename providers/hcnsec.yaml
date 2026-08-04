@@ -1,0 +1,12 @@
+id: hcnsec
+display:
+  name: Hcnsec
+  color: "#64748B"
+  website: "https://api.hcnsec.cn"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.hcnsec.cn/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

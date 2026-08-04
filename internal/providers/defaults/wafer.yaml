@@ -1,0 +1,12 @@
+id: wafer
+display:
+  name: Wafer
+  color: "#64748B"
+  website: "https://pass.wafer.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://pass.wafer.ai/v1"
+  format: anthropic
+  auth: bearer
+capabilities: [chat]

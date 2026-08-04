@@ -137,6 +137,62 @@ Não é:
 
 ---
 
+## Rodada 2026-08-03 — gorouter + Bifrost + LiteLLM + OmniRoute + Portkey
+
+Mesma metodologia wall-clock (`hey -z 10s`), mesma máquina, contra o mesmo mock (`scripts/bench/mock.go` em `127.0.0.1:19998`). Para normalizar o throttle da máquina, o mock é medido **antes e depois** de cada nível de concorrência e o piso usado é a média das duas leituras. Cada proxy foi aquecido antes da medição.
+
+### Resumo
+
+Valores **líquidos** = `avg(proxy) − avg(mock)` no mesmo `c` (isola o custo real que o proxy adiciona, descontando o piso do loopback). Entre parênteses, o avg bruto end-to-end.
+
+| Proxy | c=1 | c=10 | c=50 |
+|-------|-----|------|------|
+| **mock direto** (piso) | 0.25 ms | 0.50 ms | 1.45 ms |
+| **gorouter** | **1.05 ms** (1.3) | **1.30 ms** (1.8) | **4.85 ms** (6.3) |
+| **Bifrost** | 2.05 ms (2.3) | 2.40 ms (2.9) | 10.15 ms (11.6) |
+| **Portkey** | 5.45 ms (5.7) | 49.70 ms (50) | 207.25 ms (209) |
+| **LiteLLM** | 29.35 ms (29.6) | 246.10 ms (247) | 1148.85 ms (1150) |
+| **OmniRoute** | 340.05 ms (340) | — (timeout) | ~10048 ms (~10 s) |
+
+- gorouter é **~2× mais barato que Bifrost** (c=1), **~5× que Portkey**, **~28× que LiteLLM** e **~325× que OmniRoute** em overhead líquido.
+- OmniRoute em c≥10 não aguenta (timeouts / latência de segundos). LiteLLM satura ~40 RPS.
+
+### Detalhes
+
+| c | Alvo | Slowest | Fastest | Average | RPS | Status |
+|---|------|---------|---------|---------|-----|--------|
+| 1 | mock | 3.6 ms | 0.1 ms | **0.25 ms** | **2626** | 200 |
+| 1 | gorouter | 9.2 ms | 0.3 ms | **1.3 ms** | **785** | 200 |
+| 1 | Bifrost | 13.6 ms | 1.0 ms | **2.3 ms** | **432** | 200 |
+| 1 | Portkey | 27.8 ms | 2.4 ms | **5.7 ms** | **175** | 200 |
+| 1 | LiteLLM | 172 ms | 19 ms | **29.6 ms** | **34** | 200 |
+| 1 | OmniRoute | 368 ms | 95 ms | **340 ms** | **0.9** | 200 |
+| 10 | mock | 11.9 ms | 0.1 ms | **0.50 ms** | **18558** | 200 |
+| 10 | gorouter | 15.5 ms | 0.5 ms | **1.8 ms** | **5595** | 200 |
+| 10 | Bifrost | 25.8 ms | 1.3 ms | **2.9 ms** | **3451** | 200 |
+| 10 | Portkey | 260 ms | 27 ms | **50 ms** | **199** | 200 |
+| 10 | LiteLLM | 427 ms | 138 ms | **247 ms** | **40** | 200 |
+| 10 | OmniRoute | — | — | **timeout** | 0.5 | — |
+| 50 | mock | 35.5 ms | 0.1 ms | **1.45 ms** | **22575** | 200 |
+| 50 | gorouter | 90 ms | 0.6 ms | **6.3 ms** | **7869** | 200 |
+| 50 | Bifrost | 110 ms | 1.5 ms | **11.6 ms** | **4308** | 200 |
+| 50 | Portkey | 3.8 s | 31 ms | **209 ms** | **238** | 200 |
+| 50 | LiteLLM | 4.6 s | 175 ms | **1150 ms** | **43** | 200 |
+| 50 | OmniRoute | 19.5 s | 314 ms | **~10 s** | **2.6** | 200 |
+
+### Setup (rodada 2026-08-03)
+
+- **gorouter**: binário nativo (com log por request em `Debug`, não `Info`), `:20129`, provider `mock` → `http://127.0.0.1:19998`, model `mock/mock`.
+- **Bifrost**: Docker `maximhq/bifrost:latest --network host`, `:8080`; `POST /api/providers` com `custom_provider_config.base_provider_type=openai` + `network_config.base_url=http://127.0.0.1:19998`; key `*` via `POST /api/providers/mock-local/keys`; model `mock-local/mock`.
+- **LiteLLM**: `litellm --config` (`:4000`); `model_list` → `openai/mock` com `api_base=http://127.0.0.1:19998/v1`; model `mock`.
+- **OmniRoute**: Docker `diegosouzapw/omniroute --network host`, `:20128`; provider node `openai-compatible` → `http://127.0.0.1:19998/v1`; model `openai-compatible-chat-<uuid>/mock`, `stream:false`.
+- **Portkey**: Docker `portkeyai/gateway:latest --network host`, `:8787`; sem config — headers por request `x-portkey-provider: openai` + `x-portkey-custom-host: http://127.0.0.1:19998/v1`; model `mock`.
+- **mock**: `scripts/bench/mock.go` (`:19998`, `/v1/models` + `/v1/chat/completions`).
+
+Caveats: mesma máquina com throttle → absolutos diferem da rodada de 2026-07-09; a **ordem relativa** (Go ≫ Node ≫ Python) se mantém. Bifrost/OmniRoute/Portkey em Node/Docker; gorouter em Go estático; LiteLLM em Python.
+
+---
+
 ## Interpretação
 
 1. **gorouter e Bifrost** estão na mesma ordem de magnitude (~1–3 ms em c=1/10). Neste setup, gorouter ficou um pouco à frente.
@@ -180,5 +236,6 @@ hey -z 8s -c 10 -m POST -H "Content-Type: application/json" \
 | Data | Nota |
 |------|------|
 | 2026-07-09 | Primeira rodada local: mock + gorouter + Bifrost + LiteLLM, `hey -z 8s`, c=1/10/50 |
+| 2026-08-03 | Rodada completa local: mock + gorouter + Bifrost + LiteLLM + OmniRoute + Portkey, `hey -z 10s`, c=1/10/50, mock intercalado para normalizar throttle. Reprodução em `scripts/bench/` |
 
 Se rodar de novo em outra máquina, espere **valores absolutos** diferentes; a **ordem relativa** (Go ≫ Python) deve se manter.

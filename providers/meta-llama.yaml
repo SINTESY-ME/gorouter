@@ -1,0 +1,12 @@
+id: meta-llama
+display:
+  name: Meta Llama
+  color: "#5B9A6D"
+  website: "https://api.llama.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.llama.com/compat/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

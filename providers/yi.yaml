@@ -1,0 +1,12 @@
+id: yi
+display:
+  name: Yi
+  color: "#6D7AC7"
+  website: "https://api.lingyiwanwu.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.lingyiwanwu.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

@@ -1,0 +1,12 @@
+id: tokenrouter
+display:
+  name: Tokenrouter
+  color: "#C79A5B"
+  website: "https://api.tokenrouter.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.tokenrouter.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

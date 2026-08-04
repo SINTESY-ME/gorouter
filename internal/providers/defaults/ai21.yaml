@@ -1,0 +1,12 @@
+id: ai21
+display:
+  name: Ai21
+  color: "#8A6DB8"
+  website: "https://api.ai21.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.ai21.com/studio/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

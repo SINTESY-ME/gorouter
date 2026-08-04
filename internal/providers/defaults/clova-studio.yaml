@@ -1,0 +1,12 @@
+id: clova-studio
+display:
+  name: Clova Studio
+  color: "#64748B"
+  website: "https://clovastudio.stream.ntruss.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://clovastudio.stream.ntruss.com/v1/openai"
+  format: openai
+  auth: bearer
+capabilities: [chat]

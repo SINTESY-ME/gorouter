@@ -1,0 +1,12 @@
+id: upstage
+display:
+  name: Upstage
+  color: "#64748B"
+  website: "https://api.upstage.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.upstage.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

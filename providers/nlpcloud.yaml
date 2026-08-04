@@ -1,0 +1,12 @@
+id: nlpcloud
+display:
+  name: Nlpcloud
+  color: "#5BA6A6"
+  website: "https://api.nlpcloud.io"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.nlpcloud.io/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

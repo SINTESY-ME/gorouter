@@ -1,0 +1,12 @@
+id: predibase
+display:
+  name: Predibase
+  color: "#5BA6A6"
+  website: "https://serving.app.predibase.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://serving.app.predibase.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

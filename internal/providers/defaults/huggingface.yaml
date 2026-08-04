@@ -1,0 +1,12 @@
+id: huggingface
+display:
+  name: Huggingface
+  color: "#8A6DB8"
+  website: "https://router.huggingface.co"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://router.huggingface.co/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

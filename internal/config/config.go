@@ -14,20 +14,24 @@ import (
 
 // Config is the resolved application configuration.
 type Config struct {
-	Port        string
-	HomeDir     string
-	DBPath      string
-	DBDriver    string // "sqlite" (default) or "postgres"
-	DBDSN       string // postgres connection string (when DBDriver=="postgres")
-	KeySecret   string // HMAC secret for API key CRC generation
-	RequireKey  bool
+	Port                   string
+	HomeDir                string
+	DBPath                 string
+	DBDriver               string // "sqlite" (default) or "postgres"
+	DBDSN                  string // postgres connection string (when DBDriver=="postgres")
+	KeySecret              string // HMAC secret for API key CRC generation
+	RequireKey             bool
 	UpstreamTimeoutSeconds int
-	DashboardToken string // if non-empty, /api/* requires this bearer token
+	DashboardToken         string // if non-empty, /api/* requires this bearer token
 	// Response cache (direct-hash)
-	CacheEnabled     bool
-	CacheTTL         time.Duration
-	CacheMaxEntries  int
+	CacheEnabled       bool
+	CacheTTL           time.Duration
+	CacheMaxEntries    int
 	CacheSweepInterval time.Duration
+	// CacheMaxHistory, when > 0, skips caching chat requests with more
+	// messages than this (long conversations won't repeat, they just bloat
+	// the cache). 0 disables the guard.
+	CacheMaxHistory int
 	// RTK request token compression. Default off (opt-in). When on,
 	// tool_result content is compressed before upstream calls.
 	RTKEnabled bool
@@ -37,6 +41,10 @@ type Config struct {
 	SemanticCacheThreshold float64
 	SemanticCacheModel     string
 	SemanticCacheMode      string // "active" (default) | "lazy"
+	// RedisURL enables multi-instance features (shared response cache and
+	// shared health probes) when non-empty. Empty keeps everything
+	// in-memory / per-instance.
+	RedisURL string
 }
 
 // FromEnv builds Config from environment variables, defaults applied.
@@ -45,23 +53,25 @@ type Config struct {
 func FromEnv() (*Config, error) {
 	home := envOr("GOROUTER_HOME", filepath.Join(homeDir(), ".gorouter"))
 	cfg := &Config{
-		Port:        envOr("GOROUTER_PORT", "20128"),
-		HomeDir:     home,
-		DBPath:      envOr("GOROUTER_DB", filepath.Join(home, "gorouter.db")),
-		DBDriver:    envOr("GOROUTER_DB_DRIVER", "sqlite"),
-		DBDSN:       os.Getenv("GOROUTER_DB_DSN"),
-		RequireKey:  envBool("GOROUTER_REQUIRE_KEY", true),
+		Port:                   envOr("GOROUTER_PORT", "20128"),
+		HomeDir:                home,
+		DBPath:                 envOr("GOROUTER_DB", filepath.Join(home, "gorouter.db")),
+		DBDriver:               envOr("GOROUTER_DB_DRIVER", "sqlite"),
+		DBDSN:                  os.Getenv("GOROUTER_DB_DSN"),
+		RequireKey:             envBool("GOROUTER_REQUIRE_KEY", true),
 		UpstreamTimeoutSeconds: envInt("GOROUTER_UPSTREAM_TIMEOUT", 600),
-		DashboardToken: os.Getenv("GOROUTER_DASHBOARD_TOKEN"),
-		CacheEnabled:       envBool("GOROUTER_CACHE_ENABLED", false),
-		CacheTTL:           envDuration("GOROUTER_CACHE_TTL", 5*time.Minute),
-		CacheMaxEntries:    envInt("GOROUTER_CACHE_MAX_ENTRIES", 10000),
-		CacheSweepInterval: envDuration("GOROUTER_CACHE_SWEEP_INTERVAL", time.Minute),
-		RTKEnabled:         envBool("GOROUTER_RTK_ENABLED", false),
+		DashboardToken:         os.Getenv("GOROUTER_DASHBOARD_TOKEN"),
+		CacheEnabled:           envBool("GOROUTER_CACHE_ENABLED", false),
+		CacheTTL:               envDuration("GOROUTER_CACHE_TTL", 5*time.Minute),
+		CacheMaxEntries:        envInt("GOROUTER_CACHE_MAX_ENTRIES", 10000),
+		CacheSweepInterval:     envDuration("GOROUTER_CACHE_SWEEP_INTERVAL", time.Minute),
+		CacheMaxHistory:        envInt("GOROUTER_CACHE_MAX_HISTORY", 0),
+		RTKEnabled:             envBool("GOROUTER_RTK_ENABLED", false),
 		SemanticCacheEnabled:   envBool("GOROUTER_SEMANTIC_CACHE_ENABLED", false),
 		SemanticCacheThreshold: envFloat("GOROUTER_SEMANTIC_CACHE_THRESHOLD", 0.95),
 		SemanticCacheModel:     os.Getenv("GOROUTER_SEMANTIC_CACHE_MODEL"),
 		SemanticCacheMode:      envOr("GOROUTER_SEMANTIC_CACHE_MODE", "active"),
+		RedisURL:               os.Getenv("GOROUTER_REDIS_URL"),
 	}
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return nil, fmt.Errorf("create home dir: %w", err)

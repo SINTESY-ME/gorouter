@@ -1,0 +1,12 @@
+id: uncloseai
+display:
+  name: Uncloseai
+  color: "#5BA6A6"
+  website: "https://hermes.ai.unturf.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://hermes.ai.unturf.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

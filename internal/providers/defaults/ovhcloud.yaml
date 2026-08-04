@@ -1,0 +1,12 @@
+id: ovhcloud
+display:
+  name: Ovhcloud
+  color: "#5BA6A6"
+  website: "https://oai.endpoints.kepler.ai.cloud.ovh.net"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

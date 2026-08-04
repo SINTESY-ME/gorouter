@@ -1,0 +1,12 @@
+id: freeaiapikey
+display:
+  name: Freeaiapikey
+  color: "#64748B"
+  website: "https://freeaiapikey.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://freeaiapikey.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

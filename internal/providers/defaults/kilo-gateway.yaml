@@ -1,0 +1,12 @@
+id: kilo-gateway
+display:
+  name: Kilo Gateway
+  color: "#6D7AC7"
+  website: "https://api.kilo.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.kilo.ai/api/gateway"
+  format: openai
+  auth: bearer
+capabilities: [chat]

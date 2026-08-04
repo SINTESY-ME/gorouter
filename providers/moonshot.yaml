@@ -1,0 +1,12 @@
+id: moonshot
+display:
+  name: Moonshot
+  color: "#5BA6A6"
+  website: "https://api.moonshot.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.moonshot.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

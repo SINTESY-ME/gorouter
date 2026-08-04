@@ -1,0 +1,12 @@
+id: chenzk
+display:
+  name: Chenzk
+  color: "#64748B"
+  website: "https://chenzk.top"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://chenzk.top/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

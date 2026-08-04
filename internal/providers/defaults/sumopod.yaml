@@ -1,0 +1,12 @@
+id: sumopod
+display:
+  name: Sumopod
+  color: "#64748B"
+  website: "https://ai.sumopod.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://ai.sumopod.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

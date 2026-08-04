@@ -7,6 +7,7 @@ package httpx
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/jhon/gorouter/internal/app"
 	"github.com/jhon/gorouter/internal/domain"
+	"github.com/jhon/gorouter/internal/infra/apikey"
 	"github.com/jhon/gorouter/internal/providers"
 	"github.com/jhon/gorouter/internal/providers/oauth"
 )
@@ -56,14 +58,22 @@ type Server struct {
 	RTKCompressorFactory func() domain.RequestCompressor
 	// CacheFactory creates a fresh ResponseCache when the user toggles the
 	// response cache on via the dashboard. Injected at composition root.
-	CacheFactory  func() domain.ResponseCache
+	CacheFactory func() domain.ResponseCache
+	// HookFactory builds the hook pipeline from enabled hook names when the
+	// user toggles hooks via the dashboard. Injected at composition root;
+	// a nil pipeline disables hooks (zero hot-path cost).
+	HookFactory   func(names []string) (*app.HookPipeline, error)
 	SemanticCache *app.SemanticCacheService
 
 	RequireKey  bool
 	RateLimiter *app.RateLimiter
 	Auth        *app.AuthService
-	Catalog     *providers.Service
-	OAuth       *oauth.Manager
+	// KeySecret is the HMAC secret used to stamp/verify the CRC segment of
+	// client API keys (sk-{id}-{crc}). When non-empty, malformed keys are
+	// rejected by the cheap in-memory check before any repo lookup.
+	KeySecret string
+	Catalog   *providers.Service
+	OAuth     *oauth.Manager
 	// BudgetChecker enforces per-key spending caps. Nil disables budget
 	// enforcement (all requests pass through regardless of spend).
 	BudgetChecker *app.BudgetService
@@ -77,6 +87,13 @@ func (s *Server) Routes() http.Handler {
 	r.Use(zapLogger)
 	r.Use(chimw.Recoverer)
 	r.Use(corsMiddleware)
+
+	// Prometheus metrics: public scrape endpoint, standard for monitoring.
+	r.Get("/metrics", s.handleMetrics)
+	// Health/readiness probes for orchestrators (K8s, Swarm, LB).
+	r.Get("/health", s.handleHealth)
+	r.Get("/health/liveliness", s.handleLiveliness)
+	r.Get("/health/readiness", s.handleReadiness)
 
 	r.Route("/v1", func(r chi.Router) {
 		if s.RequireKey {
@@ -208,6 +225,13 @@ func (s *Server) requireApiKey(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "missing api key")
 			return
 		}
+		// Fast-path: reject malformed/fabricated keys via the HMAC CRC check
+		// before spending a (cached) repo lookup. Not a security boundary —
+		// a valid CRC still requires the revocation check below.
+		if s.KeySecret != "" && !apikey.Verify(s.KeySecret, key) {
+			writeError(w, http.StatusUnauthorized, "invalid api key")
+			return
+		}
 		apiKey, err := s.Keys.Repo.GetByKey(r.Context(), key)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "api key check failed")
@@ -217,9 +241,8 @@ func (s *Server) requireApiKey(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "invalid or revoked api key")
 			return
 		}
-		if len(apiKey.Limits) == 0 {
-			ctx := context.WithValue(r.Context(), apiKeyCtxKey{}, key)
-			next.ServeHTTP(w, r.WithContext(ctx))
+		if len(apiKey.Limits) == 0 && len(apiKey.AllowedModels) == 0 {
+			next.ServeHTTP(w, r.WithContext(withApiKey(r.Context(), key, apiKey)))
 			return
 		}
 		// Rate limits: all must pass (AND).
@@ -258,9 +281,18 @@ func (s *Server) requireApiKey(next http.Handler) http.Handler {
 				}
 			}
 		}
-		ctx := context.WithValue(r.Context(), apiKeyCtxKey{}, key)
-		next.ServeHTTP(w, r.WithContext(ctx))
+		next.ServeHTTP(w, r.WithContext(withApiKey(r.Context(), key, apiKey)))
 	})
+}
+
+// withApiKey stores the authenticated key string and, when present, the
+// key's allowed-models restriction in the context.
+func withApiKey(ctx context.Context, key string, apiKey *domain.ApiKey) context.Context {
+	ctx = context.WithValue(ctx, apiKeyCtxKey{}, key)
+	if len(apiKey.AllowedModels) > 0 {
+		ctx = app.WithAllowedModels(ctx, apiKey.AllowedModels)
+	}
+	return ctx
 }
 
 // dashboardInternalKey is a sentinel value stored in apiKeyCtxKey when the
@@ -334,6 +366,18 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 
 // statusForError maps domain errors to HTTP status codes.
 func statusForError(err error) int {
+	// Hooks reject with an explicit status (HookRejectError); it wins over
+	// the sentinel matching below.
+	var hre *domain.HookRejectError
+	if errors.As(err, &hre) && hre.Status != 0 {
+		return hre.Status
+	}
+	// An upstream failure that exhausted routing keeps its real status so the
+	// client sees e.g. 429 or 500 instead of a generic gateway error.
+	var ue *domain.UpstreamError
+	if errors.As(err, &ue) && ue.Status != 0 {
+		return ue.Status
+	}
 	switch {
 	case err == nil:
 		return http.StatusOK
@@ -345,6 +389,8 @@ func statusForError(err error) int {
 		return http.StatusBadRequest
 	case isDomain(err, domain.ErrUnauthorized):
 		return http.StatusUnauthorized
+	case isDomain(err, domain.ErrForbidden):
+		return http.StatusForbidden
 	case isDomain(err, domain.ErrNoConnection):
 		return http.StatusServiceUnavailable
 	case isDomain(err, domain.ErrAllModelsFailed):

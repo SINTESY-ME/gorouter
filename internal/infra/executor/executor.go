@@ -68,9 +68,14 @@ func (e *HTTPExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) (
 	client := e.Client
 	if !req.Stream && e.Timeout > 0 {
 		// Non-streaming: per-request timeout via a child client to avoid
-		// affecting concurrent streaming calls.
+		// affecting concurrent streaming calls. A per-request timeout
+		// (x-gr-timeout) overrides the executor default.
+		timeout := e.Timeout
+		if req.Timeout > 0 {
+			timeout = req.Timeout
+		}
 		toClient := *client
-		toClient.Timeout = e.Timeout
+		toClient.Timeout = timeout
 		client = &toClient
 	}
 

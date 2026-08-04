@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jhon/gorouter/internal/domain"
@@ -24,12 +25,23 @@ import (
 // metadata differs.
 type CacheService struct {
 	cache domain.ResponseCache
+	// groups maps a model name to a caching-group ID. When a requested model
+	// belongs to a group, the cache key uses the group ID so all models in
+	// the group share the same entries. Nil disables grouping.
+	groups map[string]string
 }
 
 // NewCacheService wraps a ResponseCache with key-computation helpers. A nil
 // cache is valid and means caching is disabled; all methods are no-ops.
 func NewCacheService(cache domain.ResponseCache) *CacheService {
 	return &CacheService{cache: cache}
+}
+
+// SetCachingGroups enables model-group sharing: the map is model name →
+// group ID (built from the caching_groups setting). Requests whose model is
+// in the map share cache entries with every other model in the same group.
+func (cs *CacheService) SetCachingGroups(groups map[string]string) {
+	cs.groups = groups
 }
 
 // cacheDisabledCtxKey is the context key for per-request cache bypass.
@@ -47,6 +59,22 @@ func isCacheDisabled(ctx context.Context) bool {
 	return v
 }
 
+// cacheTTLCtxKey is the context key for a per-request TTL (x-gr-cache-ttl).
+// Zero means "use the global TTL".
+type cacheTTLCtxKey struct{}
+
+// WithCacheTTL marks the context with a per-request cache TTL. Entries stored
+// for this request expire after ttl instead of the global default.
+func WithCacheTTL(ctx context.Context, ttl time.Duration) context.Context {
+	return context.WithValue(ctx, cacheTTLCtxKey{}, ttl)
+}
+
+// cacheTTLFromCtx returns the per-request TTL, or 0 when unset.
+func cacheTTLFromCtx(ctx context.Context) time.Duration {
+	ttl, _ := ctx.Value(cacheTTLCtxKey{}).(time.Duration)
+	return ttl
+}
+
 // Enabled reports whether caching is active.
 func (cs *CacheService) Enabled() bool {
 	return cs != nil && cs.cache != nil
@@ -55,22 +83,54 @@ func (cs *CacheService) Enabled() bool {
 // ComputeKey returns a deterministic hash for the request body, model string,
 // and input format. The body is normalized: ephemeral fields (user, request_id,
 // n, seed metadata) are stripped and map keys are sorted recursively before
-// hashing.
+// hashing. When the model belongs to a caching group, the group ID replaces
+// the model so group members share entries.
 func (cs *CacheService) ComputeKey(body []byte, modelStr string, inputFormat domain.Format) string {
 	normalized := normalizeBody(body)
 	h := sha256.New()
-	h.Write([]byte(modelStr))
+	h.Write([]byte(cs.resolveGroup(modelStr)))
 	h.Write([]byte(inputFormat))
 	h.Write(normalized)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// Lookup returns a cached response for the key, or nil on miss.
-func (cs *CacheService) Lookup(ctx context.Context, key string) (*domain.CachedResponse, bool) {
-	return cs.cache.Get(ctx, key)
+// resolveGroup returns the caching-group ID for a model when it belongs to a
+// group, else the model string unchanged.
+func (cs *CacheService) resolveGroup(modelStr string) string {
+	if cs.groups == nil {
+		return modelStr
+	}
+	if g, ok := cs.groups[modelStr]; ok {
+		return "group:" + g
+	}
+	// Match the bare model name after the provider prefix (e.g. "gpt-4o"
+	// from "openai/gpt-4o").
+	if i := strings.LastIndexByte(modelStr, '/'); i >= 0 {
+		if g, ok := cs.groups[modelStr[i+1:]]; ok {
+			return "group:" + g
+		}
+	}
+	return modelStr
 }
 
-// Store records a non-streaming JSON response in the cache.
+// Lookup returns a cached response for the key, or nil on miss. Entries whose
+// per-request ExpiresAt has passed are treated as misses and deleted
+// best-effort.
+func (cs *CacheService) Lookup(ctx context.Context, key string) (*domain.CachedResponse, bool) {
+	resp, ok := cs.cache.Get(ctx, key)
+	if !ok {
+		return nil, false
+	}
+	if !resp.ExpiresAt.IsZero() && time.Now().After(resp.ExpiresAt) {
+		cs.cache.Delete(ctx, key)
+		return nil, false
+	}
+	return resp, true
+}
+
+// Store records a non-streaming JSON response in the cache. The entry's
+// expiry comes from the per-request TTL (x-gr-cache-ttl) when set, else the
+// backend's global TTL applies.
 func (cs *CacheService) Store(ctx context.Context, key string, statusCode int, headers http.Header, body []byte) {
 	cs.cache.Put(ctx, key, &domain.CachedResponse{
 		StatusCode: statusCode,
@@ -78,6 +138,7 @@ func (cs *CacheService) Store(ctx context.Context, key string, statusCode int, h
 		Body:       body,
 		Stream:     false,
 		CreatedAt:  time.Now(),
+		ExpiresAt:  expiresAt(cacheTTLFromCtx(ctx)),
 	})
 }
 
@@ -90,7 +151,17 @@ func (cs *CacheService) StoreStream(ctx context.Context, key string, statusCode 
 		StreamChunks: chunks,
 		Stream:       true,
 		CreatedAt:    time.Now(),
+		ExpiresAt:    expiresAt(cacheTTLFromCtx(ctx)),
 	})
+}
+
+// expiresAt returns now+ttl when ttl > 0, else the zero time (no per-entry
+// override; the backend's global TTL applies).
+func expiresAt(ttl time.Duration) time.Time {
+	if ttl <= 0 {
+		return time.Time{}
+	}
+	return time.Now().Add(ttl)
 }
 
 // Flush removes all cached entries.
@@ -119,6 +190,11 @@ func normalizeBody(body []byte) []byte {
 	for _, field := range ephemeralFields {
 		delete(raw, field)
 	}
+	// n is semantically a count: the default (1) must not change the key, but
+	// n > 1 changes the response shape and must stay in the key.
+	if n, ok := raw["n"].(float64); ok && n == 1 {
+		delete(raw, "n")
+	}
 	return marshalSorted(raw)
 }
 
@@ -127,9 +203,17 @@ func normalizeBody(body []byte) []byte {
 var ephemeralFields = []string{
 	"user",
 	"request_id",
-	"n",
 	"metadata",
 	"idempotency_key",
+}
+
+// setArrayFields are request fields that are semantically sets encoded as
+// arrays: their element order must not change the cache key. This matters for
+// agents/MCP where tools arrive in nondeterministic order.
+var setArrayFields = map[string]bool{
+	"tools":      true,
+	"stop":       true,
+	"modalities": true,
 }
 
 // marshalSorted recursively sorts map keys to produce deterministic JSON.
@@ -154,7 +238,13 @@ func sortJSONValue(v any) []byte {
 			kb, _ := json.Marshal(k)
 			buf.Write(kb)
 			buf.WriteByte(':')
-			buf.Write(sortJSONValue(t[k]))
+			val := t[k]
+			if setArrayFields[k] {
+				if arr, ok := val.([]any); ok {
+					val = sortJSONArray(arr)
+				}
+			}
+			buf.Write(sortJSONValue(val))
 		}
 		buf.WriteByte('}')
 		return buf.Bytes()
@@ -175,3 +265,27 @@ func sortJSONValue(v any) []byte {
 	}
 }
 
+// sortJSONArray returns a copy of arr sorted by each element's canonical JSON
+// representation, making set-encoded fields (tools, stop) order-insensitive.
+func sortJSONArray(arr []any) []any {
+	out := make([]any, len(arr))
+	for i, e := range arr {
+		out[i] = e
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return bytes.Compare(sortJSONValue(out[i]), sortJSONValue(out[j])) < 0
+	})
+	return out
+}
+
+// messageCount returns the number of chat messages in the request body, or -1
+// when the body is not a parseable chat request.
+func messageCount(body []byte) int {
+	var probe struct {
+		Messages []any `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &probe); err != nil {
+		return -1
+	}
+	return len(probe.Messages)
+}

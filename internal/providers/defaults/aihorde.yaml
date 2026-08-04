@@ -1,0 +1,12 @@
+id: aihorde
+display:
+  name: Aihorde
+  color: "#64748B"
+  website: "https://oai.aihorde.net"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://oai.aihorde.net/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

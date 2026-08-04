@@ -234,7 +234,7 @@ func (s *ApiKeyService) List(ctx context.Context) ([]domain.ApiKey, error) {
 	return s.Repo.List(ctx)
 }
 
-func (s *ApiKeyService) Create(ctx context.Context, name string, limits []domain.KeyLimit) (*domain.ApiKey, error) {
+func (s *ApiKeyService) Create(ctx context.Context, name string, limits []domain.KeyLimit, allowedModels []string) (*domain.ApiKey, error) {
 	key, err := apikeyGenerate(s.Secret)
 	if err != nil {
 		return nil, err
@@ -243,16 +243,32 @@ func (s *ApiKeyService) Create(ctx context.Context, name string, limits []domain
 		return nil, err
 	}
 	k := &domain.ApiKey{
-		ID:       uuid.NewString(),
-		Key:      key,
-		Name:     name,
-		IsActive: true,
-		Limits:   limits,
+		ID:            uuid.NewString(),
+		Key:           key,
+		Name:          name,
+		IsActive:      true,
+		Limits:        limits,
+		AllowedModels: normalizeAllowedModels(allowedModels),
 	}
 	if err := s.Repo.Create(ctx, k); err != nil {
 		return nil, err
 	}
 	return k, nil
+}
+
+// normalizeAllowedModels trims, dedups, and drops empties from a model list.
+func normalizeAllowedModels(models []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, m := range models {
+		m = strings.TrimSpace(m)
+		if m == "" || seen[m] {
+			continue
+		}
+		seen[m] = true
+		out = append(out, m)
+	}
+	return out
 }
 
 // normalizeKeyLimits validates a key's limits and backfills missing IDs so
@@ -290,6 +306,9 @@ func (s *ApiKeyService) Update(ctx context.Context, k *domain.ApiKey) error {
 		if err := normalizeKeyLimits(k.Limits); err != nil {
 			return err
 		}
+	}
+	if k.AllowedModels != nil {
+		k.AllowedModels = normalizeAllowedModels(k.AllowedModels)
 	}
 	return s.Repo.Update(ctx, k)
 }

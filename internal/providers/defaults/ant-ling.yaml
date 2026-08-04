@@ -1,0 +1,12 @@
+id: ant-ling
+display:
+  name: Ant Ling
+  color: "#8A6DB8"
+  website: "https://api.ant-ling.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.ant-ling.com/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

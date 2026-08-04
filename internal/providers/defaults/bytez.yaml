@@ -1,0 +1,12 @@
+id: bytez
+display:
+  name: Bytez
+  color: "#8A6DB8"
+  website: "https://api.bytez.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.bytez.com/models/v2/openai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

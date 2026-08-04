@@ -83,11 +83,11 @@ func parseUsageFromSSEFull(buf []byte) (prompt, completion, cacheRead, cacheCrea
 		}
 		var ev struct {
 			Usage *struct {
-				PromptTokens     int `json:"prompt_tokens"`
-				CompletionTokens int `json:"completion_tokens"`
+				PromptTokens             int `json:"prompt_tokens"`
+				CompletionTokens         int `json:"completion_tokens"`
 				CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 				CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-				PromptTokensDetails *struct {
+				PromptTokensDetails      *struct {
 					CachedTokens int `json:"cached_tokens"`
 				} `json:"prompt_tokens_details"`
 			} `json:"usage"`
@@ -116,6 +116,67 @@ func parseUsageFromSSEFull(buf []byte) (prompt, completion, cacheRead, cacheCrea
 // chat/completions request body so the upstream includes token counts in the
 // final SSE chunk. If the field already exists it is merged. Returns the
 // original body if the input is not valid JSON.
+// prepareOpenAIBody applies the OpenAI→OpenAI chat request rewrites in a
+// single JSON parse + single marshal, replacing the previous sequence of
+// independent parse/encode passes (rewriteModel, injectStreamUsage,
+// sanitizeEmptyToolCalls). It:
+//   - substitutes the upstream model id
+//   - adds stream_options.include_usage for streaming requests
+//   - strips empty tool_calls arrays (rejected by some providers, e.g. Qwen)
+//
+// Fail-open: if the body isn't JSON it is returned unchanged. When nothing
+// actually changes (model already set, non-stream, no empty tool_calls) the
+// original bytes are returned to avoid a needless re-encode.
+func prepareOpenAIBody(body []byte, upstreamModel string, stream bool) []byte {
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		return body
+	}
+	changed := false
+	if upstreamModel != "" {
+		if cur, _ := m["model"].(string); cur != upstreamModel {
+			m["model"] = upstreamModel
+			changed = true
+		}
+	}
+	if stream {
+		so, _ := m["stream_options"].(map[string]any)
+		if so == nil {
+			so = map[string]any{}
+			m["stream_options"] = so
+			changed = true
+		}
+		if include, _ := so["include_usage"].(bool); !include {
+			so["include_usage"] = true
+			changed = true
+		}
+	}
+	if msgs, ok := m["messages"].([]any); ok {
+		for _, raw := range msgs {
+			msg, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			if arr, exists := msg["tool_calls"]; exists {
+				if empty, ok := arr.([]any); ok && len(empty) == 0 {
+					delete(msg, "tool_calls")
+					changed = true
+				}
+			}
+		}
+	}
+	if !changed {
+		return body
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
+// injectStreamUsage adds stream_options.include_usage to a streaming OpenAI
+// request body so the upstream includes token usage in the final SSE chunk.
 func injectStreamUsage(body []byte) []byte {
 	var m map[string]any
 	if err := json.Unmarshal(body, &m); err != nil {
@@ -133,6 +194,7 @@ func injectStreamUsage(body []byte) []byte {
 	}
 	return b
 }
+
 // sanitizeEmptyToolCalls removes "tool_calls": [] from messages in the request
 // body. Some providers (e.g. Qwen/DashScope) reject messages with an empty
 // tool_calls array, while OpenAI-compatible clients routinely send them. This

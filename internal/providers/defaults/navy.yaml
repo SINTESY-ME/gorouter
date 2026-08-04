@@ -1,0 +1,12 @@
+id: navy
+display:
+  name: Navy
+  color: "#64748B"
+  website: "https://api.navy"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.navy/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

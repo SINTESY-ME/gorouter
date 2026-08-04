@@ -1,0 +1,12 @@
+id: puter
+display:
+  name: Puter
+  color: "#64748B"
+  website: "https://api.puter.com"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.puter.com/puterai/openai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

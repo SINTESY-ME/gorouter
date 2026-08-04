@@ -149,6 +149,7 @@ export default function Keys() {
   const [editing, setEditing] = useState<ApiKey | null>(null);
   const [formName, setFormName] = useState("");
   const [formLimits, setFormLimits] = useState<KeyLimit[]>([]);
+  const [formAllowed, setFormAllowed] = useState("");
   // features tracks which limit features are toggled ON in the modal. Each
   // feature is an independent ToggleButton; only active features show their
   // configuration section. This keeps the modal clean as more features are
@@ -177,6 +178,7 @@ export default function Keys() {
     setEditing(null);
     setFormName("");
     setFormLimits([]);
+    setFormAllowed("");
     setFeatures({ rate: false, budget: false });
     setDrafts({ rate: emptyDraft(), budget: emptyDraft() });
     setError(null);
@@ -188,6 +190,7 @@ export default function Keys() {
     setEditing(k);
     setFormName(k.name);
     setFormLimits(limits);
+    setFormAllowed((k.allowed_models || []).join(", "));
     setFeatures({
       rate: limits.some((l) => l.kind === "rate"),
       budget: limits.some((l) => l.kind === "budget"),
@@ -200,13 +203,14 @@ export default function Keys() {
   const save = async () => {
     setSaving(true);
     setError(null);
+    const allowed = formAllowed.split(",").map((s) => s.trim()).filter(Boolean);
     try {
       if (editing) {
-        await api.keys.update(editing.id, { name: formName, limits: formLimits });
+        await api.keys.update(editing.id, { name: formName, limits: formLimits, allowed_models: allowed });
         setModalOpen(false);
         load();
       } else {
-        const k = await api.keys.create({ name: formName, limits: formLimits });
+        const k = await api.keys.create({ name: formName, limits: formLimits, allowed_models: allowed });
         setModalOpen(false);
         load();
         setCopied(k.key);
@@ -307,6 +311,7 @@ export default function Keys() {
                 <Table.Header>
                   <Table.Column isRowHeader id="name">Nome</Table.Column>
                   <Table.Column id="key">Chave</Table.Column>
+                  <Table.Column id="models">Modelos</Table.Column>
                   <Table.Column id="limits">Limites</Table.Column>
                   <Table.Column id="status">Status</Table.Column>
                   <Table.Column id="created">Criada</Table.Column>
@@ -327,6 +332,18 @@ export default function Keys() {
                         </div>
                       </Table.Cell>
                       <Table.Cell><LimitsCell limits={k.limits || []} /></Table.Cell>
+                      <Table.Cell>
+                        {k.allowed_models && k.allowed_models.length > 0 ? (
+                          <div className="flex flex-wrap gap-1 max-w-[220px]">
+                            {k.allowed_models.slice(0, 3).map((m) => (
+                              <Chip key={m} size="sm" variant="soft" className="text-[10px]">{m}</Chip>
+                            ))}
+                            {k.allowed_models.length > 3 && <Chip size="sm" variant="soft" className="text-[10px]">+{k.allowed_models.length - 3}</Chip>}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted">todos</span>
+                        )}
+                      </Table.Cell>
                       <Table.Cell>
                         <Chip size="sm" variant="soft" color={k.is_active ? "success" : "default"}>
                           {k.is_active ? "ativo" : "inativo"}
@@ -364,6 +381,14 @@ export default function Keys() {
                 <TextField value={formName} onChange={setFormName}>
                   <Label>Nome</Label>
                   <Input placeholder="ex: dev, prod, mobile" />
+                </TextField>
+
+                <TextField value={formAllowed} onChange={setFormAllowed}>
+                  <Label>Modelos permitidos</Label>
+                  <Input placeholder="ex: gpt-4o, smart (vazio = todos)" />
+                  <Description>
+                    Modelos e combos que esta key pode usar, separados por vírgula. Vazio = todos.
+                  </Description>
                 </TextField>
 
                 <div className="flex flex-col gap-1">

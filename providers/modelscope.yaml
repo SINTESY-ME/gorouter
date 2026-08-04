@@ -1,0 +1,12 @@
+id: modelscope
+display:
+  name: Modelscope
+  color: "#C79A5B"
+  website: "https://api-inference.modelscope.cn"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api-inference.modelscope.cn/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

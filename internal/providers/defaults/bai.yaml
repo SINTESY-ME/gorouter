@@ -1,0 +1,12 @@
+id: bai
+display:
+  name: Bai
+  color: "#8A6DB8"
+  website: "https://api.b.ai"
+category: apikey
+priority: 100
+transport:
+  base_url: "https://api.b.ai/v1"
+  format: openai
+  auth: bearer
+capabilities: [chat]

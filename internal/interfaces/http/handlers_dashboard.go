@@ -566,9 +566,10 @@ func (s *Server) handleDeleteCombo(w http.ResponseWriter, r *http.Request) {
 // ---- Api keys ----
 
 type keyDTO struct {
-	Name     string            `json:"name"`
-	IsActive *bool             `json:"is_active"`
-	Limits   []domain.KeyLimit `json:"limits,omitempty"`
+	Name          string            `json:"name"`
+	IsActive      *bool             `json:"is_active"`
+	Limits        []domain.KeyLimit `json:"limits,omitempty"`
+	AllowedModels []string          `json:"allowed_models,omitempty"`
 }
 
 func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request) {
@@ -589,7 +590,7 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	k, err := s.Keys.Create(r.Context(), req.Name, req.Limits)
+	k, err := s.Keys.Create(r.Context(), req.Name, req.Limits, req.AllowedModels)
 	if err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
@@ -619,6 +620,9 @@ func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Limits != nil {
 		existing.Limits = req.Limits
+	}
+	if req.AllowedModels != nil {
+		existing.AllowedModels = req.AllowedModels
 	}
 	if err := s.Keys.Update(r.Context(), existing); err != nil {
 		writeError(w, statusForError(err), err.Error())

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jhon/gorouter/internal/app"
 	"github.com/jhon/gorouter/internal/domain"
@@ -55,6 +57,18 @@ func (s *Server) handleChatWithFormat(inputFormat domain.Format) http.HandlerFun
 		if v := r.Header.Get("x-gr-cache"); v == "off" {
 			r = withCacheDisabled(r)
 		}
+		// Per-request cache TTL: overrides the global TTL for the stored entry.
+		if v := r.Header.Get("x-gr-cache-ttl"); v != "" {
+			if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+				r = r.WithContext(app.WithCacheTTL(r.Context(), time.Duration(secs)*time.Second))
+			}
+		}
+		// Per-request upstream timeout: overrides GOROUTER_UPSTREAM_TIMEOUT.
+		if v := r.Header.Get("x-gr-timeout"); v != "" {
+			if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+				r = r.WithContext(app.WithUpstreamTimeout(r.Context(), time.Duration(secs)*time.Second))
+			}
+		}
 		res, err := s.Router.RouteChat(r.Context(), body, modelStr, stream, apiKey, app.RouteOptions{InputFormat: inputFormat})
 		if err != nil {
 			writeError(w, statusForError(err), err.Error())
@@ -68,6 +82,14 @@ func (s *Server) handleChatWithFormat(inputFormat domain.Format) http.HandlerFun
 			if v := res.Headers.Get(h); v != "" {
 				w.Header().Set(h, v)
 			}
+		}
+		// Debug headers: which model actually served and how many upstream
+		// calls were needed (retries/fallbacks).
+		if res.Model != "" {
+			w.Header().Set("x-gr-model", res.Model)
+		}
+		if res.Attempts > 1 {
+			w.Header().Set("x-gr-attempted-retries", strconv.Itoa(res.Attempts-1))
 		}
 		if res.Stream {
 			sseStreamResponse(w, r, res)
@@ -199,7 +221,7 @@ func (s *Server) handleNotImplemented(w http.ResponseWriter, r *http.Request) {
 // upstream. The body stays in OpenAI format; no translation, no streaming.
 func (s *Server) handlePassthrough(endpoint string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(io.LimitReader(r.Body, 16 << 20))
+		body, err := io.ReadAll(io.LimitReader(r.Body, 16<<20))
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "read body: "+err.Error())
 			return
