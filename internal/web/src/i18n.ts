@@ -10,7 +10,7 @@ type Resources = Record<string, { translation: Record<string, unknown> }>;
 
 const loaded: Resources = {};
 for (const path in resources) {
-  const locale = path.split("/")[1];
+  const locale = path.split("/")[2];
   const mod = resources[path] as { default?: Record<string, unknown> };
   loaded[locale] = { translation: (mod.default ?? {}) as Record<string, unknown> };
 }
