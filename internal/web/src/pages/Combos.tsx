@@ -5,7 +5,7 @@ import {
 } from "@heroui/react";
 import { ModelComboBox, type ModelComboBoxItem } from "../components/ModelComboBox";
 import { api, type Combo, type ModelEntry, type ComboModelMeta, type Provider } from "../api";
-import { IconPlus, IconPencil, IconTrash, IconArrow, IconX, IconSparkles, IconStack, IconGauge } from "../icons";
+import { IconPlus, IconPencil, IconTrash, IconArrow, IconX, IconStack } from "../icons";
 
 const KIND_COLORS: Record<string, "accent" | "success" | "warning" | "default" | "danger"> = {
   llm: "accent", embedding: "success", image: "warning", tts: "default", stt: "danger",
@@ -232,7 +232,10 @@ export default function Combos() {
                 />
 
                 <div className="flex flex-col gap-1">
-                  <Label>{t("combos.strategy")}</Label>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <Label>{t("combos.strategy")}</Label>
+                    <span className="text-xs text-muted text-right">{t("combos.stratHelper")}</span>
+                  </div>
                   <Select
                     aria-label={t("combos.strategyAria")}
                     selectedKey={form.strategy}
@@ -260,14 +263,11 @@ export default function Combos() {
                       </ListBox>
                     </Select.Popover>
                   </Select>
-                  <p className="text-xs text-muted">{t("combos.stratHelper")}</p>
+                  <p className="text-xs text-muted">{t(`combos.stratDescription${form.strategy === "ordered_fallback" ? "Ordered" : form.strategy === "round-robin" ? "RoundRobin" : form.strategy === "velocity" ? "Velocity" : form.strategy === "intelligence" ? "Intelligence" : "Weighted"}`)}</p>
                 </div>
 
                 {form.strategy === "intelligence" && (
                   <div className="space-y-4 p-3.5 bg-surface-secondary/50 rounded-xl border border-border">
-                    <div className="text-xs font-semibold text-accent uppercase tracking-wide flex items-center gap-1.5">
-                      <IconSparkles className="w-4 h-4" /> {t("combos.intelTitle")}
-                    </div>
 
                     <div className="flex flex-col gap-1">
                       <Label>{t("combos.intelClassifier")}</Label>
@@ -347,9 +347,6 @@ export default function Combos() {
                 )}
                 {form.strategy === "weighted" && form.models.length > 0 && (
                   <div className="space-y-3 p-3.5 bg-surface-secondary/50 rounded-xl border border-border">
-                    <div className="text-xs font-semibold text-danger uppercase tracking-wide flex items-center gap-1.5">
-                      <IconGauge className="w-4 h-4" /> {t("combos.weightedTitle")}
-                    </div>
                     <p className="text-[11px] text-muted">
                       {t("combos.weightedHelper")}
                     </p>
@@ -543,9 +540,8 @@ function ModelSelector({
                 onInputChange={setSearchValue}
                 items={listItems}
                 inputPlaceholder={t("combos.selectorPlaceholder")}
-                inputVariant="secondary"
-                valuePlaceholder={t("combos.selectorNoSelection")}
-                isDisabled={loading}
+                 inputVariant="secondary"
+                 isDisabled={loading}
                 className="w-full"
               />
             {available.length === 0 && !loading && (
