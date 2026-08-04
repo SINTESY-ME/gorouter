@@ -194,14 +194,14 @@ export default function Users() {
             <Modal.Body className="space-y-4">
               <TextField isRequired value={form.username} onChange={(v) => setForm({ ...form, username: v })}>
                 <Label>{t("users.username")}</Label>
-                <Input placeholder={t("users.usernamePlaceholder")} />
+                <Input variant="secondary" placeholder={t("users.usernamePlaceholder")} />
               </TextField>
               <TextField isRequired={!form.id} value={form.password} onChange={(v) => setForm({ ...form, password: v })} type="password">
                 <Label>{t("users.password")}</Label>
-                <Input placeholder={form.id ? t("users.passwordLeave") : t("users.passwordPlaceholder")} />
+                <Input variant="secondary" placeholder={form.id ? t("users.passwordLeave") : t("users.passwordPlaceholder")} />
               </TextField>
               <Select aria-label={t("users.role")} selectedKey={form.role} onSelectionChange={(k) => setForm({ ...form, role: (k as "admin" | "member") })}>
-                <Select.Trigger><Select.Value>{form.role === "admin" ? t("users.roleAdmin") : t("users.roleMember")}</Select.Value><Select.Indicator /></Select.Trigger>
+                <Select.Trigger className="bg-surface-secondary"><Select.Value>{form.role === "admin" ? t("users.roleAdmin") : t("users.roleMember")}</Select.Value><Select.Indicator /></Select.Trigger>
                 <Select.Popover>
                   <ListBox>
                     <ListBox.Item key="member" id="member">{t("users.roleMember")}</ListBox.Item>
@@ -289,7 +289,7 @@ function AccessPicker({ options, selected, onChange, placeholder }: {
         selectedKey={null}
         onSelectionChange={(k) => { if (k) toggle(k as string); }}
       >
-        <Select.Trigger><Select.Value>{placeholder}</Select.Value><Select.Indicator /></Select.Trigger>
+        <Select.Trigger className="bg-surface-secondary"><Select.Value>{placeholder}</Select.Value><Select.Indicator /></Select.Trigger>
         <Select.Popover>
           <ListBox>
             {options.filter((o) => !selected.includes(o)).map((o) => (

@@ -104,7 +104,7 @@ function LimitEditor({ kind, limits, draft, onDraftChange, onAdd, onRemove }: {
       <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-end">
         <TextField value={draft.max} onChange={(v) => onDraftChange({ ...draft, max: v })} className="sm:w-36">
           <Label>{kind === "rate" ? t("keys.maxRate") : t("keys.maxBudget")}</Label>
-          <Input type="number" min="0" step={kind === "budget" ? "0.01" : "1"} placeholder={kind === "rate" ? t("keys.maxRatePlaceholder") : t("keys.maxBudgetPlaceholder")} />
+          <Input variant="secondary" type="number" min="0" step={kind === "budget" ? "0.01" : "1"} placeholder={kind === "rate" ? t("keys.maxRatePlaceholder") : t("keys.maxBudgetPlaceholder")} />
         </TextField>
         <div className="flex flex-col gap-1 flex-1 min-w-0">
           <Label>{t("keys.duration")}</Label>
@@ -113,7 +113,8 @@ function LimitEditor({ kind, limits, draft, onDraftChange, onAdd, onRemove }: {
               value={draft.custom}
               onChange={(e) => onDraftChange({ ...draft, custom: e.target.value })}
               placeholder={t("keys.customPlaceholder")}
-              aria-label={t("keys.customAria")}
+               variant="secondary"
+               aria-label={t("keys.customAria")}
             />
           ) : (
             <Select
@@ -125,7 +126,7 @@ function LimitEditor({ kind, limits, draft, onDraftChange, onAdd, onRemove }: {
                 else onDraftChange({ ...draft, duration: v });
               }}
             >
-              <Select.Trigger><Select.Value /></Select.Trigger>
+              <Select.Trigger className="bg-surface-secondary"><Select.Value /></Select.Trigger>
               <Select.Popover>
                 <ListBox>
                   {DURATION_PRESETS.map((d) => <ListBox.Item key={d} id={d}>{durLabel(d)}</ListBox.Item>)}
@@ -448,7 +449,7 @@ export default function Keys() {
               <Modal.Body className="flex flex-col gap-4">
                 <TextField value={formName} onChange={setFormName}>
                   <Label>{t("keys.name")}</Label>
-                  <Input placeholder={t("keys.namePlaceholder")} />
+                  <Input variant="secondary" placeholder={t("keys.namePlaceholder")} />
                 </TextField>
 
                 <div className="flex flex-col gap-1">

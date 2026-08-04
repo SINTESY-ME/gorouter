@@ -14,10 +14,10 @@ const KIND_COLORS: Record<string, "accent" | "success" | "warning" | "default" |
 
 const STRATEGY_COLORS: Record<string, "accent" | "success" | "warning" | "default" | "danger"> = {
   ordered_fallback: "default",
-  "round-robin": "warning",
-  velocity: "success",
-  intelligence: "accent",
-  weighted: "danger",
+  "round-robin": "default",
+  velocity: "default",
+  intelligence: "default",
+  weighted: "default",
 };
 
 interface ComboForm {
@@ -215,7 +215,7 @@ export default function Combos() {
               <Modal.Body className="flex flex-col gap-4 overflow-y-auto">
                 <TextField value={form.name} onChange={(v) => setForm({ ...form, name: v })}>
                   <Label>{t("combos.name")}</Label>
-                  <Input placeholder={t("combos.namePlaceholder")} />
+                  <Input variant="secondary" placeholder={t("combos.namePlaceholder")} />
                 </TextField>
 
                 <ModelSelector
@@ -248,7 +248,7 @@ export default function Combos() {
                       }
                     }}
                   >
-                    <Select.Trigger><Select.Value /></Select.Trigger>
+                    <Select.Trigger className="bg-surface-secondary"><Select.Value /></Select.Trigger>
                     <Select.Popover>
                       <ListBox>
                         {strategyOptions.map((o) => (
@@ -276,8 +276,8 @@ export default function Combos() {
                         selectedKey={form.classifier_model || null}
                         onSelectionChange={(key) => setForm({ ...form, classifier_model: (key as string) ?? "" })}
                       >
-                        <Select.Trigger>
-                          <Select.Value>{form.classifier_model || t("combos.intelClassifierPlaceholder")}</Select.Value>
+<Select.Trigger className="bg-surface-secondary">
+                           <Select.Value>{form.classifier_model || t("combos.intelClassifierPlaceholder")}</Select.Value>
                           <Select.Indicator />
                         </Select.Trigger>
                         <Select.Popover>
@@ -315,9 +315,10 @@ export default function Combos() {
                                 <code className="text-xs font-mono font-semibold">{m}</code>
                                 <div className="flex items-center gap-2">
                                   <span className="text-xs text-muted font-medium">{t("combos.intelCap")}</span>
-                                  <Input
-                                    type="number"
-                                    className="w-20"
+                            <Input
+                             variant="secondary"
+                             type="number"
+                             className="w-20"
                                     min={1}
                                     max={10}
                                     aria-label={t("combos.intelCapAria")}
@@ -327,7 +328,8 @@ export default function Combos() {
                                 </div>
                               </div>
                               <TextArea
-                                placeholder={t("combos.intelDescPlaceholder")}
+                                 variant="secondary"
+                                 placeholder={t("combos.intelDescPlaceholder")}
                                 rows={2}
                                 value={meta.description ?? ""}
                                 onChange={(e) => updateMeta(m, { description: e.target.value })}
@@ -357,9 +359,10 @@ export default function Combos() {
                         <div key={m} className="flex items-center gap-2 bg-surface p-3 rounded-lg border border-border">
                           <code className="text-xs font-mono font-semibold flex-1 truncate">{m}</code>
                           <span className="text-xs text-muted font-medium shrink-0">{t("combos.weightedWeight")}</span>
-                          <Input
-                            type="number"
-                            className="w-24"
+                           <Input
+                             variant="secondary"
+                             type="number"
+                             className="w-24"
                             min={1}
                             aria-label={t("combos.weightedWeightAria", { model: m })}
                             value={String(meta.weight ?? 1)}

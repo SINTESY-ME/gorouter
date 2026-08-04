@@ -600,11 +600,11 @@ export default function Providers() {
               <Modal.Body className="flex flex-col gap-4">
                 <TextField value={connForm.name} onChange={(v) => setConnForm({ ...connForm, name: v })}>
                   <Label>{t("providers.keyName")}</Label>
-                  <Input placeholder={t("providers.keyNamePlaceholder")} />
+                  <Input variant="secondary" placeholder={t("providers.keyNamePlaceholder")} />
                 </TextField>
                 <TextField value={connForm.api_key} onChange={(v) => setConnForm({ ...connForm, api_key: v })}>
                   <Label>{t("providers.apiKey")}</Label>
-                  <Input type="password" placeholder={connEditId ? t("providers.keepPlaceholder") : t("providers.skPlaceholder")} />
+                  <Input variant="secondary" type="password" placeholder={connEditId ? t("providers.keepPlaceholder") : t("providers.skPlaceholder")} />
                 </TextField>
                 {error && <p className="text-sm text-danger">{error}</p>}
               </Modal.Body>

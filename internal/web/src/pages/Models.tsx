@@ -446,15 +446,15 @@ export default function Models() {
               <Modal.Body className="flex flex-col gap-4">
                 <TextField value={pricingForm.inputPer1M} onChange={(v) => setPricingForm({ ...pricingForm, inputPer1M: v })}>
                   <Label>{t("models.inputLabel")}</Label>
-                  <Input type="number" placeholder={t("models.inputPlaceholder")} step="0.01" />
+                  <Input variant="secondary" type="number" placeholder={t("models.inputPlaceholder")} step="0.01" />
                 </TextField>
                 <TextField value={pricingForm.outputPer1M} onChange={(v) => setPricingForm({ ...pricingForm, outputPer1M: v })}>
                   <Label>{t("models.outputLabel")}</Label>
-                  <Input type="number" placeholder={t("models.outputPlaceholder")} step="0.01" />
+                  <Input variant="secondary" type="number" placeholder={t("models.outputPlaceholder")} step="0.01" />
                 </TextField>
                 <TextField value={pricingForm.perImage} onChange={(v) => setPricingForm({ ...pricingForm, perImage: v })}>
                   <Label>{t("models.perImage")}</Label>
-                  <Input type="number" placeholder={t("models.perImagePlaceholder")} step="0.01" />
+                  <Input variant="secondary" type="number" placeholder={t("models.perImagePlaceholder")} step="0.01" />
                 </TextField>
                 <p className="text-xs text-muted">
                   {t("models.priceHint")}
@@ -476,16 +476,16 @@ export default function Models() {
               <Modal.Body className="flex flex-col gap-4">
                 <TextField value={addForm.model_id} onChange={(v) => setAddForm({ ...addForm, model_id: v })}>
                   <Label>{t("models.modelId")}</Label>
-                  <Input placeholder={t("models.modelIdPlaceholder")} />
+                  <Input variant="secondary" placeholder={t("models.modelIdPlaceholder")} />
                 </TextField>
                 <TextField value={addForm.name} onChange={(v) => setAddForm({ ...addForm, name: v })}>
                   <Label>{t("models.addName")}</Label>
-                  <Input placeholder={t("models.addNamePlaceholder")} />
+                  <Input variant="secondary" placeholder={t("models.addNamePlaceholder")} />
                 </TextField>
                 <div className="flex flex-col gap-1">
                   <Label>{t("models.kind")}</Label>
                   <Select aria-label={t("models.kind")} selectedKey={addForm.kind} onSelectionChange={(k) => setAddForm({ ...addForm, kind: (k as string) ?? "llm" })}>
-                    <Select.Trigger><Select.Value /></Select.Trigger>
+                    <Select.Trigger className="bg-surface-secondary"><Select.Value /></Select.Trigger>
                     <Select.Popover>
                       <ListBox>{KINDS.map((k) => <ListBox.Item key={k} id={k}>{k}</ListBox.Item>)}</ListBox>
                     </Select.Popover>
@@ -493,7 +493,7 @@ export default function Models() {
                 </div>
                 <TextField value={String(addForm.context)} onChange={(v) => setAddForm({ ...addForm, context: parseInt(v) || 0 })}>
                   <Label>{t("models.context")}</Label>
-                  <Input type="number" />
+                  <Input variant="secondary" type="number" />
                 </TextField>
               </Modal.Body>
               <Modal.Footer>
