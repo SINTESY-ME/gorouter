@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Table, Button, Modal, Input, Chip, Select, ListBox, Spinner, TextArea, TextField, Label, AlertDialog,
 } from "@heroui/react";
@@ -36,6 +37,7 @@ const empty: ComboForm = {
 };
 
 export default function Combos() {
+  const { t } = useTranslation();
   const [items, setItems] = useState<Combo[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -127,31 +129,39 @@ export default function Combos() {
     }));
   };
 
+  const strategyOptions = [
+    { id: "ordered_fallback", label: t("combos.stratOrdered") },
+    { id: "round-robin", label: t("combos.stratRoundRobin") },
+    { id: "velocity", label: t("combos.stratVelocity") },
+    { id: "intelligence", label: t("combos.stratIntelligence") },
+    { id: "weighted", label: t("combos.stratWeighted") },
+  ];
+
   return (
     <div className="space-y-5">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Combos</h1>
-          <p className="text-sm text-muted mt-0.5">{items.length} combos cadastrados</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t("combos.title")}</h1>
+          <p className="text-sm text-muted mt-0.5">{t("combos.subtitle", { count: items.length })}</p>
         </div>
-        <Button variant="outline" onPress={openNew}><IconPlus className="w-4 h-4" /> Novo combo</Button>
+        <Button variant="outline" onPress={openNew}><IconPlus className="w-4 h-4" /> {t("combos.new")}</Button>
       </div>
 
       {loading ? (
-        <div className="p-10 text-center text-muted text-sm">Carregando...</div>
+        <div className="p-10 text-center text-muted text-sm">{t("combos.loading")}</div>
       ) : items.length === 0 ? (
         <div className="p-10 text-center text-muted text-sm">
-          Nenhum combo ainda. Clique em <strong>Novo combo</strong>.
+          {t("combos.empty")} <strong>{t("combos.new")}</strong>.
         </div>
       ) : (
         <Table>
           <Table.ScrollContainer>
-            <Table.Content aria-label="combos" className="min-w-[560px]">
+            <Table.Content aria-label={t("combos.tableAria")} className="min-w-[560px]">
               <Table.Header>
-                <Table.Column isRowHeader id="name">Nome</Table.Column>
-                <Table.Column id="models">Modelos</Table.Column>
-                <Table.Column id="strategy">Estratégia</Table.Column>
-                <Table.Column id="actions">Ações</Table.Column>
+                <Table.Column isRowHeader id="name">{t("combos.colName")}</Table.Column>
+                <Table.Column id="models">{t("combos.colModels")}</Table.Column>
+                <Table.Column id="strategy">{t("combos.colStrategy")}</Table.Column>
+                <Table.Column id="actions">{t("combos.colActions")}</Table.Column>
               </Table.Header>
               <Table.Body items={items}>
                 {(c) => (
@@ -174,17 +184,17 @@ export default function Combos() {
                         </Chip>
                         {c.strategy === "intelligence" && c.classifier_model && (
                           <span className="text-[11px] text-muted font-mono">
-                            classificador: {c.classifier_model}
+                            {t("combos.classifier", { model: c.classifier_model })}
                           </span>
                         )}
                       </div>
                     </Table.Cell>
                     <Table.Cell>
                       <div className="flex gap-1 justify-end">
-                        <Button isIconOnly size="sm" variant="ghost" onPress={() => openEdit(c)} aria-label="editar">
+                        <Button isIconOnly size="sm" variant="ghost" onPress={() => openEdit(c)} aria-label={t("combos.editAria")}>
                           <IconPencil className="w-4 h-4" />
                         </Button>
-                        <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => setConfirmId(c.id)} aria-label="excluir">
+                        <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => setConfirmId(c.id)} aria-label={t("combos.deleteAria")}>
                           <IconTrash className="w-4 h-4" />
                         </Button>
                       </div>
@@ -201,11 +211,11 @@ export default function Combos() {
         <Modal.Backdrop>
           <Modal.Container>
             <Modal.Dialog className="max-w-2xl max-h-[85vh]">
-              <Modal.Header><Modal.Heading>{editId ? "Editar combo" : "Novo combo"}</Modal.Heading></Modal.Header>
+              <Modal.Header><Modal.Heading>{editId ? t("combos.editModal") : t("combos.createModal")}</Modal.Heading></Modal.Header>
               <Modal.Body className="flex flex-col gap-4 overflow-y-auto">
                 <TextField value={form.name} onChange={(v) => setForm({ ...form, name: v })}>
-                  <Label>Nome</Label>
-                  <Input placeholder="ex: smart, fast, balanced" />
+                  <Label>{t("combos.name")}</Label>
+                  <Input placeholder={t("combos.namePlaceholder")} />
                 </TextField>
 
                 <ModelSelector
@@ -222,9 +232,9 @@ export default function Combos() {
                 />
 
                 <div className="flex flex-col gap-1">
-                  <Label>Estratégia</Label>
+                  <Label>{t("combos.strategy")}</Label>
                   <Select
-                    aria-label="Estratégia"
+                    aria-label={t("combos.strategyAria")}
                     selectedKey={form.strategy}
                     onSelectionChange={(keys) => {
                       const v = (keys as string) ?? "";
@@ -241,47 +251,33 @@ export default function Combos() {
                     <Select.Trigger><Select.Value /></Select.Trigger>
                     <Select.Popover>
                       <ListBox>
-                        <ListBox.Item id="ordered_fallback" textValue="ordered_fallback">
-                          <span className="font-medium">ordered_fallback</span>
-                          <span className="text-xs text-muted">Fallback em ordem</span>
-                        </ListBox.Item>
-                        <ListBox.Item id="round-robin" textValue="round-robin">
-                          <span className="font-medium">round-robin</span>
-                          <span className="text-xs text-muted">Alternância simples</span>
-                        </ListBox.Item>
-                        <ListBox.Item id="velocity" textValue="velocity">
-                          <span className="font-medium">velocity</span>
-                          <span className="text-xs text-muted">Maior velocidade / TPS</span>
-                        </ListBox.Item>
-                        <ListBox.Item id="intelligence" textValue="intelligence">
-                          <span className="font-medium">intelligence</span>
-                          <span className="text-xs text-muted">Classificação por IA</span>
-                        </ListBox.Item>
-                        <ListBox.Item id="weighted" textValue="weighted">
-                          <span className="font-medium">weighted</span>
-                          <span className="text-xs text-muted">Sorteio ponderado por peso</span>
-                        </ListBox.Item>
+                        {strategyOptions.map((o) => (
+                          <ListBox.Item key={o.id} id={o.id} textValue={o.id}>
+                            <span className="font-medium">{o.id}</span>
+                            <span className="text-xs text-muted">{o.label}</span>
+                          </ListBox.Item>
+                        ))}
                       </ListBox>
                     </Select.Popover>
                   </Select>
-                  <p className="text-xs text-muted">Forma como o Gorouter seleciona entre os modelos declarados.</p>
+                  <p className="text-xs text-muted">{t("combos.stratHelper")}</p>
                 </div>
 
                 {form.strategy === "intelligence" && (
                   <div className="space-y-4 p-3.5 bg-surface-secondary/50 rounded-xl border border-border">
                     <div className="text-xs font-semibold text-accent uppercase tracking-wide flex items-center gap-1.5">
-                      <IconSparkles className="w-4 h-4" /> Configurações da Estratégia Intelligence
+                      <IconSparkles className="w-4 h-4" /> {t("combos.intelTitle")}
                     </div>
 
                     <div className="flex flex-col gap-1">
-                      <Label>Modelo Classificador</Label>
+                      <Label>{t("combos.intelClassifier")}</Label>
                       <Select
-                        aria-label="Modelo Classificador"
+                        aria-label={t("combos.intelClassifierAria")}
                         selectedKey={form.classifier_model || null}
                         onSelectionChange={(key) => setForm({ ...form, classifier_model: (key as string) ?? "" })}
                       >
                         <Select.Trigger>
-                          <Select.Value>{form.classifier_model || "Selecione o modelo classificador..."}</Select.Value>
+                          <Select.Value>{form.classifier_model || t("combos.intelClassifierPlaceholder")}</Select.Value>
                           <Select.Indicator />
                         </Select.Trigger>
                         <Select.Popover>
@@ -304,10 +300,10 @@ export default function Combos() {
                     {form.models.length > 0 && (
                       <div className="space-y-3">
                         <Label className="text-xs font-medium text-foreground/80 uppercase tracking-wide flex items-center gap-1">
-                          Capacidade e Descrição dos Modelos <span className="text-danger">*</span>
+                          {t("combos.intelCapDesc")} <span className="text-danger">*</span>
                         </Label>
                         <p className="text-[11px] text-muted">
-                          Nível de capacidade (1-10) e descrição. O classificador usa isso para escolher o modelo mais simples que resolve a tarefa.
+                          {t("combos.intelHelper")}
                         </p>
                         {form.models.map((m) => {
                           const meta = form.model_meta[m] ?? { weight: 5, description: "" };
@@ -318,27 +314,27 @@ export default function Combos() {
                               <div className="flex justify-between items-center gap-2">
                                 <code className="text-xs font-mono font-semibold">{m}</code>
                                 <div className="flex items-center gap-2">
-                                  <span className="text-xs text-muted font-medium">Capacidade:</span>
+                                  <span className="text-xs text-muted font-medium">{t("combos.intelCap")}</span>
                                   <Input
                                     type="number"
                                     className="w-20"
                                     min={1}
                                     max={10}
-                                    aria-label="Capacidade"
+                                    aria-label={t("combos.intelCapAria")}
                                     value={String(meta.weight ?? 5)}
                                     onChange={(e) => updateMeta(m, { weight: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })}
                                   />
                                 </div>
                               </div>
                               <TextArea
-                                placeholder="Descreva para o que este modelo é bom (ex: resolver erros de código complexos, matemática, ou respostas simples e rápidas)..."
+                                placeholder={t("combos.intelDescPlaceholder")}
                                 rows={2}
                                 value={meta.description ?? ""}
                                 onChange={(e) => updateMeta(m, { description: e.target.value })}
                                 className="text-sm"
                               />
                               {showError && (
-                                <p className="text-[11px] text-danger">Insira uma descrição para que o classificador saiba quando escolher este modelo</p>
+                                <p className="text-[11px] text-danger">{t("combos.intelErr")}</p>
                               )}
                             </div>
                           );
@@ -350,22 +346,22 @@ export default function Combos() {
                 {form.strategy === "weighted" && form.models.length > 0 && (
                   <div className="space-y-3 p-3.5 bg-surface-secondary/50 rounded-xl border border-border">
                     <div className="text-xs font-semibold text-danger uppercase tracking-wide flex items-center gap-1.5">
-                      <IconGauge className="w-4 h-4" /> Pesos de roteamento
+                      <IconGauge className="w-4 h-4" /> {t("combos.weightedTitle")}
                     </div>
                     <p className="text-[11px] text-muted">
-                      O modelo é sorteado como principal proporcionalmente ao peso. A soma de todos os pesos é tratada como 100%. Ex: 50/30/20 ou 1/1/1. O restante permanece como fallback na ordem configurada.
+                      {t("combos.weightedHelper")}
                     </p>
                     {form.models.map((m) => {
                       const meta = form.model_meta[m] ?? { weight: 1, description: "" };
                       return (
                         <div key={m} className="flex items-center gap-2 bg-surface p-3 rounded-lg border border-border">
                           <code className="text-xs font-mono font-semibold flex-1 truncate">{m}</code>
-                          <span className="text-xs text-muted font-medium shrink-0">Peso:</span>
+                          <span className="text-xs text-muted font-medium shrink-0">{t("combos.weightedWeight")}</span>
                           <Input
                             type="number"
                             className="w-24"
                             min={1}
-                            aria-label={`Peso de ${m}`}
+                            aria-label={t("combos.weightedWeightAria", { model: m })}
                             value={String(meta.weight ?? 1)}
                             onChange={(e) => updateMeta(m, { weight: Math.max(1, Math.min(100, parseInt(e.target.value) || 1)) })}
                           />
@@ -376,8 +372,8 @@ export default function Combos() {
                 )}
               </Modal.Body>
               <Modal.Footer>
-                <Button variant="secondary" onPress={() => setOpen(false)}>Cancelar</Button>
-                <Button variant="primary" onPress={submit} isDisabled={saving}>Salvar</Button>
+                <Button variant="secondary" onPress={() => setOpen(false)}>{t("combos.cancel")}</Button>
+                <Button variant="primary" onPress={submit} isDisabled={saving}>{t("combos.save")}</Button>
               </Modal.Footer>
             </Modal.Dialog>
           </Modal.Container>
@@ -391,14 +387,14 @@ export default function Combos() {
               <AlertDialog.CloseTrigger />
               <AlertDialog.Header>
                 <AlertDialog.Icon status="danger" />
-                <AlertDialog.Heading>Remover este combo?</AlertDialog.Heading>
+                <AlertDialog.Heading>{t("combos.removeTitle")}</AlertDialog.Heading>
               </AlertDialog.Header>
               <AlertDialog.Body>
-                <p>Esta ação não pode ser desfeita.</p>
+                <p>{t("combos.removeBody")}</p>
               </AlertDialog.Body>
               <AlertDialog.Footer>
-                <Button slot="close" variant="tertiary">Cancelar</Button>
-                <Button slot="close" variant="danger" onPress={() => { if (confirmId) remove(confirmId); setConfirmId(null); }}>Remover</Button>
+                <Button slot="close" variant="tertiary">{t("combos.cancel")}</Button>
+                <Button slot="close" variant="danger" onPress={() => { if (confirmId) remove(confirmId); setConfirmId(null); }}>{t("combos.remove")}</Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>
           </AlertDialog.Container>
@@ -417,6 +413,7 @@ function ModelSelector({
   onChange: (m: string[]) => void;
   excludeName?: string;
 }) {
+  const { t } = useTranslation();
   const [allModels, setAllModels] = useState<ModelEntry[]>([]);
   const [allCombos, setAllCombos] = useState<Combo[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -443,7 +440,7 @@ function ModelSelector({
         setAllCombos(combosList);
         setProviders(ps);
       } catch (e: any) {
-        if (!cancelled) setError(e?.message ?? "erro");
+        if (!cancelled) setError(e?.message ?? t("combos.selectorErr"));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -513,13 +510,13 @@ function ModelSelector({
   return (
     <div className="space-y-3">
       <div>
-        <Label className="text-sm text-muted">Modelos</Label>
+        <Label className="text-sm text-muted">{t("combos.selectorLabel")}</Label>
         <p className="text-xs text-muted mt-0.5 mb-2">
-          Selecione modelos ou outros combos como membros.
+          {t("combos.selectorHelper")}
           {fixedKind && (
             <>
               {" "}
-              Tipo fixado:{" "}
+              {t("combos.selectorKindFixed")}
               <Chip size="sm" variant="soft" color={KIND_COLORS[fixedKind] ?? "default"}>
                 {fixedKind}
               </Chip>
@@ -528,29 +525,29 @@ function ModelSelector({
         </p>
         {loading ? (
           <div className="flex items-center gap-2 py-2 text-sm text-muted">
-            <Spinner size="sm" /> Carregando models e combos...
+            <Spinner size="sm" /> {t("combos.selectorLoading")}
           </div>
         ) : error && allModels.length === 0 && allCombos.length === 0 ? (
-          <div className="text-sm text-danger py-2">Erro: {error}</div>
+          <div className="text-sm text-danger py-2">{t("combos.selectorError")}{error}</div>
         ) : (
           <div className="space-y-2">
               <ModelComboBox
-                ariaLabel="Modelos"
+                ariaLabel={t("combos.selectorAria")}
                 selectionMode="multiple"
                 selectedKeys={selected}
                 onSelectedKeysChange={onChange}
                 inputValue={searchValue}
                 onInputChange={setSearchValue}
                 items={listItems}
-                inputPlaceholder="Buscar model ou combo..."
+                inputPlaceholder={t("combos.selectorPlaceholder")}
                 inputVariant="secondary"
-                valuePlaceholder="Nenhum modelo selecionado"
+                valuePlaceholder={t("combos.selectorNoSelection")}
                 isDisabled={loading}
                 className="w-full"
               />
             {available.length === 0 && !loading && (
               <div className="text-sm text-muted px-1 py-1">
-                {fixedKind ? `Nenhuma opção do tipo ${fixedKind}.` : "Nenhuma opção disponível."}
+                {fixedKind ? t("combos.selectorNoType", { kind: fixedKind }) : t("combos.selectorNoOptions")}
               </div>
             )}
             {searchValue.trim() && !available.some((opt) => opt.id === searchValue.trim()) && (
@@ -563,7 +560,7 @@ function ModelSelector({
                   setSearchValue("");
                 }}
               >
-                + Adicionar personalizado: "{searchValue.trim()}"
+                {t("combos.selectorAddCustom")} "{searchValue.trim()}"
               </Button>
             )}
           </div>
@@ -572,7 +569,7 @@ function ModelSelector({
 
       {selected.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-xs text-muted uppercase tracking-wide font-medium">Membros do Combo</p>
+          <p className="text-xs text-muted uppercase tracking-wide font-medium">{t("combos.selectorMembers")}</p>
           {selected.map((id, i) => {
             const isCombo = allCombos.some((c) => c.name === id);
             const modelEntry = allModels.find((m) => m.id === id);
@@ -584,19 +581,19 @@ function ModelSelector({
                 {isCombo && <IconStack className="w-3 h-3 shrink-0 text-muted" />}
                 <code className="text-xs flex-1 truncate">{id}</code>
                 {isCombo && (
-                  <Chip size="sm" variant="soft" color="default" className="text-[10px]">combo</Chip>
+                  <Chip size="sm" variant="soft" color="default" className="text-[10px]">{t("combos.selectorCombo")}</Chip>
                 )}
                 <Chip size="sm" variant="soft" color={KIND_COLORS[kind] ?? "default"} className="text-[10px]">
                   {kind}
                 </Chip>
                 <div className="flex gap-0.5">
-                  <Button isIconOnly size="sm" variant="ghost" isDisabled={i === 0} onPress={() => move(i, -1)} aria-label="subir">
+                  <Button isIconOnly size="sm" variant="ghost" isDisabled={i === 0} onPress={() => move(i, -1)} aria-label={t("combos.selectorUp")}>
                     <IconArrow dir="up" className="w-3.5 h-3.5" />
                   </Button>
-                  <Button isIconOnly size="sm" variant="ghost" isDisabled={i === selected.length - 1} onPress={() => move(i, 1)} aria-label="descer">
+                  <Button isIconOnly size="sm" variant="ghost" isDisabled={i === selected.length - 1} onPress={() => move(i, 1)} aria-label={t("combos.selectorDown")}>
                     <IconArrow dir="down" className="w-3.5 h-3.5" />
                   </Button>
-                  <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => removeAt(i)} aria-label="remover">
+                  <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => removeAt(i)} aria-label={t("combos.selectorRemove")}>
                     <IconX className="w-3.5 h-3.5" />
                   </Button>
                 </div>

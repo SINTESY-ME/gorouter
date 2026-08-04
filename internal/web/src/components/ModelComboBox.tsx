@@ -1,4 +1,5 @@
 import { ComboBox, Input, ListBox, ListLayout, Virtualizer } from "@heroui/react";
+import { useTranslation } from "react-i18next";
 import { IconStack as StackIcon } from "../icons";
 
 export interface ModelComboBoxItem {
@@ -56,6 +57,7 @@ export function ModelComboBox({
   valuePlaceholder,
   isDisabled,
 }: ModelComboBoxProps) {
+  const { t } = useTranslation();
   const isMultiple = selectionMode === "multiple";
 
   return (
@@ -88,10 +90,10 @@ export function ModelComboBox({
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   {item.itemType === "model" && !item.isActive && (
-                    <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">inativo</span>
+                    <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">{t("modelComboBox.inactive")}</span>
                   )}
                   <span className={`rounded-full bg-surface-secondary px-1.5 py-0.5 text-[10px] font-medium ${item.itemType === "combo" ? "text-muted" : (KIND_TEXT[item.kind] ?? "text-muted")}`}>
-                    {item.itemType === "combo" ? "combo" : item.kind}
+                    {item.itemType === "combo" ? t("modelComboBox.combo") : item.kind}
                   </span>
                 </div>
               </div>

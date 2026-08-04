@@ -13,6 +13,7 @@ import { api, type UsageStats, type SavingsStats, type ApiKey, type StatusSnapsh
 import { formatCompact, formatCost } from "../format";
 import { IconCalendar } from "../icons";
 import { ChartTooltip } from "../chartTooltip";
+import { useTranslation } from "react-i18next";
 
 const PIE_COLORS = ["var(--accent)", "var(--danger)", "var(--success)", "var(--warning)", "var(--default)", "var(--warning)", "var(--success)"];
 const CHART_COLORS = ["var(--accent)", "var(--success)", "var(--warning)", "var(--danger)"];
@@ -24,19 +25,6 @@ const periods: { key: string; label: string }[] = [
   { key: "30d", label: "30d" },
   { key: "60d", label: "60d" },
 ];
-
-const buckets: { key: string; label: string }[] = [
-  { key: "", label: "Auto" },
-  { key: "minute", label: "Minuto" },
-  { key: "5m", label: "5 min" },
-  { key: "30m", label: "30 min" },
-  { key: "hour", label: "Hora" },
-  { key: "day", label: "Dia" },
-];
-
-const bucketLabel: Record<string, string> = {
-  minute: "minuto", "5m": "5 min", "30m": "30 min", hour: "hora", day: "dia",
-};
 
 function formatBucketLabel(dateStr: string, bucket: string): string {
   if (bucket === "day") return dateStr.slice(5);
@@ -55,6 +43,27 @@ function nameKey(k: string, keys: ApiKey[]): string {
 }
 
 export default function Dashboard() {
+  const { t } = useTranslation();
+
+  const buckets: { key: string; label: string }[] = [
+    { key: "", label: t("dashboard.buckets.auto") },
+    { key: "minute", label: t("dashboard.buckets.minute") },
+    { key: "5m", label: t("dashboard.buckets.min5") },
+    { key: "30m", label: t("dashboard.buckets.min30") },
+    { key: "hour", label: t("dashboard.buckets.hour") },
+    { key: "day", label: t("dashboard.buckets.day") },
+  ];
+
+  const bucketLabel: Record<string, string> = {
+    minute: t("dashboard.buckets.minuteLower"), "5m": t("dashboard.buckets.min5Lower"), "30m": t("dashboard.buckets.min30Lower"), hour: t("dashboard.buckets.hourLower"), day: t("dashboard.buckets.dayLower"),
+  };
+
+  const formatDateRangeLabel = (range: { start: { toString(): string }; end: { toString(): string } } | null): string => {
+    if (!range) return t("dashboard.customPeriod");
+    const fmt = (s: string) => s.slice(11, 16) || s.slice(0, 10);
+    return `${fmt(range.start.toString())} → ${fmt(range.end.toString())}`;
+  };
+
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [savings, setSavings] = useState<SavingsStats | null>(null);
   const [status, setStatus] = useState<StatusSnapshot | null>(null);
@@ -96,7 +105,7 @@ export default function Dashboard() {
   if (loading) return <div className="flex justify-center py-20"><Spinner /></div>;
   if (!stats) return (
     <div className="text-center py-20 text-muted">
-      Não há dados de uso ainda. Crie um provider e faça uma requisição.
+      {t("dashboard.empty")}
     </div>
   );
 
@@ -128,11 +137,11 @@ export default function Dashboard() {
   });
 
   const chartMetrics = [
-    { key: "requests", label: "Requests", color: "var(--accent)", fmt: (v: number) => v.toLocaleString("en-US"), yFmt: formatCompact },
-    { key: "tokens", label: "Tokens", color: "var(--success)", fmt: (v: number) => v.toLocaleString("en-US"), yFmt: formatCompact },
-    { key: "cost", label: "Custo", color: "var(--warning)", fmt: (v: number) => `$${v.toFixed(6)}`, yFmt: formatCost },
-    { key: "errors", label: "Erros", color: "var(--danger)", fmt: (v: number) => v.toLocaleString("en-US"), yFmt: formatCompact },
-    { key: "avg_tps", label: "TPS", color: "var(--default)", fmt: (v: number) => `${v.toFixed(2)} tok/s`, yFmt: (v: number) => v.toFixed(1) },
+    { key: "requests", label: t("dashboard.chartRequests"), color: "var(--accent)", fmt: (v: number) => v.toLocaleString("en-US"), yFmt: formatCompact },
+    { key: "tokens", label: t("dashboard.chartTokens"), color: "var(--success)", fmt: (v: number) => v.toLocaleString("en-US"), yFmt: formatCompact },
+    { key: "cost", label: t("dashboard.chartCost"), color: "var(--warning)", fmt: (v: number) => `$${v.toFixed(6)}`, yFmt: formatCost },
+    { key: "errors", label: t("dashboard.chartErrors"), color: "var(--danger)", fmt: (v: number) => v.toLocaleString("en-US"), yFmt: formatCompact },
+    { key: "avg_tps", label: t("dashboard.chartTps"), color: "var(--default)", fmt: (v: number) => `${v.toFixed(2)} ${t("dashboard.tokPerSec")}`, yFmt: (v: number) => v.toFixed(1) },
   ];
   const activeMetric = chartMetrics.find((m) => m.key === chartMetric) || chartMetrics[0];
 
@@ -140,9 +149,9 @@ export default function Dashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Visão geral</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{t("dashboard.title")}</h1>
           <p className="text-sm text-muted mt-0.5">
-            {stats.requests.toLocaleString("en-US")} requisições no período
+            {t("dashboard.requestsInPeriod", { count: stats.requests.toLocaleString("en-US") })}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -167,7 +176,7 @@ export default function Dashboard() {
             <Popover.Content placement="bottom" className="p-3">
               <div className="space-y-3 w-80">
                 <DateRangePicker
-                  aria-label="Período personalizado"
+                  aria-label={t("dashboard.customPeriod")}
                   className="w-full"
                   startName="startDate"
                   endName="endDate"
@@ -189,7 +198,7 @@ export default function Dashboard() {
                     </DateField.Suffix>
                   </DateField.Group>
                   <DateRangePicker.Popover>
-                    <RangeCalendar aria-label="Período personalizado">
+                    <RangeCalendar aria-label={t("dashboard.customPeriod")}>
                       <RangeCalendar.Header>
                         <RangeCalendar.YearPickerTrigger>
                           <RangeCalendar.YearPickerTriggerHeading />
@@ -214,10 +223,10 @@ export default function Dashboard() {
                     </RangeCalendar>
                   </DateRangePicker.Popover>
                 </DateRangePicker>
-                <Button size="sm" variant="primary" className="w-full" onPress={() => setCustomMode(true)}>Aplicar</Button>
+                <Button size="sm" variant="primary" className="w-full" onPress={() => setCustomMode(true)}>{t("dashboard.apply")}</Button>
                 {customMode && (
                   <Button size="sm" variant="secondary" className="w-full" onPress={() => { setCustomMode(false); setDateRange(null); }}>
-                    Voltar para presets
+                    {t("dashboard.backToPresets")}
                   </Button>
                 )}
               </div>
@@ -226,18 +235,18 @@ export default function Dashboard() {
           </ButtonGroup>
           {apiKeys.length > 0 && (
             <Select
-              aria-label="Token"
+              aria-label={t("dashboard.token")}
               selectedKey={selectedKeyId || null}
               onSelectionChange={(k) => setSelectedKeyId((k as string) ?? "")}
               className="w-44"
             >
               <Select.Trigger>
-                <Select.Value>{selectedKeyId ? apiKeys.find((k) => k.id === selectedKeyId)?.name ?? "Token" : "Todos os tokens"}</Select.Value>
+                <Select.Value>{selectedKeyId ? apiKeys.find((k) => k.id === selectedKeyId)?.name ?? t("dashboard.token") : t("dashboard.allTokens")}</Select.Value>
                 <Select.Indicator />
               </Select.Trigger>
               <Select.Popover>
                 <ListBox>
-                  <ListBox.Item id="">Todos os tokens</ListBox.Item>
+                  <ListBox.Item id="">{t("dashboard.allTokens")}</ListBox.Item>
                   {apiKeys.map((k) => <ListBox.Item key={k.id} id={k.id}>{k.name}</ListBox.Item>)}
                 </ListBox>
               </Select.Popover>
@@ -247,27 +256,27 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Requests" value={formatCompact(stats.requests)} sub="total no período" full={stats.requests.toLocaleString("en-US")} />
-        <StatCard label="Tokens" value={formatCompact(totalTokens)} sub={`${formatCompact(stats.prompt_tokens)} in · ${formatCompact(stats.completion_tokens)} out`} full={totalTokens.toLocaleString("en-US")} />
-        <StatCard label="Custo" value={formatCost(stats.cost)} sub={stats.cost_per_request > 0 ? `${formatCost(stats.cost_per_request)}/req` : "—"} full={`$${stats.cost.toFixed(6)}`} />
-        <StatCard label="Economia" value={formatCost(stats.cost_saved)} sub={`${formatCompact(stats.tokens_saved)} tokens poupados`} full={`$${stats.cost_saved.toFixed(6)}`} />
+        <StatCard label={t("dashboard.requests")} value={formatCompact(stats.requests)} sub={t("dashboard.requestsSub")} full={stats.requests.toLocaleString("en-US")} />
+        <StatCard label={t("dashboard.tokens")} value={formatCompact(totalTokens)} sub={t("dashboard.tokensSub", { in: formatCompact(stats.prompt_tokens), out: formatCompact(stats.completion_tokens) })} full={totalTokens.toLocaleString("en-US")} />
+        <StatCard label={t("dashboard.cost")} value={formatCost(stats.cost)} sub={stats.cost_per_request > 0 ? `${formatCost(stats.cost_per_request)}${t("dashboard.costPerReq")}` : "—"} full={`$${stats.cost.toFixed(6)}`} />
+        <StatCard label={t("dashboard.savings")} value={formatCost(stats.cost_saved)} sub={t("dashboard.savingsSub", { count: formatCompact(stats.tokens_saved) })} full={`$${stats.cost_saved.toFixed(6)}`} />
       </div>
 
       <Card className="border border-border">
         <Card.Header className="flex items-center justify-between gap-3 flex-wrap pb-0">
           <div>
-            <h3 className="font-semibold">Volume por {bucketLabel[activeBucket] || "período"}</h3>
-            <p className="text-xs text-muted">Série temporal</p>
+            <h3 className="font-semibold">{t("dashboard.volumeBy", { bucket: bucketLabel[activeBucket] || t("dashboard.buckets.period") })}</h3>
+            <p className="text-xs text-muted">{t("dashboard.timeSeries")}</p>
           </div>
           <div className="flex items-center gap-2">
             <Select
-              aria-label="Granularidade"
+              aria-label={t("dashboard.granularity")}
               selectedKey={bucket}
               onSelectionChange={(k) => setBucket((k as string) ?? "")}
               className="w-32"
             >
               <Select.Trigger>
-                <Select.Value>{buckets.find((b) => b.key === bucket)?.label ?? "Auto"}</Select.Value>
+                <Select.Value>{buckets.find((b) => b.key === bucket)?.label ?? t("dashboard.buckets.auto")}</Select.Value>
                 <Select.Indicator />
               </Select.Trigger>
               <Select.Popover>
@@ -276,7 +285,7 @@ export default function Dashboard() {
                 </ListBox>
               </Select.Popover>
             </Select>
-            <Tabs selectedKey={chartMetric} onSelectionChange={(k) => setChartMetric(k as string)} aria-label="Métrica">
+            <Tabs selectedKey={chartMetric} onSelectionChange={(k) => setChartMetric(k as string)} aria-label={t("dashboard.metric")}>
               <Tabs.List>
                 {chartMetrics.map((m) => <Tabs.Tab key={m.key} id={m.key}>{m.label}</Tabs.Tab>)}
               </Tabs.List>
@@ -305,7 +314,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {byProvider.length > 0 && (
           <Card className="border border-border">
-            <Card.Header><div><h3 className="font-semibold">Distribuição de requisições</h3><p className="text-xs text-muted">Por provider</p></div></Card.Header>
+            <Card.Header><div><h3 className="font-semibold">{t("dashboard.distributionRequests")}</h3><p className="text-xs text-muted">{t("dashboard.byProvider")}</p></div></Card.Header>
             <Card.Content>
               <ResponsiveContainer width="100%" height={260}>
                 <PieChart>
@@ -324,7 +333,7 @@ export default function Dashboard() {
 
         {byModel.length > 0 && (
           <Card className="border border-border">
-            <Card.Header><div><h3 className="font-semibold">Requisições por modelo</h3><p className="text-xs text-muted">Por modelo</p></div></Card.Header>
+            <Card.Header><div><h3 className="font-semibold">{t("dashboard.requestsByModel")}</h3><p className="text-xs text-muted">{t("dashboard.byModel")}</p></div></Card.Header>
             <Card.Content>
               <ResponsiveContainer width="100%" height={Math.max(260, byModel.length * 26)}>
                 <BarChart data={byModel} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
@@ -344,31 +353,31 @@ export default function Dashboard() {
         <Card className="border border-border">
           <Card.Header>
             <div>
-              <h3 className="font-semibold">Economia</h3>
-              <p className="text-xs text-muted">Tokens e custos economizados por Response Cache e RTK</p>
+              <h3 className="font-semibold">{t("dashboard.savingsTitle")}</h3>
+              <p className="text-xs text-muted">{t("dashboard.savingsSubtitle")}</p>
             </div>
           </Card.Header>
           <Card.Content className="space-y-5">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <SavingsCard label="Cache hits" value={formatCompact(savings.cache_hits)} sub="respostas do cache" full={savings.cache_hits.toLocaleString("en-US")} dot={CHART_COLORS[0]} />
-              <SavingsCard label="Tokens (cache)" value={formatCompact(savings.cache_tokens_saved)} sub={formatCost(savings.cache_cost_saved)} full={savings.cache_tokens_saved.toLocaleString("en-US")} dot={CHART_COLORS[0]} />
-              <SavingsCard label="Compressões RTK" value={formatCompact(savings.rtk_compressions)} sub="tool_results" full={savings.rtk_compressions.toLocaleString("en-US")} dot={CHART_COLORS[1]} />
-              <SavingsCard label="Tokens (RTK)" value={formatCompact(savings.rtk_tokens_saved)} sub={formatCost(savings.rtk_cost_saved)} full={savings.rtk_tokens_saved.toLocaleString("en-US")} dot={CHART_COLORS[1]} />
+              <SavingsCard label={t("dashboard.cacheHits")} value={formatCompact(savings.cache_hits)} sub={t("dashboard.cacheHitsSub")} full={savings.cache_hits.toLocaleString("en-US")} dot={CHART_COLORS[0]} />
+              <SavingsCard label={t("dashboard.cacheTokens")} value={formatCompact(savings.cache_tokens_saved)} sub={formatCost(savings.cache_cost_saved)} full={savings.cache_tokens_saved.toLocaleString("en-US")} dot={CHART_COLORS[0]} />
+              <SavingsCard label={t("dashboard.rtkComps")} value={formatCompact(savings.rtk_compressions)} sub={t("dashboard.rtkCompsSub")} full={savings.rtk_compressions.toLocaleString("en-US")} dot={CHART_COLORS[1]} />
+              <SavingsCard label={t("dashboard.rtkTokens")} value={formatCompact(savings.rtk_tokens_saved)} sub={formatCost(savings.rtk_cost_saved)} full={savings.rtk_tokens_saved.toLocaleString("en-US")} dot={CHART_COLORS[1]} />
               {savings.semantic_hits ? (
-                <SavingsCard label="Semantic hits" value={formatCompact(savings.semantic_hits)} sub="por similaridade" full={savings.semantic_hits.toLocaleString("en-US")} dot={CHART_COLORS[3]} />
+                <SavingsCard label={t("dashboard.semanticHits")} value={formatCompact(savings.semantic_hits)} sub={t("dashboard.semanticHitsSub")} full={savings.semantic_hits.toLocaleString("en-US")} dot={CHART_COLORS[3]} />
               ) : null}
               {savings.semantic_tokens_saved ? (
-                <SavingsCard label="Tokens (semantic)" value={formatCompact(savings.semantic_tokens_saved)} sub={formatCost(savings.semantic_cost_saved || 0)} full={savings.semantic_tokens_saved.toLocaleString("en-US")} dot={CHART_COLORS[3]} />
+                <SavingsCard label={t("dashboard.semanticTokens")} value={formatCompact(savings.semantic_tokens_saved)} sub={formatCost(savings.semantic_cost_saved || 0)} full={savings.semantic_tokens_saved.toLocaleString("en-US")} dot={CHART_COLORS[3]} />
               ) : null}
             </div>
             {(savings.cache_cost_saved + savings.rtk_cost_saved + (savings.semantic_cost_saved || 0)) > 0 && (
               <div className="flex items-baseline gap-8 pt-2 border-t border-border">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-sm text-muted">Total economizado</span>
+                  <span className="text-sm text-muted">{t("dashboard.totalSaved")}</span>
                   <span className="text-lg font-semibold tabular-nums">{formatCost(savings.cache_cost_saved + savings.rtk_cost_saved + (savings.semantic_cost_saved || 0))}</span>
                 </div>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-sm text-muted">Tokens</span>
+                  <span className="text-sm text-muted">{t("dashboard.tokens")}</span>
                   <span className="text-lg font-semibold tabular-nums">{formatCompact(savings.cache_tokens_saved + savings.rtk_tokens_saved + (savings.semantic_tokens_saved || 0))}</span>
                 </div>
               </div>
@@ -381,22 +390,22 @@ export default function Dashboard() {
         <Card className="border border-border">
           <Card.Header>
             <div>
-              <h3 className="font-semibold">Performance por modelo</h3>
-              <p className="text-xs text-muted">TTFT, TPS, latência e custo por request</p>
+              <h3 className="font-semibold">{t("dashboard.perfByModel")}</h3>
+              <p className="text-xs text-muted">{t("dashboard.perfSub")}</p>
             </div>
           </Card.Header>
           <Card.Content>
             <Table>
               <Table.ScrollContainer>
-                <Table.Content aria-label="performance por modelo" className="text-sm min-w-[640px]">
+                <Table.Content aria-label={t("dashboard.perfAria")} className="text-sm min-w-[640px]">
                   <Table.Header>
-                    <Table.Column isRowHeader id="model">Modelo</Table.Column>
-                    <Table.Column id="requests" className="text-right">Requests</Table.Column>
-                    <Table.Column id="ttft" className="text-right">TTFT</Table.Column>
-                    <Table.Column id="tps" className="text-right">TPS</Table.Column>
-                    <Table.Column id="latency" className="text-right">Latência</Table.Column>
-                    <Table.Column id="costperreq" className="text-right">Custo/Req</Table.Column>
-                    <Table.Column id="costtotal" className="text-right">Custo Total</Table.Column>
+                    <Table.Column isRowHeader id="model">{t("dashboard.colModel")}</Table.Column>
+                    <Table.Column id="requests" className="text-right">{t("dashboard.colRequests")}</Table.Column>
+                    <Table.Column id="ttft" className="text-right">{t("dashboard.colTtft")}</Table.Column>
+                    <Table.Column id="tps" className="text-right">{t("dashboard.colTps")}</Table.Column>
+                    <Table.Column id="latency" className="text-right">{t("dashboard.colLatency")}</Table.Column>
+                    <Table.Column id="costperreq" className="text-right">{t("dashboard.colCostPerReq")}</Table.Column>
+                    <Table.Column id="costtotal" className="text-right">{t("dashboard.colCostTotal")}</Table.Column>
                   </Table.Header>
                   <Table.Body items={perfRows}>
                     {(r) => (
@@ -420,7 +429,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {byModelCost.length > 0 && (
           <Card className="border border-border">
-            <Card.Header><div><h3 className="font-semibold">Gasto em USD</h3><p className="text-xs text-muted">Custo por modelo</p></div></Card.Header>
+            <Card.Header><div><h3 className="font-semibold">{t("dashboard.spendUsd")}</h3><p className="text-xs text-muted">{t("dashboard.costByModel")}</p></div></Card.Header>
             <Card.Content>
               <ResponsiveContainer width="100%" height={Math.max(260, byModelCost.length * 26)}>
                 <BarChart data={byModelCost} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
@@ -437,7 +446,7 @@ export default function Dashboard() {
 
         {byCombo.length > 0 && (
           <Card className="border border-border">
-            <Card.Header><div><h3 className="font-semibold">Distribuição entre combos</h3><p className="text-xs text-muted">Por combo</p></div></Card.Header>
+            <Card.Header><div><h3 className="font-semibold">{t("dashboard.comboDistribution")}</h3><p className="text-xs text-muted">{t("dashboard.byCombo")}</p></div></Card.Header>
             <Card.Content>
               <ResponsiveContainer width="100%" height={Math.max(260, byCombo.length * 26)}>
                 <BarChart data={byCombo} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
@@ -454,7 +463,7 @@ export default function Dashboard() {
 
         {byComboTokens.length > 0 && (
           <Card className="border border-border">
-            <Card.Header><div><h3 className="font-semibold">Tokens por combo</h3><p className="text-xs text-muted">Prompt + completion</p></div></Card.Header>
+            <Card.Header><div><h3 className="font-semibold">{t("dashboard.comboTokens")}</h3><p className="text-xs text-muted">{t("dashboard.promptPlusCompletion")}</p></div></Card.Header>
             <Card.Content>
               <ResponsiveContainer width="100%" height={Math.max(260, byComboTokens.length * 26)}>
                 <BarChart data={byComboTokens} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
@@ -471,7 +480,7 @@ export default function Dashboard() {
 
         {byApiKey.length > 0 && (
           <Card className="border border-border">
-            <Card.Header><div><h3 className="font-semibold">Requisições por API key</h3><p className="text-xs text-muted">Por token</p></div></Card.Header>
+            <Card.Header><div><h3 className="font-semibold">{t("dashboard.reqByApiKey")}</h3><p className="text-xs text-muted">{t("dashboard.byToken")}</p></div></Card.Header>
             <Card.Content>
               <ResponsiveContainer width="100%" height={Math.max(260, byApiKey.length * 26)}>
                 <BarChart data={byApiKey} layout="vertical" margin={{ left: 20, right: 8, top: 8 }}>
@@ -489,28 +498,31 @@ export default function Dashboard() {
 
       {status && (
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
-          <SystemCard label="Combos" value={status.combos.total} sub="estratégias" />
+          <SystemCard label={t("dashboard.combos")} value={status.combos.total} sub={t("dashboard.combosSub")} />
           <SystemCard
-            label="Conexões"
+            label={t("dashboard.connections")}
             value={status.connections.total}
-            sub={`${status.connections.active} ativas${status.connections.rate_limited > 0 ? ` · ${status.connections.rate_limited} rate-limited` : ""}`}
+            sub={t("dashboard.connectionsSub", {
+              active: status.connections.active,
+              rateLimited: status.connections.rate_limited > 0 ? t("dashboard.rateLimited", { count: status.connections.rate_limited }) : "",
+            })}
           />
           <SystemCard
-            label="Saúde"
+            label={t("dashboard.health")}
             value={`${status.health.healthy}/${status.health.total_keys}`}
-            sub={`${status.health.unhealthy} unhealthy · ${status.health.probing} probing`}
+            sub={t("dashboard.healthSub", { unhealthy: status.health.unhealthy, probing: status.health.probing })}
             variant={status.health.unhealthy > 0 ? "danger" : "success"}
           />
           <SystemCard
-            label="Taxa de erro"
+            label={t("dashboard.errorRate")}
             value={`${errorPct.toFixed(1)}%`}
-            sub={`${stats.error_requests.toLocaleString("en-US")} erros · ${stats.successful_requests.toLocaleString("en-US")} sucesso`}
+            sub={t("dashboard.errorRateSub", { errors: stats.error_requests.toLocaleString("en-US"), success: stats.successful_requests.toLocaleString("en-US") })}
             variant={errorPct > 5 ? "danger" : "success"}
           />
           <SystemCard
-            label="Tokens"
+            label={t("dashboard.tokensRegistered")}
             value={apiKeys.filter(k => k.is_active).length}
-            sub={`de ${apiKeys.length} cadastrados`}
+            sub={t("dashboard.tokensRegisteredSub", { count: apiKeys.length })}
           />
         </div>
       )}
@@ -552,10 +564,4 @@ function SavingsCard({ label, value, sub, full, dot }: { label: string; value: s
       <p className="text-xs text-muted mt-1">{sub}</p>
     </Card>
   );
-}
-
-function formatDateRangeLabel(range: { start: { toString(): string }; end: { toString(): string } } | null): string {
-  if (!range) return "Personalizado";
-  const fmt = (s: string) => s.slice(11, 16) || s.slice(0, 10);
-  return `${fmt(range.start.toString())} → ${fmt(range.end.toString())}`;
 }

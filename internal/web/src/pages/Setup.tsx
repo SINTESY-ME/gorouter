@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button, Card, Input, Label, TextField } from "@heroui/react";
+import { useTranslation } from "react-i18next";
 import { api, setDashboardToken } from "../api";
 import { IconRoute } from "../icons";
 
@@ -7,6 +8,7 @@ import { IconRoute } from "../icons";
 // configured. The user sets a password; it's stored hashed on the server
 // and the user is logged in immediately.
 export default function Setup({ onDone }: { onDone: () => void }) {
+  const { t } = useTranslation();
   const [pw, setPw] = useState("");
   const [confirm, setConfirm] = useState("");
   const [err, setErr] = useState("");
@@ -15,8 +17,8 @@ export default function Setup({ onDone }: { onDone: () => void }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr("");
-    if (pw.length < 4) { setErr("Password deve ter ao menos 4 caracteres."); return; }
-    if (pw !== confirm) { setErr("As senhas não coincidem."); return; }
+    if (pw.length < 4) { setErr(t("setup.errorShort")); return; }
+    if (pw !== confirm) { setErr(t("setup.errorMismatch")); return; }
     setBusy(true);
     try {
       await api.auth.setup(pw);
@@ -24,7 +26,7 @@ export default function Setup({ onDone }: { onDone: () => void }) {
       setDashboardToken(res.token);
       onDone();
     } catch (e: any) {
-      setErr(e?.message ?? "Falha ao definir senha.");
+      setErr(e?.message ?? t("setup.errorSet"));
     } finally {
       setBusy(false);
     }
@@ -36,30 +38,29 @@ export default function Setup({ onDone }: { onDone: () => void }) {
         <div className="flex items-center gap-3 mb-8 justify-center">
           <IconRoute className="w-6 h-6 text-accent" />
           <div>
-            <p className="font-bold text-lg leading-tight">gorouter</p>
-            <p className="text-xs text-muted leading-tight">LLM router</p>
+            <p className="font-bold text-lg leading-tight">{t("setup.brand")}</p>
+            <p className="text-xs text-muted leading-tight">{t("setup.tagline")}</p>
           </div>
         </div>
         <Card className="p-6 space-y-4">
           <div>
-            <h2 className="text-lg font-semibold">Bem-vindo</h2>
+            <h2 className="text-lg font-semibold">{t("setup.title")}</h2>
             <p className="text-sm text-muted mt-1">
-              Defina uma senha para o dashboard. Ela será solicitada em
-              cada acesso futuro.
+              {t("setup.intro")}
             </p>
           </div>
           <form onSubmit={submit} className="space-y-3">
             <TextField isRequired value={pw} onChange={setPw} type="password">
-              <Label>Senha</Label>
-              <Input placeholder="Senha" autoFocus disabled={busy} />
+              <Label>{t("setup.password")}</Label>
+              <Input placeholder={t("setup.passwordPlaceholder")} autoFocus disabled={busy} />
             </TextField>
             <TextField isRequired value={confirm} onChange={setConfirm} type="password">
-              <Label>Confirmar senha</Label>
-              <Input placeholder="Confirmar senha" disabled={busy} />
+              <Label>{t("setup.confirm")}</Label>
+              <Input placeholder={t("setup.confirmPlaceholder")} disabled={busy} />
             </TextField>
             {err && <p className="text-sm text-danger">{err}</p>}
             <Button type="submit" fullWidth isPending={busy}>
-              {busy ? "Definindo..." : "Definir senha"}
+              {busy ? t("setup.submitting") : t("setup.submit")}
             </Button>
           </form>
         </Card>

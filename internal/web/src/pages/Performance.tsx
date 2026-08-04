@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Spinner, Switch, Button, Card, Select, ListBox, Input, Chip } from "@heroui/react";
 import { api } from "../api";
 import { ModelComboBox, type ModelComboBoxItem } from "../components/ModelComboBox";
@@ -13,6 +14,7 @@ interface CacheStats {
 }
 
 export default function Performance() {
+  const { t } = useTranslation();
   const [rtkEnabled, setRtkEnabled] = useState(false);
   const [cacheEnabled, setCacheEnabled] = useState(false);
   const [semanticEnabled, setSemanticEnabled] = useState(false);
@@ -140,9 +142,9 @@ export default function Performance() {
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Performance</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t("performance.title")}</h1>
         <p className="text-sm text-muted mt-0.5">
-          Otimizações para reduzir latência, tokens e custo.
+          {t("performance.subtitle")}
         </p>
       </div>
 
@@ -151,14 +153,14 @@ export default function Performance() {
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1">
             <div className="flex items-center gap-2">
-              <h3 className="font-semibold">RTK — Token Compression</h3>
-              <span className="text-[10px] text-muted bg-default-soft px-1.5 py-0.5 rounded">beta</span>
+              <h3 className="font-semibold">{t("performance.rtkTitle")}</h3>
+              <span className="text-[10px] text-muted bg-default-soft px-1.5 py-0.5 rounded">{t("performance.beta")}</span>
             </div>
             <p className="text-sm text-muted mt-1">
-              Comprime outputs de ferramentas (git diff, grep, ls, etc.) dentro de <code className="text-xs">tool_result</code> blocks antes de enviar ao provider. Reduz 20–40% dos input tokens.
+              {t("performance.rtkDesc")}
             </p>
             <p className="text-xs text-muted mt-2">
-              Detecção automática do tipo de output · fail-open (erro = body original) · só afeta requests de chat
+              {t("performance.rtkBullet")}
             </p>
           </div>
           <Switch
@@ -167,7 +169,7 @@ export default function Performance() {
             isDisabled={rtkLoading}
             size="lg"
           >
-            <Switch.Content aria-label="RTK token compression">
+            <Switch.Content aria-label={t("performance.rtkAria")}>
               <Switch.Control>
                 <Switch.Thumb />
               </Switch.Control>
@@ -180,12 +182,12 @@ export default function Performance() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1">
-            <h3 className="font-semibold">Response Cache</h3>
+            <h3 className="font-semibold">{t("performance.cacheTitle")}</h3>
             <p className="text-sm text-muted mt-1">
-              Cache de respostas por hash determinístico do request. Requests idênticos recebem a resposta cacheada sem chamar o provider — zero latência upstream, zero custo de token.
+              {t("performance.cacheDesc")}
             </p>
             <p className="text-xs text-muted mt-2">
-              LRU 10k entries · TTL 5min · stream + non-stream · bypass via <code className="text-xs">x-gr-cache: off</code> header
+              {t("performance.cacheBullet")}
             </p>
           </div>
           <Switch
@@ -194,7 +196,7 @@ export default function Performance() {
             isDisabled={cacheLoading}
             size="lg"
           >
-            <Switch.Content aria-label="Response cache">
+            <Switch.Content aria-label={t("performance.cacheAria")}>
               <Switch.Control>
                 <Switch.Thumb />
               </Switch.Control>
@@ -207,21 +209,21 @@ export default function Performance() {
           <div className="mt-4 pt-4 border-t border-border">
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <p className="text-xs text-muted uppercase tracking-wide">Entries</p>
+                <p className="text-xs text-muted uppercase tracking-wide">{t("performance.entries")}</p>
                 <p className="text-2xl font-bold tabular-nums mt-1">{formatCompact(cacheStats.entries ?? 0)}</p>
               </div>
               <div>
-                <p className="text-xs text-muted uppercase tracking-wide">Hits</p>
+                <p className="text-xs text-muted uppercase tracking-wide">{t("performance.hits")}</p>
                 <p className="text-2xl font-bold tabular-nums mt-1 text-success">{formatCompact(cacheStats.hits ?? 0)}</p>
               </div>
               <div>
-                <p className="text-xs text-muted uppercase tracking-wide">Misses</p>
+                <p className="text-xs text-muted uppercase tracking-wide">{t("performance.misses")}</p>
                 <p className="text-2xl font-bold tabular-nums mt-1 text-muted">{formatCompact(cacheStats.misses ?? 0)}</p>
               </div>
             </div>
             {hitRate && (
               <div className="mt-3 flex items-center gap-2">
-                <p className="text-xs text-muted">Hit rate:</p>
+                <p className="text-xs text-muted">{t("performance.hitRate")}</p>
                 <p className="text-xs font-semibold text-success">{hitRate}%</p>
                 <Button
                   size="sm"
@@ -230,7 +232,7 @@ export default function Performance() {
                   isDisabled={flushing}
                   className="ml-auto"
                 >
-                  Limpar cache
+                  {t("performance.flush")}
                 </Button>
               </div>
             )}
@@ -243,14 +245,14 @@ export default function Performance() {
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1">
             <div className="flex items-center gap-2">
-              <h3 className="font-semibold">Semantic Cache</h3>
-              <span className="text-[10px] text-muted bg-default-soft px-1.5 py-0.5 rounded">beta</span>
+              <h3 className="font-semibold">{t("performance.semTitle")}</h3>
+              <span className="text-[10px] text-muted bg-default-soft px-1.5 py-0.5 rounded">{t("performance.beta")}</span>
             </div>
             <p className="text-sm text-muted mt-1">
-              Cache vetorial por similaridade. Requests com prompts parafraseados recebem respostas cacheadas sem chamar o provider. Funciona em conjunto com o Response Cache — o hash determinístico primeiro, a similaridade depois.
+              {t("performance.semDesc")}
             </p>
             <p className="text-xs text-muted mt-2">
-              Cache keyado por modelo real (compartilhado entre combo e chamadas diretas) · precisa de um modelo de embedding configurado
+              {t("performance.semBullet")}
             </p>
           </div>
           <Switch
@@ -259,7 +261,7 @@ export default function Performance() {
             isDisabled={!embeddingModels.length && !embeddingModel}
             size="lg"
           >
-            <Switch.Content aria-label="Semantic cache">
+            <Switch.Content aria-label={t("performance.semAria")}>
               <Switch.Control>
                 <Switch.Thumb />
               </Switch.Control>
@@ -271,16 +273,16 @@ export default function Performance() {
           <div className="mt-4 pt-4 border-t border-border space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <p className="text-xs text-muted mb-1.5">Modelo de embedding</p>
+                <p className="text-xs text-muted mb-1.5">{t("performance.semModel")}</p>
                 {embeddingModels.length > 0 ? (
                   <Select
-                    aria-label="Modelo de embedding"
+                    aria-label={t("performance.semModelAria")}
                     selectedKey={embeddingModel || null}
                     onSelectionChange={(k) => selectEmbeddingModel(String(k))}
                     className="w-full"
                   >
                     <Select.Trigger>
-                      <Select.Value>{embeddingModel || "Selecione um modelo"}</Select.Value>
+                      <Select.Value>{embeddingModel || t("performance.semModelPlaceholder")}</Select.Value>
                       <Select.Indicator />
                     </Select.Trigger>
                     <Select.Popover>
@@ -290,25 +292,25 @@ export default function Performance() {
                     </Select.Popover>
                   </Select>
                 ) : (
-                  <p className="text-sm text-muted">Nenhum modelo embedding disponível no catálogo.</p>
+                  <p className="text-sm text-muted">{t("performance.semNoModels")}</p>
                 )}
               </div>
               <div>
-                <p className="text-xs text-muted mb-1.5">Modo</p>
+                <p className="text-xs text-muted mb-1.5">{t("performance.semMode")}</p>
                 <Select
-                  aria-label="Modo do semantic cache"
+                  aria-label={t("performance.semModeAria")}
                   selectedKey={semanticMode}
                   onSelectionChange={(k) => setSemMode(String(k))}
                   className="w-full"
                 >
                   <Select.Trigger>
-                    <Select.Value>{semanticMode === "lazy" ? "Lazy" : "Active"}</Select.Value>
+                    <Select.Value>{semanticMode === "lazy" ? t("performance.lazy") : t("performance.active")}</Select.Value>
                     <Select.Indicator />
                   </Select.Trigger>
                   <Select.Popover>
                     <ListBox>
-                      <ListBox.Item id="active">Active — busca em cada miss (mais hits)</ListBox.Item>
-                      <ListBox.Item id="lazy">Lazy — só busca após 50 entries (sem overhead)</ListBox.Item>
+                      <ListBox.Item id="active">{t("performance.semModeActive")}</ListBox.Item>
+                      <ListBox.Item id="lazy">{t("performance.semModeLazy")}</ListBox.Item>
                     </ListBox>
                   </Select.Popover>
                 </Select>
@@ -319,20 +321,20 @@ export default function Performance() {
               <div className="pt-4 border-t border-border">
                 <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <p className="text-xs text-muted uppercase tracking-wide">Entries</p>
+                    <p className="text-xs text-muted uppercase tracking-wide">{t("performance.entries")}</p>
                     <p className="text-2xl font-bold tabular-nums mt-1">{formatCompact(semanticStats.entries ?? 0)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted uppercase tracking-wide">Hits</p>
+                    <p className="text-xs text-muted uppercase tracking-wide">{t("performance.hits")}</p>
                     <p className="text-2xl font-bold tabular-nums mt-1 text-success">{formatCompact(semanticStats.hits ?? 0)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted uppercase tracking-wide">Misses</p>
+                    <p className="text-xs text-muted uppercase tracking-wide">{t("performance.misses")}</p>
                     <p className="text-2xl font-bold tabular-nums mt-1 text-muted">{formatCompact(semanticStats.misses ?? 0)}</p>
                   </div>
                 </div>
                 <div className="mt-3 flex justify-end">
-                  <Button size="sm" variant="danger-soft" onPress={flushSemantic}>Limpar cache semântico</Button>
+                  <Button size="sm" variant="danger-soft" onPress={flushSemantic}>{t("performance.flushSemantic")}</Button>
                 </div>
               </div>
             )}
@@ -344,9 +346,9 @@ export default function Performance() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1">
-            <h3 className="font-semibold">Caching Groups</h3>
+            <h3 className="font-semibold">{t("performance.groupsTitle")}</h3>
             <p className="text-sm text-muted mt-1">
-              Modelos intercambiáveis compartilham a mesma entrada de cache. A resposta de um é servida para request que rotearia para outro — os modelos do grupo precisam ser equivalentes.
+              {t("performance.groupsDesc")}
             </p>
           </div>
         </div>
@@ -355,11 +357,11 @@ export default function Performance() {
             value={newGroupName}
             onChange={(e) => setNewGroupName(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") addGroup(); }}
-            placeholder="Nome do grupo (ex: gpt-family)"
+            placeholder={t("performance.groupsNamePlaceholder")}
             className="flex-1"
           />
           <Button variant="primary" onPress={addGroup} isDisabled={!newGroupName.trim()}>
-            <IconPlus className="w-4 h-4" /> Adicionar grupo
+            <IconPlus className="w-4 h-4" /> {t("performance.addGroup")}
           </Button>
         </div>
         <div className="mt-4 space-y-3">
@@ -367,12 +369,12 @@ export default function Performance() {
             <div key={name} className="border border-border rounded-lg p-3">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-medium truncate">{name}</p>
-                <Button size="sm" variant="danger-soft" isIconOnly aria-label={`Remover grupo ${name}`} onPress={() => removeGroup(name)}>
+                <Button size="sm" variant="danger-soft" isIconOnly aria-label={t("performance.removeGroupAria", { name })} onPress={() => removeGroup(name)}>
                   <IconTrash className="w-3.5 h-3.5" />
                 </Button>
               </div>
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {models.length === 0 && <span className="text-xs text-muted">Nenhum modelo — adicione abaixo.</span>}
+                {models.length === 0 && <span className="text-xs text-muted">{t("performance.noModelsGroup")}</span>}
                 {models.map((m) => (
                   <Chip key={m} size="sm" variant="soft">
                     <span className="flex items-center gap-1">
@@ -380,7 +382,7 @@ export default function Performance() {
                       <button
                         className="text-muted hover:text-danger transition-colors"
                         onClick={() => removeModelFromGroup(name, m)}
-                        aria-label={`Remover ${m} do grupo ${name}`}
+                        aria-label={t("performance.removeModelAria", { model: m, name })}
                       >
                         <IconX className="w-3 h-3" />
                       </button>
@@ -390,8 +392,8 @@ export default function Performance() {
               </div>
               <ModelComboBox
                 items={modelItems.filter((i) => !models.includes(i.id))}
-                ariaLabel={`Adicionar modelo ao grupo ${name}`}
-                inputPlaceholder="Adicionar modelo..."
+                ariaLabel={t("performance.addModelAria", { name })}
+                inputPlaceholder={t("performance.addModelPlaceholder")}
                 inputClassName="text-xs"
                 className="mt-2 max-w-xs"
                 selectedKey={null}
@@ -400,7 +402,7 @@ export default function Performance() {
             </div>
           ))}
           {Object.keys(groups).length === 0 && (
-            <p className="text-sm text-muted">Nenhum grupo ainda. Crie um acima para compartilhar cache entre modelos equivalentes.</p>
+            <p className="text-sm text-muted">{t("performance.groupsEmpty")}</p>
           )}
         </div>
       </Card>
@@ -408,7 +410,7 @@ export default function Performance() {
       {/* Info note */}
       <Card variant="transparent" className="p-4">
         <p className="text-xs text-muted">
-          As otimizações são <strong>fail-open</strong>: qualquer erro interno retorna o body/resposta original sem afetar o request. Quando desligadas, zero overhead (nil check no hot path).
+          {t("performance.infoNote")}
         </p>
       </Card>
     </div>

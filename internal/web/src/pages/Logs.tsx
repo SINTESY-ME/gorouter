@@ -8,6 +8,7 @@ import type { CalendarDate } from "@internationalized/date";
 import { Icon } from "@iconify/react";
 import { api, type UsageEntry, type ApiKey } from "../api";
 import { formatCompact, formatCost } from "../format";
+import { useTranslation } from "react-i18next";
 
 const statusColor = (s: number): "success" | "warning" | "danger" | "default" => {
   if (s === 0) return "default";
@@ -71,6 +72,7 @@ function toRow(e: UsageEntry, key: string): LogRow {
 const PER_PAGE = 25;
 
 export default function Logs() {
+  const { t } = useTranslation();
   const [items, setItems] = useState<UsageEntry[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
@@ -179,7 +181,7 @@ export default function Logs() {
         {({ hasChildItems, isExpanded }: { hasChildItems?: boolean; isExpanded?: boolean }) => (
           <span className="flex items-center gap-1.5">
             {hasChildItems ? (
-              <Button isIconOnly aria-label="Alternar" size="sm" slot="chevron" variant="ghost" className="size-5 min-w-0">
+              <Button isIconOnly aria-label={t("logs.toggleAria")} size="sm" slot="chevron" variant="ghost" className="size-5 min-w-0">
                 <Icon
                   aria-hidden
                   icon="gravity-ui:chevron-right"
@@ -191,8 +193,8 @@ export default function Logs() {
             )}
             <code className="text-xs">{item.label}</code>
             {item.attempt > 1 && (
-              <Chip size="sm" color="warning" variant="soft" className="h-4 px-1 text-[9px] shrink-0" title={`${item.attempt} tentativas (retries/fallback)`}>
-                {item.attempt - 1} fallback
+              <Chip size="sm" color="warning" variant="soft" className="h-4 px-1 text-[9px] shrink-0" title={t("logs.retryTitle", { count: item.attempt })}>
+                {t("logs.fallbackChip", { count: item.attempt - 1 })}
               </Chip>
             )}
           </span>
@@ -208,7 +210,7 @@ export default function Logs() {
       </Table.Cell>
       <Table.Cell textValue={String(item.status)}>
         <span className="flex items-center gap-1.5">
-          <Chip size="sm" color={statusColor(item.status)} variant="soft">{item.status || "err"}</Chip>
+          <Chip size="sm" color={statusColor(item.status)} variant="soft">{item.status || t("logs.err")}</Chip>
           {item.error && <span className="text-[11px] text-danger truncate max-w-[160px]" title={item.error}>{item.error}</span>}
         </span>
       </Table.Cell>
@@ -220,15 +222,15 @@ export default function Logs() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Logs de uso</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t("logs.title")}</h1>
         <p className="text-sm text-muted mt-0.5">
-          {rows.length} {hasFilters ? "registros filtrados" : "registros"}
+          {hasFilters ? t("logs.subtitleFiltered", { count: rows.length }) : t("logs.subtitle", { count: rows.length })}
         </p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <DateRangePicker
-          aria-label="Filtrar por data"
+          aria-label={t("logs.filterDate")}
           className="w-full lg:col-span-2"
           startName="startDate"
           endName="endDate"
@@ -250,7 +252,7 @@ export default function Logs() {
             </DateField.Suffix>
           </DateField.Group>
           <DateRangePicker.Popover>
-            <RangeCalendar aria-label="Filtrar por data">
+            <RangeCalendar aria-label={t("logs.filterDate")}>
               <RangeCalendar.Header>
                 <RangeCalendar.YearPickerTrigger>
                   <RangeCalendar.YearPickerTriggerHeading />
@@ -275,49 +277,49 @@ export default function Logs() {
             </RangeCalendar>
           </DateRangePicker.Popover>
         </DateRangePicker>
-        <FilterSelect label="Modelo" value={modelFilter} onChange={setModelFilter} options={modelOptions} />
-        <FilterSelect label="Combo" value={comboFilter} onChange={setComboFilter} options={comboOptions} />
+        <FilterSelect label={t("logs.model")} value={modelFilter} onChange={setModelFilter} options={modelOptions} />
+        <FilterSelect label={t("logs.combo")} value={comboFilter} onChange={setComboFilter} options={comboOptions} />
         <Select
-          aria-label="Token"
+          aria-label={t("logs.token")}
           selectedKey={keyFilter || null}
           onSelectionChange={(k) => setKeyFilter((k as string) ?? "")}
         >
-          <Select.Trigger><Select.Value>{keyFilter ? apiKeys.find((k) => k.key === keyFilter)?.name ?? "Token" : "Todos"}</Select.Value><Select.Indicator /></Select.Trigger>
+          <Select.Trigger><Select.Value>{keyFilter ? apiKeys.find((k) => k.key === keyFilter)?.name ?? t("logs.token") : t("logs.all")}</Select.Value><Select.Indicator /></Select.Trigger>
           <Select.Popover>
             <ListBox>
-              <ListBox.Item id="">Todos</ListBox.Item>
+              <ListBox.Item id="">{t("logs.all")}</ListBox.Item>
               {apiKeys.map((k) => <ListBox.Item key={k.key} id={k.key}>{k.name}</ListBox.Item>)}
             </ListBox>
           </Select.Popover>
         </Select>
-        <Input aria-label="Buscar" placeholder="modelo, provider..." value={search} onChange={(e) => setSearch(e.target.value)} variant="secondary" />
+        <Input aria-label={t("logs.searchAria")} placeholder={t("logs.searchPlaceholder")} value={search} onChange={(e) => setSearch(e.target.value)} variant="secondary" />
       </div>
 
       {hasFilters && (
-        <Button size="sm" variant="secondary" onPress={clearFilters}>Limpar filtros</Button>
+        <Button size="sm" variant="secondary" onPress={clearFilters}>{t("logs.clearFilters")}</Button>
       )}
 
       <Table>
         <Table.ScrollContainer>
           <Table.Content
-            aria-label="Logs de uso"
+            aria-label={t("logs.tableAria")}
             className="min-w-[820px]"
             expandedKeys={expandedKeys}
             treeColumn="label"
             onExpandedChange={setExpandedKeys}
           >
             <Table.Header>
-              <Table.Column isRowHeader id="label">Registro</Table.Column>
-              <Table.Column id="timestamp">Timestamp</Table.Column>
-              <Table.Column id="provider">Provider</Table.Column>
-              <Table.Column id="tokens">Tokens</Table.Column>
-              <Table.Column id="cost">Custo</Table.Column>
-              <Table.Column id="status">Status</Table.Column>
-              <Table.Column id="latency">Latência</Table.Column>
+              <Table.Column isRowHeader id="label">{t("logs.colRecord")}</Table.Column>
+              <Table.Column id="timestamp">{t("logs.colTimestamp")}</Table.Column>
+              <Table.Column id="provider">{t("logs.colProvider")}</Table.Column>
+              <Table.Column id="tokens">{t("logs.colTokens")}</Table.Column>
+              <Table.Column id="cost">{t("logs.colCost")}</Table.Column>
+              <Table.Column id="status">{t("logs.colStatus")}</Table.Column>
+              <Table.Column id="latency">{t("logs.colLatency")}</Table.Column>
             </Table.Header>
             <Table.Body items={rows} renderEmptyState={() => (
               <div className="p-10 text-center text-muted text-sm">
-                {hasFilters ? "Nenhum registro encontrado." : "Nenhum log ainda."}
+                {hasFilters ? t("logs.emptyFiltered") : t("logs.empty")}
               </div>
             )}>
               {loading ? () => (
@@ -329,7 +331,7 @@ export default function Logs() {
         {!loading && totalPages > 1 && (
           <Table.Footer>
             <Pagination size="sm">
-              <Pagination.Summary>{start} a {end} de {total}</Pagination.Summary>
+              <Pagination.Summary>{t("logs.pagination", { start, end, total })}</Pagination.Summary>
               <Pagination.Content>
                 <Pagination.Item>
                   <Pagination.Previous isDisabled={page === 1} onPress={() => setPage((p) => Math.max(1, p - 1))}>
@@ -362,6 +364,7 @@ export default function Logs() {
 }
 
 function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
+  const { t } = useTranslation();
   return (
     <Select
       aria-label={label}
@@ -369,12 +372,12 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
       onSelectionChange={(k) => onChange((k as string) ?? "")}
     >
       <Select.Trigger>
-        <Select.Value>{value || "Todos"}</Select.Value>
+        <Select.Value>{value || t("logs.all")}</Select.Value>
         <Select.Indicator />
       </Select.Trigger>
       <Select.Popover>
         <ListBox>
-          <ListBox.Item id="">Todos</ListBox.Item>
+          <ListBox.Item id="">{t("logs.all")}</ListBox.Item>
           {options.map((o) => <ListBox.Item key={o} id={o}>{o}</ListBox.Item>)}
         </ListBox>
       </Select.Popover>

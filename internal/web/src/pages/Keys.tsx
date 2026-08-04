@@ -3,21 +3,15 @@ import {
   Table, Button, Modal, Input, Chip, TextField, Label, Description, Card, AlertDialog,
   ToggleButton, Select, ListBox,
 } from "@heroui/react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { api, type ApiKey, type KeyLimit } from "../api";
 import { ModelComboBox, type ModelComboBoxItem } from "../components/ModelComboBox";
 import { IconPlus, IconTrash, IconPencil, IconApi, IconCopy, IconCheck, IconX, IconGauge, IconDollar, IconBox } from "../icons";
 
 type LimitKind = "rate" | "budget";
 
-const DURATION_PRESETS = [
-  { value: "1m", label: "1 minuto" },
-  { value: "1h", label: "1 hora" },
-  { value: "5h", label: "5 horas" },
-  { value: "12h", label: "12 horas" },
-  { value: "24h", label: "1 dia" },
-  { value: "7d", label: "7 dias" },
-  { value: "30d", label: "30 dias" },
-];
+const DURATION_PRESETS = ["1m", "1h", "5h", "12h", "24h", "7d", "30d"];
 
 // Draft holds the "add a limit" form inputs for one feature section. Each
 // active feature has its own draft so Rate and Budget can be configured
@@ -31,8 +25,8 @@ interface Draft {
 
 const emptyDraft = (): Draft => ({ max: "", duration: "1h", custom: "", customMode: false });
 
-function formatLimit(l: KeyLimit): string {
-  return l.kind === "rate" ? `${Math.round(l.max)} req/${l.duration}` : `$${l.max}/${l.duration}`;
+function formatLimit(l: KeyLimit, t: TFunction): string {
+  return l.kind === "rate" ? `${Math.round(l.max)} ${t("keys.perReq")}${l.duration}` : `$${l.max}/${l.duration}`;
 }
 
 function genId(): string {
@@ -44,6 +38,7 @@ function genId(): string {
 // LimitsCell renders up to 3 limit chips and collapses the rest into a
 // "+N" chip with a full tooltip, keeping the row compact.
 function LimitsCell({ limits }: { limits: KeyLimit[] }) {
+  const { t } = useTranslation();
   const shown = limits.slice(0, 3);
   const extra = limits.length - shown.length;
   if (limits.length === 0) {
@@ -52,12 +47,12 @@ function LimitsCell({ limits }: { limits: KeyLimit[] }) {
   return (
     <div className="flex flex-wrap gap-1">
       {shown.map((l) => (
-        <Chip key={l.id} size="sm" variant="soft" className="text-[10px]" title={formatLimit(l)}>
-          {formatLimit(l)}
+        <Chip key={l.id} size="sm" variant="soft" className="text-[10px]" title={formatLimit(l, t)}>
+          {formatLimit(l, t)}
         </Chip>
       ))}
       {extra > 0 && (
-        <Chip size="sm" variant="soft" className="text-[10px]" title={limits.map(formatLimit).join(", ")}>
+        <Chip size="sm" variant="soft" className="text-[10px]" title={limits.map((l) => formatLimit(l, t)).join(", ")}>
           +{extra}
         </Chip>
       )}
@@ -75,41 +70,54 @@ function LimitEditor({ kind, limits, draft, onDraftChange, onAdd, onRemove }: {
   onAdd: () => void;
   onRemove: (id: string) => void;
 }) {
+  const { t } = useTranslation();
+  const durLabel = (v: string): string => {
+    const durKeys: Record<string, string> = {
+      "1m": "min1",
+      "1h": "hour1",
+      "5h": "hours5",
+      "12h": "hours12",
+      "24h": "day1",
+      "7d": "days7",
+      "30d": "days30",
+    };
+    return t(`keys.durPresets.${durKeys[v] ?? "custom"}`);
+  };
   return (
     <div className="space-y-3 rounded-xl border border-border bg-surface-secondary/50 p-3">
       <div className="flex flex-wrap gap-2">
         {limits.map((l) => (
           <Chip key={l.id} size="sm" variant="soft" className="text-[11px]">
             <span className="flex items-center gap-1">
-              {formatLimit(l)}
-              <Button isIconOnly size="sm" variant="ghost" className="size-4 min-w-0 p-0 text-muted" onPress={() => onRemove(l.id)} aria-label={`remover ${formatLimit(l)}`}>
+              {formatLimit(l, t)}
+              <Button isIconOnly size="sm" variant="ghost" className="size-4 min-w-0 p-0 text-muted" onPress={() => onRemove(l.id)} aria-label={t("keys.removeLimitAria", { limit: formatLimit(l, t) })}>
                 <IconX className="size-3" />
               </Button>
             </span>
           </Chip>
         ))}
         {limits.length === 0 && (
-          <span className="text-xs text-muted">Nenhum limite {kind === "rate" ? "de requisições" : "de gasto"}.</span>
+          <span className="text-xs text-muted">{kind === "rate" ? t("keys.limitEmptyRate") : t("keys.limitEmptyBudget")}</span>
         )}
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-end">
         <TextField value={draft.max} onChange={(v) => onDraftChange({ ...draft, max: v })} className="sm:w-36">
-          <Label>{kind === "rate" ? "Máx. requisições" : "Máx. USD"}</Label>
-          <Input type="number" min="0" step={kind === "budget" ? "0.01" : "1"} placeholder={kind === "rate" ? "ex: 100" : "ex: 10.00"} />
+          <Label>{kind === "rate" ? t("keys.maxRate") : t("keys.maxBudget")}</Label>
+          <Input type="number" min="0" step={kind === "budget" ? "0.01" : "1"} placeholder={kind === "rate" ? t("keys.maxRatePlaceholder") : t("keys.maxBudgetPlaceholder")} />
         </TextField>
         <div className="flex flex-col gap-1 flex-1 min-w-0">
-          <Label>Duração</Label>
+          <Label>{t("keys.duration")}</Label>
           {draft.customMode ? (
             <Input
               value={draft.custom}
               onChange={(e) => onDraftChange({ ...draft, custom: e.target.value })}
-              placeholder="ex: 90d, 6h, 45m"
-              aria-label="Duração personalizada"
+              placeholder={t("keys.customPlaceholder")}
+              aria-label={t("keys.customAria")}
             />
           ) : (
             <Select
-              aria-label="Duração"
+              aria-label={t("keys.duration")}
               selectedKey={draft.duration}
               onSelectionChange={(key) => {
                 const v = key as string;
@@ -120,15 +128,15 @@ function LimitEditor({ kind, limits, draft, onDraftChange, onAdd, onRemove }: {
               <Select.Trigger><Select.Value /></Select.Trigger>
               <Select.Popover>
                 <ListBox>
-                  {DURATION_PRESETS.map((d) => <ListBox.Item key={d.value} id={d.value}>{d.label}</ListBox.Item>)}
-                  <ListBox.Item id="custom">Personalizado...</ListBox.Item>
+                  {DURATION_PRESETS.map((d) => <ListBox.Item key={d} id={d}>{durLabel(d)}</ListBox.Item>)}
+                  <ListBox.Item id="custom">{t("keys.durPresets.custom")}</ListBox.Item>
                 </ListBox>
               </Select.Popover>
             </Select>
           )}
         </div>
         <Button variant="secondary" onPress={onAdd} isDisabled={!parseFloat(draft.max) || !(draft.customMode ? draft.custom.trim() : draft.duration)}>
-          Adicionar
+          {t("keys.addLimit")}
         </Button>
       </div>
       <Button
@@ -137,13 +145,14 @@ function LimitEditor({ kind, limits, draft, onDraftChange, onAdd, onRemove }: {
         onPress={() => onDraftChange({ ...draft, customMode: !draft.customMode })}
         className="text-xs"
       >
-        {draft.customMode ? "Usar presets" : "Duração personalizada"}
+        {draft.customMode ? t("keys.usePresets") : t("keys.customDuration")}
       </Button>
     </div>
   );
 }
 
 export default function Keys() {
+  const { t } = useTranslation();
   const [items, setItems] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -224,7 +233,7 @@ export default function Keys() {
         setCopied(k.key);
       }
     } catch (e: any) {
-      setError(e?.message ?? "falha ao salvar");
+      setError(e?.message ?? t("keys.saveError"));
     } finally {
       setSaving(false);
     }
@@ -281,28 +290,28 @@ export default function Keys() {
     <div className="space-y-5">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">API Keys</h1>
-          <p className="text-sm text-muted mt-0.5">{items.length} chaves cadastradas</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t("keys.title")}</h1>
+          <p className="text-sm text-muted mt-0.5">{t("keys.subtitle", { count: items.length })}</p>
         </div>
-        <Button variant="outline" onPress={openCreate}><IconPlus className="w-4 h-4" /> Nova chave</Button>
+        <Button variant="outline" onPress={openCreate}><IconPlus className="w-4 h-4" /> {t("keys.new")}</Button>
       </div>
 
       <Card className="p-5">
         <div className="flex items-center gap-2 mb-3">
           <IconApi className="w-4 h-4" />
-          <h2 className="text-base font-semibold">API Endpoint</h2>
+          <h2 className="text-base font-semibold">{t("keys.endpointTitle")}</h2>
         </div>
         <p className="text-xs text-muted mb-3">
-          Aponte seu cliente (Claude Code, Cursor, Codex, Cline...) para este endpoint.
+          {t("keys.endpointDesc")}
         </p>
         <div className="flex items-center gap-2">
-          <Chip size="sm" variant="soft" className="shrink-0 min-w-[70px] justify-center font-mono text-xs">Local</Chip>
-          <Input value={endpoint} readOnly className="flex-1 font-mono text-sm" aria-label="API Endpoint" />
+          <Chip size="sm" variant="soft" className="shrink-0 min-w-[70px] justify-center font-mono text-xs">{t("keys.local")}</Chip>
+          <Input value={endpoint} readOnly className="flex-1 font-mono text-sm" aria-label={t("keys.endpointAria")} />
           <Button
             isIconOnly
             variant="secondary"
             onPress={copyEndpoint}
-            aria-label="copiar endpoint"
+            aria-label={t("keys.copyEndpointAria")}
             className={endpointCopied ? "text-success" : ""}
           >
             {endpointCopied ? <IconCheck className="w-4 h-4 text-success" /> : <IconCopy className="w-4 h-4" />}
@@ -312,23 +321,23 @@ export default function Keys() {
 
       <Card className="overflow-hidden">
         {loading ? (
-          <div className="p-10 text-center text-muted text-sm">Carregando...</div>
+          <div className="p-10 text-center text-muted text-sm">{t("keys.loading")}</div>
         ) : items.length === 0 ? (
           <div className="p-10 text-center text-muted text-sm">
-            Nenhuma chave ainda. Clique em <strong>Nova chave</strong>.
+            {t("keys.empty")} <strong>{t("keys.new")}</strong>.
           </div>
         ) : (
           <Table>
             <Table.ScrollContainer>
-              <Table.Content aria-label="keys" className="min-w-[760px]">
+              <Table.Content aria-label={t("keys.title")} className="min-w-[760px]">
                 <Table.Header>
-                  <Table.Column isRowHeader id="name">Nome</Table.Column>
-                  <Table.Column id="key">Chave</Table.Column>
-                  <Table.Column id="models">Modelos</Table.Column>
-                  <Table.Column id="limits">Limites</Table.Column>
-                  <Table.Column id="status">Status</Table.Column>
-                  <Table.Column id="created">Criada</Table.Column>
-                  <Table.Column id="actions">Ações</Table.Column>
+                  <Table.Column isRowHeader id="name">{t("keys.colName")}</Table.Column>
+                  <Table.Column id="key">{t("keys.colKey")}</Table.Column>
+                  <Table.Column id="models">{t("keys.colModels")}</Table.Column>
+                  <Table.Column id="limits">{t("keys.colLimits")}</Table.Column>
+                  <Table.Column id="status">{t("keys.colStatus")}</Table.Column>
+                  <Table.Column id="created">{t("keys.colCreated")}</Table.Column>
+                  <Table.Column id="actions">{t("keys.colActions")}</Table.Column>
                 </Table.Header>
                 <Table.Body items={items}>
                   {(k) => (
@@ -338,7 +347,7 @@ export default function Keys() {
                         <div
                           className="inline-flex items-center gap-1.5 cursor-pointer hover:bg-default-soft rounded-lg px-2 py-1 transition-colors group"
                           onClick={() => copyKey(k)}
-                          title="Clique para copiar"
+                          title={t("keys.copyTooltip")}
                         >
                           <code className="text-xs text-muted group-hover:text-accent transition-colors">{k.key.slice(0, 10)}…{k.key.slice(-6)}</code>
                           {copiedKeyId === k.id ? <IconCheck className="text-success shrink-0 w-3 h-3" /> : <IconCopy className="w-3 h-3 text-muted/70 shrink-0 group-hover:text-accent transition-colors" />}
@@ -354,24 +363,24 @@ export default function Keys() {
                             {k.allowed_models.length > 3 && <Chip size="sm" variant="soft" className="text-[10px]">+{k.allowed_models.length - 3}</Chip>}
                           </div>
                         ) : (
-                          <span className="text-xs text-muted">todos</span>
+                          <span className="text-xs text-muted">{t("keys.all")}</span>
                         )}
                       </Table.Cell>
                       <Table.Cell>
                         <Chip size="sm" variant="soft" color={k.is_active ? "success" : "default"}>
-                          {k.is_active ? "ativo" : "inativo"}
+                          {k.is_active ? t("keys.active") : t("keys.inactive")}
                         </Chip>
                       </Table.Cell>
                       <Table.Cell><span className="text-xs text-muted">{new Date(k.created_at).toLocaleDateString()}</span></Table.Cell>
                       <Table.Cell>
                         <div className="flex gap-1 justify-end">
-                          <Button size="sm" variant="secondary" onPress={() => openEdit(k)} aria-label={`editar ${k.name}`}>
-                            <IconPencil className="w-3.5 h-3.5" /> Editar
+                          <Button size="sm" variant="secondary" onPress={() => openEdit(k)} aria-label={t("keys.editAria", { name: k.name })}>
+                            <IconPencil className="w-3.5 h-3.5" /> {t("keys.edit")}
                           </Button>
                           <Button size="sm" variant="secondary" onPress={() => toggleActive(k)}>
-                            {k.is_active ? "Desativar" : "Ativar"}
+                            {k.is_active ? t("keys.deactivate") : t("keys.activate")}
                           </Button>
-                          <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => setConfirmId(k.id)} aria-label="excluir"><IconTrash className="w-4 h-4" /></Button>
+                          <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => setConfirmId(k.id)} aria-label={t("keys.deleteAria")}><IconTrash className="w-4 h-4" /></Button>
                         </div>
                       </Table.Cell>
                     </Table.Row>
@@ -388,18 +397,18 @@ export default function Keys() {
           <Modal.Container>
             <Modal.Dialog>
               <Modal.Header>
-                <Modal.Heading>{editing ? `Editar API Key — ${editing.name}` : "Nova API Key"}</Modal.Heading>
+                <Modal.Heading>{editing ? t("keys.editModal", { name: editing.name }) : t("keys.createModal")}</Modal.Heading>
               </Modal.Header>
               <Modal.Body className="flex flex-col gap-4">
                 <TextField value={formName} onChange={setFormName}>
-                  <Label>Nome</Label>
-                  <Input placeholder="ex: dev, prod, mobile" />
+                  <Label>{t("keys.name")}</Label>
+                  <Input placeholder={t("keys.namePlaceholder")} />
                 </TextField>
 
                 <div className="flex flex-col gap-1">
-                  <Label>Acesso a modelos</Label>
+                  <Label>{t("keys.accessLabel")}</Label>
                   <ToggleButton isSelected={features.allowedModels} onChange={(v) => toggleFeature("allowedModels", v)}>
-                    <IconBox className="w-4 h-4" /> Modelos permitidos
+                    <IconBox className="w-4 h-4" /> {t("keys.allowedModels")}
                   </ToggleButton>
                 </div>
 
@@ -414,7 +423,7 @@ export default function Keys() {
                               <button
                                 className="text-muted hover:text-danger transition-colors"
                                 onClick={() => toggleAllowedModel(m)}
-                                aria-label={`Remover ${m}`}
+                                aria-label={t("keys.removeModelAria", { model: m })}
                               >
                                 <IconX className="w-3 h-3" />
                               </button>
@@ -425,26 +434,26 @@ export default function Keys() {
                     )}
                     <ModelComboBox
                       items={modelItems.filter((i) => !formAllowed.includes(i.id))}
-                      ariaLabel="Adicionar modelo permitido"
-                      inputPlaceholder="Adicionar modelo..."
+                      ariaLabel={t("keys.addModelAria")}
+                      inputPlaceholder={t("keys.addModelPlaceholder")}
                       inputClassName="text-xs"
                       selectedKey={null}
                       onSelectionChange={toggleAllowedModel}
                     />
                     <Description>
-                      Modelos e combos que esta key pode usar. Vazio = todos.
+                      {t("keys.allowedDesc")}
                     </Description>
                   </div>
                 )}
 
                 <div className="flex flex-col gap-1">
-                  <Label>Limites</Label>
+                  <Label>{t("keys.limitsLabel")}</Label>
                   <div className="flex flex-wrap gap-2">
                     <ToggleButton isSelected={features.rate} onChange={(v) => toggleFeature("rate", v)}>
-                      <IconGauge className="w-4 h-4" /> Rate Limit
+                      <IconGauge className="w-4 h-4" /> {t("keys.rateLimit")}
                     </ToggleButton>
                     <ToggleButton isSelected={features.budget} onChange={(v) => toggleFeature("budget", v)}>
-                      <IconDollar className="w-4 h-4" /> Budget Limit
+                      <IconDollar className="w-4 h-4" /> {t("keys.budgetLimit")}
                     </ToggleButton>
                   </div>
                 </div>
@@ -471,14 +480,14 @@ export default function Keys() {
                 )}
 
                 <Description>
-                  Ative as features que quiser e configure seus limites. A key é bloqueada se <strong>qualquer</strong> limite exceder. Limites são janelas deslizantes.
+                  {t("keys.limitsDesc", { any: <strong>{t("keys.any")}</strong> })}
                 </Description>
 
                 {error && <p className="text-sm text-danger">{error}</p>}
               </Modal.Body>
               <Modal.Footer>
-                <Button variant="secondary" onPress={() => setModalOpen(false)}>Cancelar</Button>
-                <Button variant="primary" onPress={save} isDisabled={saving || !formName}>{editing ? "Salvar" : "Criar"}</Button>
+                <Button variant="secondary" onPress={() => setModalOpen(false)}>{t("keys.cancel")}</Button>
+                <Button variant="primary" onPress={save} isDisabled={saving || !formName}>{editing ? t("keys.save") : t("keys.create")}</Button>
               </Modal.Footer>
             </Modal.Dialog>
           </Modal.Container>
@@ -489,14 +498,14 @@ export default function Keys() {
         <Modal.Backdrop>
           <Modal.Container>
             <Modal.Dialog>
-              <Modal.Header><Modal.Heading>Chave criada</Modal.Heading></Modal.Header>
+              <Modal.Header><Modal.Heading>{t("keys.createdTitle")}</Modal.Heading></Modal.Header>
               <Modal.Body>
-                <p className="text-sm text-warning">Copie agora — não será mostrada novamente.</p>
+                <p className="text-sm text-warning">{t("keys.createdBody")}</p>
                 <code className="block bg-surface-secondary p-3 rounded-lg font-mono text-xs break-all border border-border mt-3">{copied}</code>
               </Modal.Body>
               <Modal.Footer>
-                <Button variant="primary" onPress={() => navigator.clipboard.writeText(copied || "")}>Copiar</Button>
-                <Button variant="secondary" onPress={() => setCopied(null)}>Fechar</Button>
+                <Button variant="primary" onPress={() => navigator.clipboard.writeText(copied || "")}>{t("keys.copy")}</Button>
+                <Button variant="secondary" onPress={() => setCopied(null)}>{t("keys.close")}</Button>
               </Modal.Footer>
             </Modal.Dialog>
           </Modal.Container>
@@ -510,14 +519,14 @@ export default function Keys() {
               <AlertDialog.CloseTrigger />
               <AlertDialog.Header>
                 <AlertDialog.Icon status="danger" />
-                <AlertDialog.Heading>Remover esta chave?</AlertDialog.Heading>
+                <AlertDialog.Heading>{t("keys.removeTitle")}</AlertDialog.Heading>
               </AlertDialog.Header>
               <AlertDialog.Body>
-                <p>Apps que usam esta chave perderão acesso ao gateway.</p>
+                <p>{t("keys.removeBody")}</p>
               </AlertDialog.Body>
               <AlertDialog.Footer>
-                <Button slot="close" variant="tertiary">Cancelar</Button>
-                <Button slot="close" variant="danger" onPress={() => { if (confirmId) remove(confirmId); setConfirmId(null); }}>Remover</Button>
+                <Button slot="close" variant="tertiary">{t("keys.cancel")}</Button>
+                <Button slot="close" variant="danger" onPress={() => { if (confirmId) remove(confirmId); setConfirmId(null); }}>{t("keys.remove")}</Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>
           </AlertDialog.Container>

@@ -36,4 +36,3 @@ export const IconEye = (p: { className?: string }) => <Icon icon="gravity-ui:eye
 export const IconEyeOff = (p: { className?: string }) => <Icon icon="gravity-ui:eye-closed" className={p.className} />;
 export const IconCalendar = (p: { className?: string }) => <Icon icon="gravity-ui:calendar" className={p.className} />;
 export const IconSettings = (p: { className?: string }) => <Icon icon="gravity-ui:gear" className={p.className} />;
-export const IconChart = (p: { className?: string }) => <Icon icon="mdi:chart-timeline-variant" className={p.className} />;

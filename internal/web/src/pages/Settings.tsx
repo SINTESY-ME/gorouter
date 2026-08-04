@@ -1,25 +1,27 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Spinner, Switch, Button, Card, Input, Description } from "@heroui/react";
 import { api } from "../api";
 import { IconCopy, IconCheck } from "../icons";
 
-const HOOKS: { id: string; label: string; desc: string }[] = [
-  { id: "keyword_moderation", label: "Keyword moderation", desc: "Rejeita (400) mensagens que casam com GOROUTER_HOOK_MODERATION_PATTERNS." },
-  { id: "prompt_injection_heuristic", label: "Prompt injection", desc: "Rejeita (400) padrões comuns de prompt injection em mensagens de usuário." },
-  { id: "request_logging", label: "Request logging", desc: "Log estruturado (slog) de sucesso/falha por request." },
-  { id: "prometheus", label: "Prometheus", desc: "Alimenta as métricas de request em /metrics." },
-  { id: "webhook_logging", label: "Webhook logging", desc: "Envia eventos de request para a URL configurada abaixo." },
+const HOOKS: { id: string; labelKey: string; descKey: string }[] = [
+  { id: "keyword_moderation", labelKey: "settings.keywordLabel", descKey: "settings.keywordDesc" },
+  { id: "prompt_injection_heuristic", labelKey: "settings.promptLabel", descKey: "settings.promptDesc" },
+  { id: "request_logging", labelKey: "settings.loggingLabel", descKey: "settings.loggingDesc" },
+  { id: "prometheus", labelKey: "settings.prometheusLabel", descKey: "settings.prometheusDesc" },
+  { id: "webhook_logging", labelKey: "settings.webhookLabel", descKey: "settings.webhookDesc" },
 ];
 
 function endpoints(origin: string) {
   return [
-    { path: "/metrics", desc: "Prometheus (público)" },
-    { path: "/health", desc: "Status geral (público)" },
-    { path: "/health/readiness", desc: "Prontidão — 200 se pronto (público)" },
+    { path: "/metrics", descKey: "settings.metricsDesc" },
+    { path: "/health", descKey: "settings.healthDesc" },
+    { path: "/health/readiness", descKey: "settings.readinessDesc" },
   ].map((e) => ({ ...e, full: `${origin}${e.path}` }));
 }
 
 export default function Settings() {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [hooks, setHooks] = useState<string[]>([]);
   const [webhookUrl, setWebhookUrl] = useState("");
@@ -66,20 +68,20 @@ export default function Settings() {
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Configurações</h1>
-        <p className="text-sm text-muted mt-0.5">Hooks, observabilidade e cache compartilhado — aplicados ao vivo, sem restart.</p>
+        <h1 className="text-2xl font-bold tracking-tight">{t("settings.title")}</h1>
+        <p className="text-sm text-muted mt-0.5">{t("settings.subtitle")}</p>
       </div>
 
       {/* Hooks */}
       <Card className="p-6">
-        <h3 className="font-semibold">Hooks</h3>
-        <p className="text-sm text-muted mt-1">Pipeline de hooks (PreCall/PostCall). Desativado = zero overhead no hot path.</p>
+        <h3 className="font-semibold">{t("settings.hooksTitle")}</h3>
+        <p className="text-sm text-muted mt-1">{t("settings.hooksDesc")}</p>
         <div className="mt-4 space-y-1">
           {HOOKS.map((h) => (
             <div key={h.id} className="flex items-start justify-between gap-4 py-2.5 border-b border-border last:border-0">
               <div className="flex-1">
-                <p className="text-sm font-medium">{h.label}</p>
-                <p className="text-xs text-muted mt-0.5">{h.desc}</p>
+                <p className="text-sm font-medium">{t(h.labelKey)}</p>
+                <p className="text-xs text-muted mt-0.5">{t(h.descKey)}</p>
               </div>
               <Switch
                 isSelected={hooks.includes(h.id)}
@@ -87,7 +89,7 @@ export default function Settings() {
                 isDisabled={savingHook === h.id}
                 size="lg"
               >
-                <Switch.Content aria-label={h.label}>
+                <Switch.Content aria-label={t(h.labelKey)}>
                   <Switch.Control><Switch.Thumb /></Switch.Control>
                 </Switch.Content>
               </Switch>
@@ -99,41 +101,41 @@ export default function Settings() {
       {/* Webhook */}
       {hooks.includes("webhook_logging") && (
         <Card className="p-6">
-          <h3 className="font-semibold">Webhook de observabilidade</h3>
+          <h3 className="font-semibold">{t("settings.webhookTitle")}</h3>
           <p className="text-sm text-muted mt-1">
-            Eventos de request (sucesso/falha) enviados por POST ao hook <code className="text-xs">webhook_logging</code>.
+            {t("settings.webhookDesc2")}
           </p>
           <div className="mt-4 flex gap-2">
             <Input
               value={webhookUrl}
               onChange={(e) => setWebhookUrl(e.target.value)}
-              placeholder="https://hooks.slack.com/services/..."
+              placeholder={t("settings.webhookPlaceholder")}
               className="flex-1"
             />
-            <Button variant="primary" onPress={saveWebhook}>{webhookSaved ? "Salvo ✓" : "Salvar"}</Button>
+            <Button variant="primary" onPress={saveWebhook}>{webhookSaved ? t("settings.saved") : t("settings.save")}</Button>
           </div>
           <Description className="mt-2">
-            Valor inicial vem de <code className="text-xs">GOROUTER_HOOK_WEBHOOK_URL</code>; salvar aqui persiste e aplica ao vivo.
+            {t("settings.webhookHint")}
           </Description>
         </Card>
       )}
 
       {/* Endpoints */}
       <Card className="p-6">
-        <h3 className="font-semibold">Endpoints operacionais</h3>
-        <p className="text-sm text-muted mt-1">Para health checks (K8s/Swarm) e scraping de métricas.</p>
+        <h3 className="font-semibold">{t("settings.endpointsTitle")}</h3>
+        <p className="text-sm text-muted mt-1">{t("settings.endpointsDesc")}</p>
         <div className="mt-4 space-y-2">
           {endpoints(origin).map((e) => (
             <div key={e.path} className="flex items-center gap-2 text-sm">
               <button
                 onClick={() => copy(e.full)}
                 className="group flex items-center gap-2 font-mono text-xs text-accent hover:underline"
-                title="Copiar"
+                title={t("settings.copyTitle")}
               >
                 {copied === e.full ? <IconCheck className="w-3.5 h-3.5 text-success" /> : <IconCopy className="w-3.5 h-3.5 text-muted group-hover:text-accent" />}
                 {e.full}
               </button>
-              <span className="text-xs text-muted">— {e.desc}</span>
+              <span className="text-xs text-muted">— {t(e.descKey)}</span>
             </div>
           ))}
         </div>

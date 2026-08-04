@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button, Card, Input, Label, TextField } from "@heroui/react";
+import { useTranslation } from "react-i18next";
 import { api, setDashboardToken, clearDashboardToken } from "../api";
 import { IconRoute } from "../icons";
 
@@ -7,6 +8,7 @@ import { IconRoute } from "../icons";
 // during first-run setup (or the GOROUTER_DASHBOARD_TOKEN env value). On
 // success the token is stored and the dashboard mounts.
 export default function Login({ onDone }: { onDone: () => void }) {
+  const { t } = useTranslation();
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -20,8 +22,8 @@ export default function Login({ onDone }: { onDone: () => void }) {
       setDashboardToken(res.token);
       onDone();
     } catch (e: any) {
-      const msg = e?.message ?? "Falha ao entrar.";
-      setErr(/401|invalid/i.test(msg) ? "Senha incorreta." : msg);
+      const msg = e?.message ?? t("login.error");
+      setErr(/401|invalid/i.test(msg) ? t("login.errorWrong") : msg);
       clearDashboardToken();
     } finally {
       setBusy(false);
@@ -34,20 +36,20 @@ export default function Login({ onDone }: { onDone: () => void }) {
         <div className="flex items-center gap-3 mb-8 justify-center">
           <IconRoute className="w-6 h-6 text-accent" />
           <div>
-            <p className="font-bold text-lg leading-tight">gorouter</p>
-            <p className="text-xs text-muted leading-tight">LLM router</p>
+            <p className="font-bold text-lg leading-tight">{t("login.brand")}</p>
+            <p className="text-xs text-muted leading-tight">{t("login.tagline")}</p>
           </div>
         </div>
         <Card className="p-6 space-y-4">
-          <h2 className="text-lg font-semibold">Entrar</h2>
+          <h2 className="text-lg font-semibold">{t("login.title")}</h2>
           <form onSubmit={submit} className="space-y-3">
             <TextField isRequired value={pw} onChange={setPw} type="password">
-              <Label>Senha</Label>
-              <Input placeholder="Senha" autoFocus disabled={busy} />
+              <Label>{t("login.password")}</Label>
+              <Input placeholder={t("login.passwordPlaceholder")} autoFocus disabled={busy} />
             </TextField>
             {err && <p className="text-sm text-danger">{err}</p>}
             <Button type="submit" fullWidth isPending={busy}>
-              {busy ? "Entrando..." : "Entrar"}
+              {busy ? t("login.submitting") : t("login.submit")}
             </Button>
           </form>
         </Card>

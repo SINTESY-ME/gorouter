@@ -3,6 +3,7 @@ import {
   Table, Button, Modal, Input, Select, ListBox, Chip, Spinner, Popover, TextField, Label,
   AlertDialog, toast,
 } from "@heroui/react";
+import { useTranslation } from "react-i18next";
 import { api, type Provider, type Connection, type ModelEntry, type ProviderDef } from "../api";
 import { IconPlus, IconSearch, IconPencil, IconTrash, IconChevron, IconEye, IconEyeOff } from "../icons";
 
@@ -13,6 +14,7 @@ const emptyProvider = { id: "", name: "", base_url: "", format: "auto", auth: "b
 const emptyConnection = { name: "", api_key: "" };
 
 export default function Providers() {
+  const { t } = useTranslation();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [catalog, setCatalog] = useState<ProviderDef[]>([]);
@@ -83,27 +85,27 @@ export default function Providers() {
     setProviderOpen(true);
   };
 
-  const pickTemplate = async (t: ProviderDef) => {
-    if ((t.category === "oauth" || t.category === "free") && oauthProviders.includes(t.id)) {
-      setOauthProviderId(t.id);
+  const pickTemplate = async (def: ProviderDef) => {
+    if ((def.category === "oauth" || def.category === "free") && oauthProviders.includes(def.id)) {
+      setOauthProviderId(def.id);
       setError("");
       try {
-        const res = await api.oauth.start(t.id);
+        const res = await api.oauth.start(def.id);
         setOauthState(res.state);
         setOauthAuthURL(res.auth_url);
         setProviderStep("oauth");
         window.open(res.auth_url, "_blank", "noopener,noreferrer");
       } catch (e: any) {
-        setError(e?.message ?? "oauth start failed");
+        setError(e?.message ?? t("providers.oauthStartFailed"));
       }
       return;
     }
     setProviderForm({
-      id: t.id,
-      name: t.display.name,
-      base_url: t.transport.base_url,
-      format: t.transport.format || "openai",
-      auth: t.no_auth ? "bearer" : (t.transport.auth || "bearer"),
+      id: def.id,
+      name: def.display.name,
+      base_url: def.transport.base_url,
+      format: def.transport.format || "openai",
+      auth: def.no_auth ? "bearer" : (def.transport.auth || "bearer"),
       description: "",
     });
     setProviderStep("form");
@@ -117,7 +119,7 @@ export default function Providers() {
       setProviderOpen(false);
       loadData();
     } catch (e: any) {
-      setError(e?.message ?? "oauth complete failed");
+      setError(e?.message ?? t("providers.oauthCompleteFailed"));
     } finally {
       setSaving(false);
     }
@@ -148,7 +150,7 @@ export default function Providers() {
         setExpandedProviderId(providerForm.id);
       }
     } catch (e: any) {
-      setError(e?.message ?? "falha ao salvar provider");
+      setError(e?.message ?? t("providers.saveProviderFailed"));
     } finally {
       setSaving(false);
     }
@@ -205,7 +207,7 @@ export default function Providers() {
       setConnOpen(false);
       loadData();
     } catch (e: any) {
-      setError(e?.message ?? "falha ao salvar chave");
+      setError(e?.message ?? t("providers.saveKeyFailed"));
     } finally {
       setSaving(false);
     }
@@ -284,17 +286,17 @@ export default function Providers() {
     <div className="space-y-5">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Providers</h1>
-          <p className="text-sm text-muted mt-0.5">{providers.length} providers, {connections.length} chaves ativas</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t("providers.title")}</h1>
+          <p className="text-sm text-muted mt-0.5">{t("providers.subtitle", { providers: providers.length, connections: connections.length })}</p>
         </div>
-        <Button variant="outline" onPress={openNewProvider}><IconPlus className="w-4 h-4" /> Novo provider</Button>
+        <Button variant="outline" onPress={openNewProvider}><IconPlus className="w-4 h-4" /> {t("providers.new")}</Button>
       </div>
 
       {loading ? (
-        <div className="p-10 text-center text-muted text-sm bg-surface rounded-2xl border border-border">Carregando...</div>
+        <div className="p-10 text-center text-muted text-sm bg-surface rounded-2xl border border-border">{t("providers.loading")}</div>
       ) : providers.length === 0 ? (
         <div className="p-10 text-center text-muted text-sm bg-surface rounded-2xl border border-border">
-          Nenhum provider configurado. Clique em <strong>Novo provider</strong>.
+          {t("providers.empty")} <strong>{t("providers.new")}</strong>.
         </div>
       ) : (
         <div className="space-y-4">
@@ -319,7 +321,7 @@ export default function Providers() {
                       <div className="text-xs text-muted flex items-center gap-2 mt-0.5">
                         <code className="text-muted">{provider.base_url}</code>
                         <span>•</span>
-                        <span>{conns.length} {conns.length === 1 ? 'chave' : 'chaves'} ({activeCount} ativas)</span>
+                        <span>{conns.length} {t("providers.key", { count: conns.length })} ({t("providers.activeOf", { count: activeCount })})</span>
                       </div>
                     </div>
                   </div>
@@ -327,8 +329,8 @@ export default function Providers() {
                   <div className="flex items-center gap-3">
                     <Chip size="sm" variant="soft" color="accent">{provider.format}</Chip>
                     <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                      <Button isIconOnly size="sm" variant="ghost" onPress={() => openEditProvider(provider)} aria-label="editar"><IconPencil className="w-4 h-4" /></Button>
-                      <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => setConfirmProviderId(provider.id)} aria-label="excluir"><IconTrash className="w-4 h-4" /></Button>
+                      <Button isIconOnly size="sm" variant="ghost" onPress={() => openEditProvider(provider)} aria-label={t("providers.editAria")}><IconPencil className="w-4 h-4" /></Button>
+                      <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => setConfirmProviderId(provider.id)} aria-label={t("providers.deleteAria")}><IconTrash className="w-4 h-4" /></Button>
                     </div>
                   </div>
                 </div>
@@ -336,9 +338,9 @@ export default function Providers() {
                 {isExpanded && (
                   <div className="p-4 bg-surface">
                     <div className="flex items-center gap-3 mb-4 pb-3 border-b border-border">
-                      <span className="text-sm font-medium shrink-0">Balanceamento:</span>
+                      <span className="text-sm font-medium shrink-0">{t("providers.loadBalance")}</span>
                       <Select
-                        aria-label="Balanceamento"
+                        aria-label={t("providers.loadBalanceAria")}
                         selectedKey={provider.load_balance || "failover"}
                         onSelectionChange={(k) => updateLoadBalance(provider.id, (k as string) ?? "failover")}
                         className="max-w-[260px]"
@@ -347,8 +349,8 @@ export default function Providers() {
                         <Select.Trigger><Select.Value /></Select.Trigger>
                         <Select.Popover>
                           <ListBox>
-                            <ListBox.Item id="failover" textValue="Failover">Failover (prioriza 1ª chave ativa)</ListBox.Item>
-                            <ListBox.Item id="round-robin" textValue="Round-robin">Round-robin (distribui entre chaves)</ListBox.Item>
+                            <ListBox.Item id="failover" textValue={t("providers.failoverShort")}>{t("providers.failover")}</ListBox.Item>
+                            <ListBox.Item id="round-robin" textValue={t("providers.roundRobinShort")}>{t("providers.roundRobin")}</ListBox.Item>
                           </ListBox>
                         </Select.Popover>
                       </Select>
@@ -357,9 +359,9 @@ export default function Providers() {
 
                     <div className="mb-4">
                       <div className="flex justify-between items-center mb-2">
-                        <div className="text-sm font-semibold">Modelos do Provider</div>
+                        <div className="text-sm font-semibold">{t("providers.providerModels")}</div>
                         <Button size="sm" variant="outline" onPress={() => syncProviderModels(provider.id)} isDisabled={loadingModels === provider.id}>
-                          Sincronizar
+                          {t("providers.sync")}
                         </Button>
                       </div>
                       <div className="max-h-[160px] overflow-y-auto pr-2">
@@ -393,39 +395,39 @@ export default function Providers() {
                     </div>
 
                     <div className="mb-3 text-sm font-semibold flex justify-between items-center">
-                      Conexões / Chaves API
-                      <Button size="sm" variant="outline" onPress={() => openNewConnection(provider.id)}><IconPlus className="w-4 h-4" /> Adicionar Chave</Button>
+                      {t("providers.connectionsTitle")}
+                      <Button size="sm" variant="outline" onPress={() => openNewConnection(provider.id)}><IconPlus className="w-4 h-4" /> {t("providers.addKey")}</Button>
                     </div>
 
                     {conns.length === 0 ? (
                       <div className="text-sm text-muted py-4 text-center border border-dashed border-border rounded-xl">
-                        Nenhuma chave configurada para este provider.
+                        {t("providers.noKeys")}
                       </div>
                     ) : (
                       <div className="border border-border rounded-xl overflow-hidden">
                         <Table>
                           <Table.ScrollContainer>
-                            <Table.Content aria-label="connections" className="bg-surface-secondary min-w-[420px]">
+                            <Table.Content aria-label={t("providers.connAria")} className="bg-surface-secondary min-w-[420px]">
                               <Table.Header>
-                                <Table.Column isRowHeader id="name">Nome</Table.Column>
-                                <Table.Column id="id">ID</Table.Column>
-                                <Table.Column id="status">Status</Table.Column>
-                                <Table.Column id="actions">Ações</Table.Column>
+                                <Table.Column isRowHeader id="name">{t("providers.colName")}</Table.Column>
+                                <Table.Column id="id">{t("providers.colId")}</Table.Column>
+                                <Table.Column id="status">{t("providers.colStatus")}</Table.Column>
+                                <Table.Column id="actions">{t("providers.colActions")}</Table.Column>
                               </Table.Header>
                               <Table.Body items={conns}>
                                 {(c) => (
                                   <Table.Row key={c.id} id={c.id}>
-                                    <Table.Cell className="font-medium">{c.name || "Padrão"}</Table.Cell>
+                                    <Table.Cell className="font-medium">{c.name || t("providers.defaultName")}</Table.Cell>
                                     <Table.Cell><code className="text-[11px] text-muted font-mono">{c.id}</code></Table.Cell>
                                     <Table.Cell>
                                       <Chip size="sm" variant="soft" color={c.is_active ? "success" : "default"}>
-                                        {c.is_active ? "ativa" : "inativa"}
+                                        {c.is_active ? t("providers.active") : t("providers.inactive")}
                                       </Chip>
                                     </Table.Cell>
                                     <Table.Cell>
                                       <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
-                                        <Button isIconOnly size="sm" variant="ghost" onPress={() => openEditConnection(c)} aria-label="editar"><IconPencil className="w-4 h-4" /></Button>
-                                        <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => setConfirmConnId(c.id)} aria-label="excluir"><IconTrash className="w-4 h-4" /></Button>
+                                        <Button isIconOnly size="sm" variant="ghost" onPress={() => openEditConnection(c)} aria-label={t("providers.editAria")}><IconPencil className="w-4 h-4" /></Button>
+                                        <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => setConfirmConnId(c.id)} aria-label={t("providers.deleteAria")}><IconTrash className="w-4 h-4" /></Button>
                                       </div>
                                     </Table.Cell>
                                   </Table.Row>
@@ -450,7 +452,7 @@ export default function Providers() {
             <Modal.Dialog className="max-w-xl">
               <Modal.Header>
                 <Modal.Heading>
-                  {providerEditId ? "Editar Endpoint (Provider)" : providerStep === "pick" ? "Escolher Provider" : "Configurar Provider"}
+                  {providerEditId ? t("providers.editEndpoint") : providerStep === "pick" ? t("providers.chooseProvider") : t("providers.configureProvider")}
                 </Modal.Heading>
               </Modal.Header>
               <Modal.Body className="flex flex-col gap-4">
@@ -461,57 +463,57 @@ export default function Providers() {
                       <Input
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Buscar provider..."
+                        placeholder={t("providers.searchPlaceholder")}
                         variant="secondary"
                         className="pl-9"
                         autoFocus
-                        aria-label="Buscar provider"
+                        aria-label={t("providers.searchAria")}
                       />
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-80 overflow-y-auto pr-1">
-                      {filteredCatalog.map((t) => {
-                        const isOauth = oauthProviders.includes(t.id);
-                        const isPopular = POPULAR.includes(t.id);
+                      {filteredCatalog.map((def) => {
+                        const isOauth = oauthProviders.includes(def.id);
+                        const isPopular = POPULAR.includes(def.id);
                         return (
                           <Button
-                            key={t.id}
+                            key={def.id}
                             variant="outline"
-                            onPress={() => pickTemplate(t)}
+                            onPress={() => pickTemplate(def)}
                             className="text-left rounded-xl border border-border p-3 hover:border-accent/50 hover:bg-background transition-colors h-auto items-start flex-col"
                           >
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-muted" style={t.display.color ? { background: t.display.color } : undefined} />
-                              <span className="font-medium text-sm truncate">{t.display.name}</span>
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-muted" style={def.display.color ? { background: def.display.color } : undefined} />
+                              <span className="font-medium text-sm truncate">{def.display.name}</span>
                             </div>
-                            <p className="text-[11px] text-muted font-mono truncate">{t.id}</p>
+                            <p className="text-[11px] text-muted font-mono truncate">{def.id}</p>
                             <div className="flex flex-wrap gap-1 mt-2">
-                              {isOauth && <Chip size="sm" color="default" variant="soft" className="h-5 text-[10px]">OAuth</Chip>}
-                              {isPopular && <Chip size="sm" color="accent" variant="soft" className="h-5 text-[10px]">Popular</Chip>}
+                              {isOauth && <Chip size="sm" color="default" variant="soft" className="h-5 text-[10px]">{t("providers.oauth")}</Chip>}
+                              {isPopular && <Chip size="sm" color="accent" variant="soft" className="h-5 text-[10px]">{t("providers.popular")}</Chip>}
                             </div>
                           </Button>
                         );
                       })}
                     </div>
-                    <Button variant="secondary" onPress={() => { setProviderForm(emptyProvider); setProviderStep("form"); }}>Custom / OpenAI-compatible</Button>
+                    <Button variant="secondary" onPress={() => { setProviderForm(emptyProvider); setProviderStep("form"); }}>{t("providers.custom")}</Button>
                   </>
                 )}
 
                 {providerStep === "oauth" && (
                   <>
-                    <Button size="sm" variant="ghost" className="self-start" onPress={() => setProviderStep("pick")}>← voltar</Button>
+                    <Button size="sm" variant="ghost" className="self-start" onPress={() => setProviderStep("pick")}>{t("providers.back")}</Button>
                     <div className="bg-accent/10 rounded-lg p-3 text-sm space-y-1">
-                      <p className="font-medium">Conectando <strong>{oauthProviderId}</strong></p>
+                      <p className="font-medium">{t("providers.connecting", { provider: oauthProviderId })}</p>
                       <p className="text-foreground/80">
-                        Siga as instruções na janela do navegador, copie a URL final e cole abaixo.
+                        {t("providers.oauthInstructions")}
                       </p>
                     </div>
                     {oauthAuthURL && (
                       <a href={oauthAuthURL} target="_blank" rel="noreferrer" className="text-sm text-accent underline break-all">
-                        Abrir login novamente
+                        {t("providers.openLoginAgain")}
                       </a>
                     )}
                     <TextField value={oauthCode} onChange={setOauthCode}>
-                      <Label>URL de callback ou Code</Label>
+                      <Label>{t("providers.callbackOrCode")}</Label>
                       <Input />
                     </TextField>
                   </>
@@ -520,26 +522,26 @@ export default function Providers() {
                 {(providerEditId || providerStep === "form") && (
                   <>
                     {!providerEditId && (
-                      <Button size="sm" variant="ghost" className="self-start" onPress={() => setProviderStep("pick")}>← voltar</Button>
+                      <Button size="sm" variant="ghost" className="self-start" onPress={() => setProviderStep("pick")}>{t("providers.back")}</Button>
                     )}
                     <div className="grid grid-cols-2 gap-4">
                       <TextField value={providerForm.id} onChange={(v) => setProviderForm({ ...providerForm, id: v })} isDisabled={!!providerEditId}>
-                        <Label>ID do Provider</Label>
-                        <Input placeholder="ex: openai" />
+                        <Label>{t("providers.providerId")}</Label>
+                        <Input placeholder={t("providers.providerIdPlaceholder")} />
                       </TextField>
                       <TextField value={providerForm.name} onChange={(v) => setProviderForm({ ...providerForm, name: v })}>
-                        <Label>Nome Amigável</Label>
-                        <Input placeholder="ex: OpenAI" />
+                        <Label>{t("providers.friendlyName")}</Label>
+                        <Input placeholder={t("providers.friendlyNamePlaceholder")} />
                       </TextField>
                     </div>
                     <TextField value={providerForm.base_url} onChange={(v) => setProviderForm({ ...providerForm, base_url: v })}>
-                      <Label>Base URL</Label>
-                      <Input placeholder="https://api.openai.com/v1" />
+                      <Label>{t("providers.baseUrl")}</Label>
+                      <Input placeholder={t("providers.baseUrlPlaceholder")} />
                     </TextField>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="flex flex-col gap-1">
-                        <Label>Formato API</Label>
-                        <Select aria-label="Formato API" selectedKey={providerForm.format} onSelectionChange={(k) => setProviderForm({ ...providerForm, format: (k as string) ?? "auto" })}>
+                        <Label>{t("providers.apiFormat")}</Label>
+                        <Select aria-label={t("providers.apiFormatAria")} selectedKey={providerForm.format} onSelectionChange={(k) => setProviderForm({ ...providerForm, format: (k as string) ?? "auto" })}>
                           <Select.Trigger><Select.Value /></Select.Trigger>
                           <Select.Popover>
                             <ListBox>{FORMATS.map((f) => <ListBox.Item key={f} id={f}>{f}</ListBox.Item>)}</ListBox>
@@ -547,8 +549,8 @@ export default function Providers() {
                         </Select>
                       </div>
                       <div className="flex flex-col gap-1">
-                        <Label>Autenticação</Label>
-                        <Select aria-label="Autenticação" selectedKey={providerForm.auth} onSelectionChange={(k) => setProviderForm({ ...providerForm, auth: (k as string) ?? "bearer" })}>
+                        <Label>{t("providers.auth")}</Label>
+                        <Select aria-label={t("providers.authAria")} selectedKey={providerForm.auth} onSelectionChange={(k) => setProviderForm({ ...providerForm, auth: (k as string) ?? "bearer" })}>
                           <Select.Trigger><Select.Value /></Select.Trigger>
                           <Select.Popover>
                             <ListBox>{AUTHS.map((a) => <ListBox.Item key={a} id={a}>{a}</ListBox.Item>)}</ListBox>
@@ -563,10 +565,10 @@ export default function Providers() {
               </Modal.Body>
               <Modal.Footer>
                 {(providerEditId || providerStep === "form") && (
-                  <Button variant="primary" onPress={submitProvider} isDisabled={saving}>Salvar Provider</Button>
+                  <Button variant="primary" onPress={submitProvider} isDisabled={saving}>{t("providers.saveProvider")}</Button>
                 )}
                 {providerStep === "oauth" && (
-                  <Button variant="primary" onPress={completeOAuth} isDisabled={saving || !oauthCode.trim()}>Conectar</Button>
+                  <Button variant="primary" onPress={completeOAuth} isDisabled={saving || !oauthCode.trim()}>{t("providers.connect")}</Button>
                 )}
               </Modal.Footer>
             </Modal.Dialog>
@@ -580,22 +582,22 @@ export default function Providers() {
             <Modal.Dialog>
               <Modal.Header>
                 <Modal.Heading>
-                  {connEditId ? "Editar Chave" : "Adicionar Chave"} <span className="text-muted text-sm ml-2 font-normal">({connProviderId})</span>
+                  {connEditId ? t("providers.editKey") : t("providers.addKeyTitle")} <span className="text-muted text-sm ml-2 font-normal">{t("providers.connSuffix", { provider: connProviderId })}</span>
                 </Modal.Heading>
               </Modal.Header>
               <Modal.Body className="flex flex-col gap-4">
                 <TextField value={connForm.name} onChange={(v) => setConnForm({ ...connForm, name: v })}>
-                  <Label>Nome da Chave</Label>
-                  <Input placeholder="ex: Produção, Conta Secundária" />
+                  <Label>{t("providers.keyName")}</Label>
+                  <Input placeholder={t("providers.keyNamePlaceholder")} />
                 </TextField>
                 <TextField value={connForm.api_key} onChange={(v) => setConnForm({ ...connForm, api_key: v })}>
-                  <Label>API Key</Label>
-                  <Input type="password" placeholder={connEditId ? "Deixe em branco para manter a atual" : "sk-..."} />
+                  <Label>{t("providers.apiKey")}</Label>
+                  <Input type="password" placeholder={connEditId ? t("providers.keepPlaceholder") : t("providers.skPlaceholder")} />
                 </TextField>
                 {error && <p className="text-sm text-danger">{error}</p>}
               </Modal.Body>
               <Modal.Footer>
-                <Button variant="primary" onPress={submitConnection} isDisabled={saving}>Salvar Chave</Button>
+                <Button variant="primary" onPress={submitConnection} isDisabled={saving}>{t("providers.saveKey")}</Button>
               </Modal.Footer>
             </Modal.Dialog>
           </Modal.Container>
@@ -609,14 +611,14 @@ export default function Providers() {
               <AlertDialog.CloseTrigger />
               <AlertDialog.Header>
                 <AlertDialog.Icon status="danger" />
-                <AlertDialog.Heading>Remover este provider?</AlertDialog.Heading>
+                <AlertDialog.Heading>{t("providers.removeProviderTitle")}</AlertDialog.Heading>
               </AlertDialog.Header>
               <AlertDialog.Body>
-                <p>Isso removerá o provider e todas as suas conexões. Esta ação não pode ser desfeita.</p>
+                <p>{t("providers.removeProviderBody")}</p>
               </AlertDialog.Body>
               <AlertDialog.Footer>
-                <Button slot="close" variant="tertiary">Cancelar</Button>
-                <Button slot="close" variant="danger" onPress={() => { if (confirmProviderId) removeProvider(confirmProviderId); setConfirmProviderId(null); }}>Remover</Button>
+                <Button slot="close" variant="tertiary">{t("providers.cancel")}</Button>
+                <Button slot="close" variant="danger" onPress={() => { if (confirmProviderId) removeProvider(confirmProviderId); setConfirmProviderId(null); }}>{t("providers.remove")}</Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>
           </AlertDialog.Container>
@@ -630,14 +632,14 @@ export default function Providers() {
               <AlertDialog.CloseTrigger />
               <AlertDialog.Header>
                 <AlertDialog.Icon status="danger" />
-                <AlertDialog.Heading>Remover esta chave API?</AlertDialog.Heading>
+                <AlertDialog.Heading>{t("providers.removeConnTitle")}</AlertDialog.Heading>
               </AlertDialog.Header>
               <AlertDialog.Body>
-                <p>Apps que usam esta chave perderão acesso ao gateway.</p>
+                <p>{t("providers.removeConnBody")}</p>
               </AlertDialog.Body>
               <AlertDialog.Footer>
-                <Button slot="close" variant="tertiary">Cancelar</Button>
-                <Button slot="close" variant="danger" onPress={() => { if (confirmConnId) removeConnection(confirmConnId); setConfirmConnId(null); }}>Remover</Button>
+                <Button slot="close" variant="tertiary">{t("providers.cancel")}</Button>
+                <Button slot="close" variant="danger" onPress={() => { if (confirmConnId) removeConnection(confirmConnId); setConfirmConnId(null); }}>{t("providers.remove")}</Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>
           </AlertDialog.Container>
@@ -656,6 +658,7 @@ function ModelsPanel({ providerId, loading, models, error, onAdd, onRemove, onTo
   onRemove?: (modelId: string) => void;
   onToggle?: (modelId: string, active: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const [adding, setAdding] = useState(false);
   const [newModel, setNewModel] = useState("");
   const [saving, setSaving] = useState(false);
@@ -674,7 +677,7 @@ function ModelsPanel({ providerId, loading, models, error, onAdd, onRemove, onTo
       setNewModel("");
       setAdding(false);
     } catch (err: any) {
-      toast.danger(`Erro ao adicionar modelo: ${err.message || err}`);
+      toast.danger(t("providers.errAddModel", { message: err.message || err }));
     } finally {
       setSaving(false);
     }
@@ -685,7 +688,7 @@ function ModelsPanel({ providerId, loading, models, error, onAdd, onRemove, onTo
       await api.models.update(m.id, { is_active: !m.is_active });
       if (onToggle) onToggle(m.id, !m.is_active);
     } catch (err: any) {
-      toast.danger(`Erro: ${err.message || err}`);
+      toast.danger(t("providers.errGeneric", { message: err.message || err }));
     }
   };
 
@@ -694,12 +697,12 @@ function ModelsPanel({ providerId, loading, models, error, onAdd, onRemove, onTo
       await api.models.remove(m.id);
       if (onRemove) onRemove(m.id);
     } catch (err: any) {
-      toast.danger(`Erro: ${err.message || err}`);
+      toast.danger(t("providers.errGeneric", { message: err.message || err }));
     }
   };
 
-  if (loading) return <div className="py-2 flex items-center gap-2 text-sm text-muted"><Spinner size="sm" /> Sincronizando...</div>;
-  if (error) return <div className="py-2 text-sm text-danger">Erro: {error}</div>;
+  if (loading) return <div className="py-2 flex items-center gap-2 text-sm text-muted"><Spinner size="sm" /> {t("providers.syncing")}</div>;
+  if (error) return <div className="py-2 text-sm text-danger">{t("providers.errRender", { error })}</div>;
 
   return (
     <div className="flex flex-wrap gap-2 items-center">
@@ -708,14 +711,14 @@ function ModelsPanel({ providerId, loading, models, error, onAdd, onRemove, onTo
           <Input
             autoFocus
             className="min-w-[120px] text-[11px] font-mono"
-            placeholder="nome do modelo"
+            placeholder={t("providers.modelNamePlaceholder")}
             value={newModel}
             onChange={(e) => setNewModel(e.target.value)}
             disabled={saving}
             onBlur={() => !saving && handleAdd()}
-            aria-label="Novo modelo"
+            aria-label={t("providers.newModelAria")}
           />
-          <Button type="submit" size="sm" variant="primary" isDisabled={saving}>Add</Button>
+          <Button type="submit" size="sm" variant="primary" isDisabled={saving}>{t("providers.add")}</Button>
         </form>
       ) : (
         <Button
@@ -724,7 +727,7 @@ function ModelsPanel({ providerId, loading, models, error, onAdd, onRemove, onTo
           onPress={() => setAdding(true)}
           className="inline-flex items-center gap-1 rounded-full border border-dashed border-accent px-2.5 py-0.5 text-[11px] font-mono text-accent hover:bg-accent/10 transition-colors h-auto"
         >
-          <span className="font-bold">+</span> adicionar
+          {t("providers.addChip")}
         </Button>
       )}
 
@@ -746,17 +749,17 @@ function ModelsPanel({ providerId, loading, models, error, onAdd, onRemove, onTo
               <div className="text-[11px] font-mono text-muted px-2 pt-1 pb-1 break-all">{m.id}</div>
               <Button size="sm" variant="ghost" onPress={() => handleToggle(m)} className="justify-start">
                 {m.is_active ? <IconEyeOff className="w-4 h-4" /> : <IconEye className="w-4 h-4" />}
-                {m.is_active ? "Inativar" : "Ativar"}
+                {m.is_active ? t("providers.deactivate") : t("providers.activate")}
               </Button>
               <Button size="sm" variant="ghost" className="justify-start text-danger" onPress={() => setConfirmModel(m)}>
-                <IconTrash className="w-4 h-4" /> Remover
+                <IconTrash className="w-4 h-4" /> {t("providers.removeModel")}
               </Button>
             </div>
           </Popover.Content>
         </Popover>
       ))}
       {models && models.length === 0 && !adding && (
-        <span className="text-sm text-muted">Nenhum modelo sincronizado.</span>
+        <span className="text-sm text-muted">{t("providers.noSyncedModels")}</span>
       )}
 
       <AlertDialog>
@@ -766,14 +769,14 @@ function ModelsPanel({ providerId, loading, models, error, onAdd, onRemove, onTo
               <AlertDialog.CloseTrigger />
               <AlertDialog.Header>
                 <AlertDialog.Icon status="danger" />
-                <AlertDialog.Heading>Remover o modelo "{confirmModel?.id}"?</AlertDialog.Heading>
+                <AlertDialog.Heading>{t("providers.removeModelTitle", { id: confirmModel?.id })}</AlertDialog.Heading>
               </AlertDialog.Header>
               <AlertDialog.Body>
-                <p>Este modelo será removido do provider. Você pode sincronizá-lo novamente depois.</p>
+                <p>{t("providers.removeModelBody")}</p>
               </AlertDialog.Body>
               <AlertDialog.Footer>
-                <Button slot="close" variant="tertiary">Cancelar</Button>
-                <Button slot="close" variant="danger" onPress={() => { if (confirmModel) handleRemove(confirmModel); setConfirmModel(null); }}>Remover</Button>
+                <Button slot="close" variant="tertiary">{t("providers.cancel")}</Button>
+                <Button slot="close" variant="danger" onPress={() => { if (confirmModel) handleRemove(confirmModel); setConfirmModel(null); }}>{t("providers.remove")}</Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>
           </AlertDialog.Container>

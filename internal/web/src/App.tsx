@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, NavLink, useLocation } from "react-router-dom";
-import { Button, Toast } from "@heroui/react";
+import { Button, Toast, Select, ListBox } from "@heroui/react";
+import { useTranslation } from "react-i18next";
+import { setLocale, LOCALES } from "./i18n";
 import { api, clearDashboardToken } from "./api";
 import Dashboard from "./pages/Dashboard";
 import Providers from "./pages/Providers";
@@ -10,29 +12,28 @@ import Logs from "./pages/Logs";
 import Models from "./pages/Models";
 import Performance from "./pages/Performance";
 import Settings from "./pages/Settings";
-import Metrics from "./pages/Metrics";
 import Playground from "./pages/Playground";
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
-import { IconRoute, IconHome, IconServer, IconLayers, IconBox, IconKey, IconActivity, IconGauge, IconChat, IconLogout, IconSettings, IconChart } from "./icons";
+import { IconRoute, IconHome, IconServer, IconLayers, IconBox, IconKey, IconActivity, IconGauge, IconChat, IconLogout, IconSettings } from "./icons";
 
 const nav = [
-  { to: "/", label: "Dashboard", icon: IconHome, end: true },
-  { to: "/providers", label: "Providers", icon: IconServer },
-  { to: "/combos", label: "Combos", icon: IconLayers },
-  { to: "/models", label: "Models", icon: IconBox },
-  { to: "/keys", label: "API Keys", icon: IconKey },
-  { to: "/playground", label: "Playground", icon: IconChat },
-  { to: "/logs", label: "Logs", icon: IconActivity },
-  { to: "/performance", label: "Performance", icon: IconGauge },
-  { to: "/metrics", label: "Metrics", icon: IconChart },
-  { to: "/settings", label: "Configurações", icon: IconSettings },
+  { to: "/", labelKey: "app.nav.dashboard", icon: IconHome, end: true },
+  { to: "/providers", labelKey: "app.nav.providers", icon: IconServer },
+  { to: "/combos", labelKey: "app.nav.combos", icon: IconLayers },
+  { to: "/models", labelKey: "app.nav.models", icon: IconBox },
+  { to: "/keys", labelKey: "app.nav.keys", icon: IconKey },
+  { to: "/playground", labelKey: "app.nav.playground", icon: IconChat },
+  { to: "/logs", labelKey: "app.nav.logs", icon: IconActivity },
+  { to: "/performance", labelKey: "app.nav.performance", icon: IconGauge },
+  { to: "/settings", labelKey: "app.nav.settings", icon: IconSettings },
 ];
 
 
 type AuthState = "loading" | "setup" | "login" | "dashboard";
 
 export default function App() {
+  const { t } = useTranslation();
   const [authState, setAuthState] = useState<AuthState>("loading");
 
   async function checkAuth() {
@@ -56,7 +57,7 @@ export default function App() {
   if (authState === "loading") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <p className="text-sm text-muted">Carregando...</p>
+        <p className="text-sm text-muted">{t("app.loading")}</p>
       </div>
     );
   }
@@ -67,6 +68,7 @@ export default function App() {
 }
 
 function DashboardLayout({ onLogout }: { onLogout: () => void }) {
+  const { t } = useTranslation();
   return (
     <>
     <Toast.Provider />
@@ -75,8 +77,8 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
         <div className="px-5 py-5 flex items-center gap-3 border-b border-border">
           <IconRoute className="w-5 h-5 text-accent" />
           <div>
-            <p className="font-semibold text-base leading-tight">gorouter</p>
-            <p className="text-xs text-muted leading-tight">LLM router</p>
+            <p className="font-semibold text-base leading-tight">{t("app.brand")}</p>
+            <p className="text-xs text-muted leading-tight">{t("app.tagline")}</p>
           </div>
         </div>
         <nav className="p-3 space-y-1 flex-1">
@@ -94,17 +96,18 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
               }
             >
               <it.icon className="w-4 h-4" />
-              {it.label}
+              {t(it.labelKey)}
             </NavLink>
           ))}
         </nav>
         <div className="p-3 border-t border-border space-y-2">
           <ReadinessPill />
+          <LanguageSwitcher />
           <Button variant="tertiary" fullWidth isIconOnly={false} onPress={onLogout} className="justify-start">
             <IconLogout className="w-4 h-4" />
-            Sair
+            {t("app.logout")}
           </Button>
-          <p className="text-xs text-muted px-3">v0.1 · port :20128</p>
+          <p className="text-xs text-muted px-3">{t("app.version")}</p>
         </div>
       </aside>
        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -118,7 +121,6 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
               <Route path="/keys" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Keys /></div></div>} />
               <Route path="/logs" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Logs /></div></div>} />
               <Route path="/performance" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Performance /></div></div>} />
-              <Route path="/metrics" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Metrics /></div></div>} />
               <Route path="/settings" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Settings /></div></div>} />
             </Routes>
         </main>
@@ -130,6 +132,7 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
 
 // ReadinessPill shows a live ready/not-ready indicator from /health/readiness.
 function ReadinessPill() {
+  const { t } = useTranslation();
   const [ready, setReady] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -144,8 +147,38 @@ function ReadinessPill() {
     <div className="flex items-center gap-2 px-3 py-1.5">
       <span className={`w-2 h-2 rounded-full ${ready === null ? "bg-warning" : ready ? "bg-success" : "bg-danger"}`} />
       <span className="text-xs text-muted">
-        {ready === null ? "verificando…" : ready ? "Pronto" : "Indisponível"}
+        {ready === null ? t("app.checking") : ready ? t("app.ready") : t("app.notReady")}
       </span>
+    </div>
+  );
+}
+
+// LanguageSwitcher lets the user pick the UI language; persisted in
+// localStorage and reflected live (including RTL direction).
+function LanguageSwitcher() {
+  const { i18n } = useTranslation();
+  const current = i18n.resolvedLanguage ?? "en";
+
+  return (
+    <div className="px-1.5 pb-1">
+      <Select
+        aria-label="Language"
+        selectedKey={current}
+        onSelectionChange={(k) => setLocale(String(k))}
+        className="w-full"
+      >
+        <Select.Trigger>
+          <Select.Value>{current}</Select.Value>
+          <Select.Indicator />
+        </Select.Trigger>
+        <Select.Popover>
+          <ListBox>
+            {LOCALES.map((l) => (
+              <ListBox.Item key={l} id={l}>{l}</ListBox.Item>
+            ))}
+          </ListBox>
+        </Select.Popover>
+      </Select>
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   api, streamChat, type ChatMessage, type ModelEntry, type Combo, type Provider,
 } from "../api";
 import { IconChat, IconSparkles, IconPlus, IconStop, IconArrowUp } from "../icons";
+import { useTranslation } from "react-i18next";
 
 interface PlaygroundMsg {
   id: string;
@@ -23,10 +24,10 @@ interface PlaygroundMsg {
 }
 
 const SUGGESTIONS = [
-  "Explique como funciona recursão em programação",
-  "Escreva um poema sobre observabilidade",
-  "Compare Rust vs Go para sistemas embarcados",
-  "Crie uma função SQL que calcule retenção semanal",
+  "playground.suggestionRecursion",
+  "playground.suggestionPoem",
+  "playground.suggestionRustVsGo",
+  "playground.suggestionSql",
 ];
 
 interface ModelGroup {
@@ -35,6 +36,7 @@ interface ModelGroup {
 }
 
 export default function Playground() {
+  const { t } = useTranslation();
   const [modelGroups, setModelGroups] = useState<ModelGroup[]>([]);
   const [combos, setCombos] = useState<Combo[]>([]);
   const [loadingOpts, setLoadingOpts] = useState(true);
@@ -152,13 +154,13 @@ export default function Playground() {
       if (err?.name === "AbortError") {
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantId ? { ...m, streaming: false, content: m.content + "\n\n[cancelado]" } : m
+            m.id === assistantId ? { ...m, streaming: false, content: m.content + "\n\n" + t("playground.cancelled") } : m
           )
         );
       } else {
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantId ? { ...m, streaming: false, error: err?.message ?? "erro" } : m
+            m.id === assistantId ? { ...m, streaming: false, error: err?.message ?? t("playground.error") } : m
           )
         );
       }
@@ -166,7 +168,7 @@ export default function Playground() {
       setStreaming(false);
       abortRef.current = null;
     }
-  }, [input, streaming, selectedModel, messages, combos]);
+  }, [input, streaming, selectedModel, messages, combos, t]);
 
   const stop = () => abortRef.current?.abort();
   const clear = () => setMessages([]);
@@ -193,16 +195,16 @@ export default function Playground() {
       <div className="shrink-0 h-12 border-b border-border bg-surface/80 backdrop-blur flex items-center justify-between px-4 gap-4">
         <div className="flex items-center gap-2 min-w-0">
           <IconChat className="w-4 h-4 text-accent shrink-0" />
-          <span className="font-semibold text-sm shrink-0">Playground</span>
+          <span className="font-semibold text-sm shrink-0">{t("playground.title")}</span>
           <span className="text-muted/70 shrink-0">/</span>
           <ModelComboBox
-            ariaLabel="Modelo"
+            ariaLabel={t("playground.modelAria")}
             selectedKey={selectedModel || null}
             onSelectionChange={setSelectedModel}
             items={listItems}
             isDisabled={loadingOpts && combos.length === 0}
             className="w-72"
-            inputPlaceholder={loadingOpts ? "Carregando..." : "Selecione um modelo ou combo..."}
+            inputPlaceholder={loadingOpts ? t("playground.modelPlaceholderLoading") : t("playground.modelPlaceholder")}
             inputGroupClassName="h-8 min-h-8"
             inputClassName="h-8 min-h-8 text-sm"
           />
@@ -211,11 +213,11 @@ export default function Playground() {
           {messages.length > 0 && (
             <Tooltip>
               <Tooltip.Trigger>
-                <Button isIconOnly size="sm" variant="ghost" onPress={clear} isDisabled={streaming} aria-label="Nova conversa">
+                <Button isIconOnly size="sm" variant="ghost" onPress={clear} isDisabled={streaming} aria-label={t("playground.newConversationAria")}>
                   <IconPlus className="w-4 h-4" />
                 </Button>
               </Tooltip.Trigger>
-              <Tooltip.Content>Nova conversa</Tooltip.Content>
+              <Tooltip.Content>{t("playground.newConversation")}</Tooltip.Content>
             </Tooltip>
           )}
         </div>
@@ -245,7 +247,7 @@ export default function Playground() {
             <TextField
               value={input}
               onChange={setInput}
-              aria-label="Mensagem"
+              aria-label={t("playground.messageAria")}
               className="w-full"
             >
               <TextArea
@@ -253,8 +255,8 @@ export default function Playground() {
                 onKeyDown={onKeyDown}
                 placeholder={
                   selectedModel
-                    ? "Mensagem"
-                    : "Selecione um modelo ou combo acima para começar"
+                    ? t("playground.messagePlaceholder")
+                    : t("playground.messagePlaceholderNoModel")
                 }
                 disabled={!selectedModel}
                 rows={2}
@@ -265,7 +267,7 @@ export default function Playground() {
             </TextField>
             <div className="flex items-center justify-between px-2 pb-2">
               <div className="text-[11px] text-muted pl-2">
-                Enter envia · Shift+Enter nova linha
+                {t("playground.hint")}
               </div>
               <div className="flex items-center gap-1">
                 {streaming ? (
@@ -274,7 +276,7 @@ export default function Playground() {
                     variant="danger-soft"
                     onPress={stop}
                     isIconOnly
-                    aria-label="Parar"
+                    aria-label={t("playground.stopAria")}
                     className="h-8 w-8 min-w-8"
                   >
                     <IconStop className="w-4 h-4" />
@@ -286,7 +288,7 @@ export default function Playground() {
                     isIconOnly
                     onPress={() => send()}
                     isDisabled={!input.trim() || !selectedModel}
-                    aria-label="Enviar"
+                    aria-label={t("playground.sendAria")}
                     className="h-8 w-8 min-w-8"
                   >
                     <IconArrowUp className="w-4 h-4" />
@@ -302,29 +304,33 @@ export default function Playground() {
 }
 
 function WelcomeScreen({ disabled, onPick }: { disabled: boolean; onPick: (text: string) => void }) {
+  const { t } = useTranslation();
   return (
     <div className="h-full flex items-center justify-center px-4">
       <div className="mx-auto max-w-2xl w-full text-center">
         <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-accent/10 mb-5">
           <IconSparkles className="w-6 h-6 text-accent" />
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight mb-1">Como posso ajudar hoje?</h1>
+        <h1 className="text-2xl font-semibold tracking-tight mb-1">{t("playground.welcome")}</h1>
         <p className="text-sm text-muted mb-7">
-          Escolha um modelo ou combo no topo e comece a testar.
+          {t("playground.welcomeDesc")}
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
-          {SUGGESTIONS.map((s) => (
-            <Button
-              key={s}
-              variant="outline"
-              isDisabled={disabled}
-              onPress={() => onPick(s)}
-              className="justify-start text-sm h-auto py-2.5"
-            >
-              <IconSparkles className="w-3.5 h-3.5 text-muted" />
-              {s}
-            </Button>
-          ))}
+          {SUGGESTIONS.map((s) => {
+            const text = t(s);
+            return (
+              <Button
+                key={s}
+                variant="outline"
+                isDisabled={disabled}
+                onPress={() => onPick(text)}
+                className="justify-start text-sm h-auto py-2.5"
+              >
+                <IconSparkles className="w-3.5 h-3.5 text-muted" />
+                {text}
+              </Button>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -332,6 +338,7 @@ function WelcomeScreen({ disabled, onPick }: { disabled: boolean; onPick: (text:
 }
 
 function MessageRow({ msg }: { msg: PlaygroundMsg }) {
+  const { t } = useTranslation();
   const isUser = msg.role === "user";
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -352,7 +359,7 @@ function MessageRow({ msg }: { msg: PlaygroundMsg }) {
                 <span className="inline-block w-1.5 h-4 bg-accent ml-0.5 animate-pulse rounded-sm align-middle" />
               )}
               {msg.streaming === false && msg.content === "" && !msg.error && (
-                <span className="text-muted italic">vazio</span>
+                <span className="text-muted italic">{t("playground.emptyResponse")}</span>
               )}
             </>
           )}
@@ -360,16 +367,16 @@ function MessageRow({ msg }: { msg: PlaygroundMsg }) {
 
         {!isUser && !msg.streaming && !msg.error && (
           <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted font-mono">
-            {msg.combo && <span className="text-muted font-medium">combo: {msg.combo}</span>}
+            {msg.combo && <span className="text-muted font-medium">{t("playground.comboLabel", { combo: msg.combo })}</span>}
             {msg.model && <span>{msg.model}</span>}
             {msg.ttftMs != null && msg.ttftMs > 0 && <span>ttft {formatLatency(msg.ttftMs)}</span>}
             {msg.latencyMs != null && <span>{formatLatency(msg.latencyMs)}</span>}
             {msg.tps != null && msg.tps > 0 && (
-              <span className="text-success font-medium">{msg.tps.toFixed(1)} tok/s</span>
+              <span className="text-success font-medium">{msg.tps.toFixed(1)} {t("playground.tokPerSec")}</span>
             )}
             {msg.tokens && (
               <span>
-                {msg.tokens.prompt}↑ / {msg.tokens.completion}↓
+                {t("playground.tokensLabel", { prompt: msg.tokens.prompt, completion: msg.tokens.completion })}
               </span>
             )}
           </div>
