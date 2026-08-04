@@ -122,41 +122,47 @@ export default function Users() {
       </div>
 
       <Card>
-        <Table aria-label={t("users.tableAria")}>
-          <Table.Header>
-            <Table.Column id="username">{t("users.colUser")}</Table.Column>
-            <Table.Column id="role">{t("users.colRole")}</Table.Column>
-            <Table.Column id="access">{t("users.colAccess")}</Table.Column>
-            <Table.Column id="actions">{t("users.colActions")}</Table.Column>
-          </Table.Header>
-          <Table.Body items={rows} renderEmptyState={() => (
-            <div className="p-10 text-center text-muted text-sm">{loading ? <Spinner /> : t("users.empty")}</div>
-          )}>
-            {(u) => (
-              <Table.Row key={u.id} id={u.id}>
-                <Table.Cell><span className="font-medium">{u.username}</span></Table.Cell>
-                <Table.Cell>
-                  <Chip size="sm" variant={u.role === "admin" ? "primary" : "soft"} color={u.role === "admin" ? "accent" : "default"}>
-                    {u.role === "admin" ? t("users.roleAdmin") : t("users.roleMember")}
-                  </Chip>
-                </Table.Cell>
-                <Table.Cell>
-                  <span className="text-xs text-muted">
-                    {u.role === "admin" ? t("users.allAccess") : `${(u.allowed_models ?? []).length} ${t("users.models")} · ${(u.allowed_combos ?? []).length} ${t("users.combos")}`}
-                  </span>
-                </Table.Cell>
-                <Table.Cell>
-                  <div className="flex items-center gap-2">
-                    <Button size="sm" variant="secondary" onPress={() => openEdit(u)}>{t("users.edit")}</Button>
-                    <Button size="sm" variant="secondary" isIconOnly onPress={() => remove(u.id)} aria-label={t("users.delete")}>
-                      <IconTrash className="w-3.5 h-3.5" />
-                    </Button>
-                  </div>
+        <Table.ScrollContainer>
+          <Table.Content aria-label={t("users.tableAria")}>
+            <Table.Header>
+              <Table.Column id="username">{t("users.colUser")}</Table.Column>
+              <Table.Column id="role">{t("users.colRole")}</Table.Column>
+              <Table.Column id="access">{t("users.colAccess")}</Table.Column>
+              <Table.Column id="actions">{t("users.colActions")}</Table.Column>
+            </Table.Header>
+            <Table.Body items={rows} renderEmptyState={() => (
+              <Table.Row id="empty">
+                <Table.Cell colSpan={4}>
+                  <div className="p-10 text-center text-muted text-sm">{loading ? <Spinner /> : t("users.empty")}</div>
                 </Table.Cell>
               </Table.Row>
-            )}
-          </Table.Body>
-        </Table>
+            )}>
+              {(u) => (
+                <Table.Row key={u.id} id={u.id}>
+                  <Table.Cell><span className="font-medium">{u.username}</span></Table.Cell>
+                  <Table.Cell>
+                    <Chip size="sm" variant={u.role === "admin" ? "primary" : "soft"} color={u.role === "admin" ? "accent" : "default"}>
+                      {u.role === "admin" ? t("users.roleAdmin") : t("users.roleMember")}
+                    </Chip>
+                  </Table.Cell>
+                  <Table.Cell>
+                    <span className="text-xs text-muted">
+                      {u.role === "admin" ? t("users.allAccess") : `${(u.allowed_models ?? []).length} ${t("users.models")} · ${(u.allowed_combos ?? []).length} ${t("users.combos")}`}
+                    </span>
+                  </Table.Cell>
+                  <Table.Cell>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" variant="secondary" onPress={() => openEdit(u)}>{t("users.edit")}</Button>
+                      <Button size="sm" variant="secondary" isIconOnly onPress={() => remove(u.id)} aria-label={t("users.delete")}>
+                        <IconTrash className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </Table.Cell>
+                </Table.Row>
+              )}
+            </Table.Body>
+          </Table.Content>
+        </Table.ScrollContainer>
       </Card>
 
       <Modal.Backdrop isOpen={modalOpen} onOpenChange={setModalOpen}>
