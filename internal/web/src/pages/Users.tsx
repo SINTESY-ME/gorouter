@@ -131,11 +131,7 @@ export default function Users() {
               <Table.Column id="actions">{t("users.colActions")}</Table.Column>
             </Table.Header>
             <Table.Body items={rows} renderEmptyState={() => (
-              <Table.Row id="empty">
-                <Table.Cell colSpan={4}>
-                  <div className="p-10 text-center text-muted text-sm">{loading ? <Spinner /> : t("users.empty")}</div>
-                </Table.Cell>
-              </Table.Row>
+              <div className="p-10 text-center text-muted text-sm">{loading ? <Spinner /> : t("users.empty")}</div>
             )}>
               {(u) => (
                 <Table.Row key={u.id} id={u.id}>
@@ -267,7 +263,7 @@ function AccessPicker({ options, selected, onChange, placeholder }: {
       <Select
         aria-label={placeholder}
         placeholder={placeholder}
-        selectedKey=""
+        selectedKey={null}
         onSelectionChange={(k) => { if (k) toggle(k as string); }}
       >
         <Select.Trigger><Select.Value>{placeholder}</Select.Value><Select.Indicator /></Select.Trigger>
