@@ -201,6 +201,8 @@
     "searchAria": "Search provider",
     "oauth": "OAuth",
     "popular": "Popular",
+    "noCatalogResults": "No providers match this search.",
+    "customProviderHint": "Don't see your provider? Add an OpenAI-compatible endpoint.",
     "custom": "Custom / OpenAI-compatible",
     "back": "← back",
     "connecting": "Connecting {{provider}}",

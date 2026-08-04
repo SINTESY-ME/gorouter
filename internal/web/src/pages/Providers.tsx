@@ -449,7 +449,7 @@ export default function Providers() {
       <Modal isOpen={isProviderOpen} onOpenChange={setProviderOpen}>
         <Modal.Backdrop>
           <Modal.Container>
-            <Modal.Dialog className="max-w-xl">
+            <Modal.Dialog className={providerStep === "pick" && !providerEditId ? "max-w-2xl" : "max-w-xl"}>
               <Modal.Header>
                 <Modal.Heading>
                   {providerEditId ? t("providers.editEndpoint") : providerStep === "pick" ? t("providers.chooseProvider") : t("providers.configureProvider")}
@@ -470,31 +470,41 @@ export default function Providers() {
                         aria-label={t("providers.searchAria")}
                       />
                     </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-80 overflow-y-auto pr-1 items-start">
+                    <div className="max-h-[420px] overflow-y-auto rounded-lg border border-border divide-y divide-border">
                       {filteredCatalog.map((def) => {
                         const isOauth = oauthProviders.includes(def.id);
                         const isPopular = POPULAR.includes(def.id);
                         return (
                           <Button
                             key={def.id}
-                            variant="outline"
+                            variant="ghost"
                             onPress={() => pickTemplate(def)}
-                            className="text-left rounded-xl border border-border p-3 hover:border-accent/50 hover:bg-background transition-colors h-[88px] items-start flex-col justify-start"
+                            className="w-full h-auto min-h-[76px] rounded-none px-4 py-3 text-left hover:bg-default-soft items-center justify-start"
                           >
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-muted" style={def.display.color ? { background: def.display.color } : undefined} />
-                              <span className="font-medium text-sm truncate">{def.display.name}</span>
-                            </div>
-                            <p className="text-[11px] text-muted font-mono truncate">{def.id}</p>
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {isOauth && <Chip size="sm" color="default" variant="soft" className="h-5 text-[10px]">{t("providers.oauth")}</Chip>}
-                              {isPopular && <Chip size="sm" color="accent" variant="soft" className="h-5 text-[10px]">{t("providers.popular")}</Chip>}
-                            </div>
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-muted" style={def.display.color ? { background: def.display.color } : undefined} />
+                            <span className="min-w-0 flex-1 flex flex-col gap-1">
+                              <span className="flex items-center gap-2 min-w-0">
+                                <span className="font-medium text-sm truncate">{def.display.name}</span>
+                                {isPopular && <Chip size="sm" color="accent" variant="soft" className="h-5 shrink-0 text-[10px]">{t("providers.popular")}</Chip>}
+                                {isOauth && <Chip size="sm" color="default" variant="soft" className="h-5 shrink-0 text-[10px]">{t("providers.oauth")}</Chip>}
+                              </span>
+                              <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
+                                <span className="font-mono">{def.id}</span>
+                                {def.capabilities?.slice(0, 3).map((capability) => <span key={capability}>{capability}</span>)}
+                              </span>
+                            </span>
+                            <IconChevron className="w-4 h-4 shrink-0 text-muted" />
                           </Button>
                         );
                       })}
+                      {filteredCatalog.length === 0 && (
+                        <div className="px-4 py-10 text-center text-sm text-muted">{t("providers.noCatalogResults")}</div>
+                      )}
                     </div>
-                    <Button variant="secondary" onPress={() => { setProviderForm(emptyProvider); setProviderStep("form"); }}>{t("providers.custom")}</Button>
+                    <div className="flex items-center justify-between gap-3 pt-1">
+                      <span className="text-xs text-muted">{t("providers.customProviderHint")}</span>
+                      <Button size="sm" variant="secondary" onPress={() => { setProviderForm(emptyProvider); setProviderStep("form"); }}>{t("providers.custom")}</Button>
+                    </div>
                   </>
                 )}
 

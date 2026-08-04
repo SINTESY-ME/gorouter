@@ -14,7 +14,7 @@ export const IconUsers = (p: { className?: string }) => <Icon icon="gravity-ui:p
 export const IconActivity = (p: { className?: string }) => <Icon icon="mdi:clipboard-text-outline" className={p.className} />;
 export const IconGauge = (p: { className?: string }) => <Icon icon="mdi:chart-line" className={p.className} />;
 export const IconChat = (p: { className?: string }) => <Icon icon="mdi:message-text-outline" className={p.className} />;
-export const IconLogout = (p: { className?: string }) => <Icon icon="gravity-ui:sign-out" className={p.className} />;
+export const IconLogout = (p: { className?: string }) => <Icon icon="mdi:logout" className={p.className} />;
 
 export const IconPlus = (p: { className?: string }) => <Icon icon="gravity-ui:plus" className={p.className} />;
 export const IconPencil = (p: { className?: string }) => <Icon icon="gravity-ui:pencil" className={p.className} />;
