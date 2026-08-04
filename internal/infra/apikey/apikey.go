@@ -5,8 +5,8 @@
 //   - crc8: first 8 hex chars of HMAC-SHA256(secret, keyId)
 //
 // The CRC is verifiable server-side without storing the key, but we still
-// store keys for revocation and listing. Mirrors 9router's scheme without
-// the machine-id segment (a single-instance router doesn't need it).
+// store a SHA-256 hash of the full key for revocation and lookup. The
+// plaintext is returned to the caller exactly once at creation time.
 package apikey
 
 import (
@@ -19,10 +19,10 @@ import (
 )
 
 const (
-	prefix  = "sk-"
-	keyLen  = 24
-	crcLen  = 8
-	base62  = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	prefix = "sk-"
+	keyLen = 24
+	crcLen = 8
+	base62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 )
 
 // Generate returns a fresh, valid API key string.
@@ -54,6 +54,15 @@ func crc(secret, id string) string {
 	m := hmac.New(sha256.New, []byte(secret))
 	m.Write([]byte(id))
 	return hex.EncodeToString(m.Sum(nil))[:crcLen]
+}
+
+// HashKey returns the SHA-256 hex digest of the full key string. This is
+// stored at rest instead of the plaintext so that a database compromise
+// does not leak client API keys. The hash is used for lookup (the
+// incoming key is hashed before the DB query) and for revocation checks.
+func HashKey(key string) string {
+	h := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(h[:])
 }
 
 func randomBase62(n int) (string, error) {

@@ -10,7 +10,7 @@ import (
 // A narrow interface so BudgetService only depends on what it needs (the
 // full UsageRepo carries unrelated query surface).
 type costSource interface {
-	SumCostByApiKey(ctx context.Context, apiKey string, since time.Time) (float64, error)
+	SumCostByApiKeyID(ctx context.Context, apiKeyID string, since time.Time) (float64, error)
 }
 
 // BudgetService checks whether an API key has exceeded a spend cap over a
@@ -52,12 +52,12 @@ type BudgetResult struct {
 // ttl per (key, duration) so the rolling sum isn't recomputed on every
 // request. ResetAt marks when the current window rolls over (now, for a
 // rolling window) — used for Retry-After on a blocked request.
-func (bs *BudgetService) Check(ctx context.Context, apiKey string, limit float64, duration time.Duration) BudgetResult {
+func (bs *BudgetService) Check(ctx context.Context, apiKeyID string, limit float64, duration time.Duration) BudgetResult {
 	if limit <= 0 || duration <= 0 {
 		return BudgetResult{Allowed: true}
 	}
 
-	cacheKey := apiKey + "|" + duration.String()
+	cacheKey := apiKeyID + "|" + duration.String()
 	now := time.Now()
 
 	bs.mu.RLock()
@@ -73,7 +73,7 @@ func (bs *BudgetService) Check(ctx context.Context, apiKey string, limit float64
 	bs.mu.RUnlock()
 
 	since := now.Add(-duration)
-	spent, err := bs.usage.SumCostByApiKey(ctx, apiKey, since)
+	spent, err := bs.usage.SumCostByApiKeyID(ctx, apiKeyID, since)
 	if err != nil {
 		return BudgetResult{Allowed: true}
 	}

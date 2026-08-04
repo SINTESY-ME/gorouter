@@ -16,13 +16,13 @@ import (
 type apiKeyCache struct {
 	repo domain.ApiKeyRepo
 
-	mu       sync.RWMutex
-	byKey    map[string]*cachedKey
-	ttl      time.Duration
+	mu    sync.RWMutex
+	byKey map[string]*cachedKey
+	ttl   time.Duration
 }
 
 type cachedKey struct {
-	key      *domain.ApiKey
+	key       *domain.ApiKey
 	expiresAt time.Time
 }
 
@@ -114,7 +114,7 @@ type connCache struct {
 }
 
 type cachedConns struct {
-	conns    []domain.Connection
+	conns     []domain.Connection
 	expiresAt time.Time
 }
 

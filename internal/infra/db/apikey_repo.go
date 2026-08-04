@@ -6,10 +6,14 @@ import (
 	"fmt"
 
 	"github.com/jhon/gorouter/internal/domain"
+	"github.com/jhon/gorouter/internal/infra/apikey"
 	"gorm.io/gorm"
 )
 
-// ApiKeyRepo implements domain.ApiKeyRepo via GORM.
+// ApiKeyRepo implements domain.ApiKeyRepo via GORM. Keys are stored as
+// SHA-256 hashes in the "key" column (see domain.ApiKey.KeyHash); the
+// plaintext is never persisted. Lookups hash the incoming key before
+// querying.
 type ApiKeyRepo struct{ db *gorm.DB }
 
 func NewApiKeyRepo(db *gorm.DB) *ApiKeyRepo { return &ApiKeyRepo{db: db} }
@@ -21,6 +25,9 @@ func (r *ApiKeyRepo) List(ctx context.Context) ([]domain.ApiKey, error) {
 }
 
 func (r *ApiKeyRepo) Create(ctx context.Context, k *domain.ApiKey) error {
+	if k.KeyHash == "" {
+		return fmt.Errorf("key hash is required")
+	}
 	err := r.db.WithContext(ctx).Create(k).Error
 	if errors.Is(err, gorm.ErrDuplicatedKey) {
 		return fmt.Errorf("%w: api key collision (very unlikely); retry", domain.ErrAlreadyExists)
@@ -53,7 +60,7 @@ func (r *ApiKeyRepo) Delete(ctx context.Context, id string) error {
 
 func (r *ApiKeyRepo) Validate(ctx context.Context, key string) (bool, error) {
 	var k domain.ApiKey
-	err := r.db.WithContext(ctx).Select("is_active").Where("key = ?", key).First(&k).Error
+	err := r.db.WithContext(ctx).Select("is_active").Where("key = ?", apikey.HashKey(key)).First(&k).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return false, nil
 	}
@@ -65,7 +72,7 @@ func (r *ApiKeyRepo) Validate(ctx context.Context, key string) (bool, error) {
 
 func (r *ApiKeyRepo) GetByKey(ctx context.Context, key string) (*domain.ApiKey, error) {
 	var k domain.ApiKey
-	err := r.db.WithContext(ctx).Where("key = ?", key).First(&k).Error
+	err := r.db.WithContext(ctx).Where("key = ?", apikey.HashKey(key)).First(&k).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}

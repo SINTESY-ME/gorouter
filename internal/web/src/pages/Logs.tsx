@@ -103,7 +103,7 @@ export default function Logs() {
     }
     if (modelFilter) params.model = modelFilter;
     if (comboFilter) params.combo = comboFilter;
-    if (keyFilter) params.api_key = keyFilter;
+    if (keyFilter) params.api_key_id = keyFilter;
     if (search) params.search = search;
     api.usage.history(params)
       .then((res) => {
@@ -284,11 +284,11 @@ export default function Logs() {
           selectedKey={keyFilter || null}
           onSelectionChange={(k) => setKeyFilter((k as string) ?? "")}
         >
-          <Select.Trigger><Select.Value>{keyFilter ? apiKeys.find((k) => k.key === keyFilter)?.name ?? t("logs.token") : t("logs.all")}</Select.Value><Select.Indicator /></Select.Trigger>
+          <Select.Trigger><Select.Value>{keyFilter ? apiKeys.find((k) => k.id === keyFilter)?.name ?? t("logs.token") : t("logs.all")}</Select.Value><Select.Indicator /></Select.Trigger>
           <Select.Popover>
             <ListBox>
               <ListBox.Item id="">{t("logs.all")}</ListBox.Item>
-              {apiKeys.map((k) => <ListBox.Item key={k.key} id={k.key}>{k.name}</ListBox.Item>)}
+              {apiKeys.map((k) => <ListBox.Item key={k.id} id={k.id}>{k.name}</ListBox.Item>)}
             </ListBox>
           </Select.Popover>
         </Select>

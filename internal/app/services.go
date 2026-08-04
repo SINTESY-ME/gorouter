@@ -244,7 +244,8 @@ func (s *ApiKeyService) Create(ctx context.Context, name string, limits []domain
 	}
 	k := &domain.ApiKey{
 		ID:            uuid.NewString(),
-		Key:           key,
+		Key:           key, // plaintext returned to caller once; not persisted
+		KeyHash:       apikeyHashKey(key),
 		Name:          name,
 		IsActive:      true,
 		Limits:        limits,

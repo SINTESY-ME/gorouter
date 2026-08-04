@@ -9,6 +9,32 @@ import (
 	"gorm.io/gorm"
 )
 
+// applyKeyFilter adds a WHERE clause for API key filtering on a usage_entries
+// query. ApiKeyID takes priority (new rows); ApiKey is the legacy fallback
+// (old rows with plaintext). When both are empty, no filter is added.
+func applyKeyFilter(tx *gorm.DB, prefix string, q domain.UsageStatsQuery) *gorm.DB {
+	col := prefix + "api_key_id"
+	legacyCol := prefix + "api_key"
+	if q.ApiKeyID != "" {
+		return tx.Where(col+" = ?", q.ApiKeyID)
+	}
+	if q.ApiKey != "" {
+		return tx.Where(legacyCol+" = ?", q.ApiKey)
+	}
+	return tx
+}
+
+// applyHistoryKeyFilter is the HistoryQuery variant of applyKeyFilter.
+func applyHistoryKeyFilter(tx *gorm.DB, q domain.HistoryQuery) *gorm.DB {
+	if q.ApiKeyID != "" {
+		return tx.Where("api_key_id = ?", q.ApiKeyID)
+	}
+	if q.ApiKey != "" {
+		return tx.Where("api_key = ?", q.ApiKey)
+	}
+	return tx
+}
+
 // UsageRepo implements domain.UsageRepo via GORM.
 type UsageRepo struct{ db *gorm.DB }
 
@@ -58,9 +84,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 		Bucket:        bucket,
 	}
 	tx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
-	if q.ApiKey != "" {
-		tx = tx.Where("api_key = ?", q.ApiKey)
-	}
+	tx = applyKeyFilter(tx, "", q)
 	// Totals + success/error split
 	var totals struct {
 		Requests         int64
@@ -204,10 +228,12 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 		s.ByModelCost[row.Key] = row.Cost
 	}
 
-	// By api_key (non-empty only)
+	// By api_key (non-empty only). Group by the stable key ID on new rows;
+	// legacy rows (plaintext api_key, no ID) fall back to the plaintext so
+	// they still appear in the breakdown.
 	var keyRows []groupRow
-	if err := tx.Session(&gorm.Session{}).Where("timestamp >= ? AND timestamp < ? AND api_key != ''", from, to).
-		Select("api_key as key, COUNT(*) as count").Group("api_key").Scan(&keyRows).Error; err != nil {
+	if err := tx.Session(&gorm.Session{}).Where("timestamp >= ? AND timestamp < ? AND (api_key_id != '' OR api_key != '')", from, to).
+		Select("CASE WHEN api_key_id != '' THEN api_key_id ELSE api_key END as key, COUNT(*) as count").Group("key").Scan(&keyRows).Error; err != nil {
 		return nil, err
 	}
 	for _, row := range keyRows {
@@ -220,9 +246,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 	comboTx := r.db.WithContext(ctx).Table("combo_executions").
 		Joins("JOIN usage_entries ON usage_entries.id = combo_executions.usage_id").
 		Where("usage_entries.timestamp >= ? AND usage_entries.timestamp < ? AND usage_entries.status < 400", from, to)
-	if q.ApiKey != "" {
-		comboTx = comboTx.Where("usage_entries.api_key = ?", q.ApiKey)
-	}
+	comboTx = applyKeyFilter(comboTx, "usage_entries.", q)
 	if err := comboTx.
 		Group("combo_executions.combo_name").
 		Select("combo_executions.combo_name as key, COUNT(*) as count").
@@ -242,9 +266,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 	comboTokenTx := r.db.WithContext(ctx).Table("combo_executions").
 		Joins("JOIN usage_entries ON usage_entries.id = combo_executions.usage_id").
 		Where("usage_entries.timestamp >= ? AND usage_entries.timestamp < ? AND usage_entries.status < 400", from, to)
-	if q.ApiKey != "" {
-		comboTokenTx = comboTokenTx.Where("usage_entries.api_key = ?", q.ApiKey)
-	}
+	comboTokenTx = applyKeyFilter(comboTokenTx, "usage_entries.", q)
 	if err := comboTokenTx.
 		Group("combo_executions.combo_name").
 		Select("combo_executions.combo_name as key, COALESCE(SUM(usage_entries.prompt_tokens + usage_entries.completion_tokens), 0) as tokens").
@@ -264,9 +286,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 	comboCostTx := r.db.WithContext(ctx).Table("combo_executions").
 		Joins("JOIN usage_entries ON usage_entries.id = combo_executions.usage_id").
 		Where("usage_entries.timestamp >= ? AND usage_entries.timestamp < ? AND usage_entries.status < 400", from, to)
-	if q.ApiKey != "" {
-		comboCostTx = comboCostTx.Where("usage_entries.api_key = ?", q.ApiKey)
-	}
+	comboCostTx = applyKeyFilter(comboCostTx, "usage_entries.", q)
 	if err := comboCostTx.
 		Group("combo_executions.combo_name").
 		Select("combo_executions.combo_name as key, COALESCE(SUM(usage_entries.cost), 0) as cost").
@@ -288,7 +308,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 	}
 
 	// Time series with dynamic bucket (includes errors + TPS for the chart)
-	series, err := r.timeseries(ctx, from, to, bucket, q.ApiKey)
+	series, err := r.timeseries(ctx, from, to, bucket, q.ApiKeyID, q.ApiKey)
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +422,7 @@ func bucketExpr(bucket string, isPostgres bool) string {
 	}
 }
 
-func (r *UsageRepo) timeseries(ctx context.Context, from, to time.Time, bucket string, apiKey string) ([]domain.UsageDailyPoint, error) {
+func (r *UsageRepo) timeseries(ctx context.Context, from, to time.Time, bucket string, apiKeyID, apiKey string) ([]domain.UsageDailyPoint, error) {
 	isPg := r.db.Dialector.Name() == "postgres"
 	dateExpr := bucketExpr(bucket, isPg)
 	var rows []struct {
@@ -414,7 +434,9 @@ func (r *UsageRepo) timeseries(ctx context.Context, from, to time.Time, bucket s
 		AvgTPS   float64
 	}
 	tx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
-	if apiKey != "" {
+	if apiKeyID != "" {
+		tx = tx.Where("api_key_id = ?", apiKeyID)
+	} else if apiKey != "" {
 		tx = tx.Where("api_key = ?", apiKey)
 	}
 	if err := tx.Where("timestamp >= ? AND timestamp < ?", from, to).
@@ -469,9 +491,7 @@ func (r *UsageRepo) History(ctx context.Context, q domain.HistoryQuery) (*domain
 	if q.Model != "" {
 		tx = tx.Where("model = ?", q.Model)
 	}
-	if q.ApiKey != "" {
-		tx = tx.Where("api_key = ?", q.ApiKey)
-	}
+	tx = applyHistoryKeyFilter(tx, q)
 	if q.Search != "" {
 		like := "%" + q.Search + "%"
 		tx = tx.Where("model LIKE ? OR provider LIKE ? OR endpoint LIKE ?", like, like, like)
@@ -504,9 +524,7 @@ func (r *UsageRepo) History(ctx context.Context, q domain.HistoryQuery) (*domain
 	if q.Model != "" {
 		countTx = countTx.Where("model = ?", q.Model)
 	}
-	if q.ApiKey != "" {
-		countTx = countTx.Where("api_key = ?", q.ApiKey)
-	}
+	countTx = applyHistoryKeyFilter(countTx, q)
 	if q.Search != "" {
 		like := "%" + q.Search + "%"
 		countTx = countTx.Where("model LIKE ? OR provider LIKE ? OR endpoint LIKE ?", like, like, like)
@@ -650,7 +668,7 @@ func (r *UsageRepo) ModelStatsByID(ctx context.Context) (map[string]*domain.Mode
 // SavingsStats aggregates cache and RTK savings from usage_entries for a
 // given time range. Each type is summed independently so the dashboard can
 // show them separately.
-func (r *UsageRepo) SavingsStats(ctx context.Context, period string, apiKey string) (*domain.SavingsAgg, error) {
+func (r *UsageRepo) SavingsStats(ctx context.Context, period string, apiKeyID string) (*domain.SavingsAgg, error) {
 	since, err := periodStart(period)
 	if err != nil {
 		return nil, err
@@ -668,8 +686,8 @@ func (r *UsageRepo) SavingsStats(ctx context.Context, period string, apiKey stri
 		SemanticCostSaved   float64
 	}
 	tx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
-	if apiKey != "" {
-		tx = tx.Where("api_key = ?", apiKey)
+	if apiKeyID != "" {
+		tx = tx.Where("api_key_id = ?", apiKeyID)
 	}
 	err = tx.Where("timestamp >= ?", since).
 		Select(`
@@ -720,14 +738,14 @@ func periodStart(period string) (time.Time, error) {
 	}
 }
 
-// SumCostByApiKey returns the total dollar cost spent by the given API key
-// since the given timestamp. Only successful requests (status < 400) are
-// counted so failed retries don't eat into the budget.
-func (r *UsageRepo) SumCostByApiKey(ctx context.Context, apiKey string, since time.Time) (float64, error) {
+// SumCostByApiKeyID returns the total dollar cost spent by the given API
+// key ID since the given timestamp. Only successful requests (status < 400)
+// are counted so failed retries don't eat into the budget.
+func (r *UsageRepo) SumCostByApiKeyID(ctx context.Context, apiKeyID string, since time.Time) (float64, error) {
 	var total float64
 	err := r.db.WithContext(ctx).
 		Model(&domain.UsageEntry{}).
-		Where("api_key = ? AND timestamp >= ? AND status < 400", apiKey, since).
+		Where("api_key_id = ? AND timestamp >= ? AND status < 400", apiKeyID, since).
 		Select("COALESCE(SUM(cost), 0)").
 		Scan(&total).Error
 	if err != nil {

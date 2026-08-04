@@ -206,7 +206,7 @@ func (r *mockUsageRepo) ModelStatsByID(ctx context.Context) (map[string]*domain.
 func (r *mockUsageRepo) SavingsStats(ctx context.Context, period string, apiKey string) (*domain.SavingsAgg, error) {
 	return &domain.SavingsAgg{}, nil
 }
-func (r *mockUsageRepo) SumCostByApiKey(ctx context.Context, apiKey string, since time.Time) (float64, error) {
+func (r *mockUsageRepo) SumCostByApiKeyID(ctx context.Context, apiKeyID string, since time.Time) (float64, error) {
 	return 0, nil
 }
 
@@ -284,8 +284,8 @@ func TestRouteSingle_NonStreaming_UsageRecorded(t *testing.T) {
 	if e.CompletionTokens != 20 {
 		t.Errorf("completion tokens: got %d want 20", e.CompletionTokens)
 	}
-	if e.ApiKey != "test-key" {
-		t.Errorf("api key: got %q want 'test-key'", e.ApiKey)
+	if e.ApiKeyID != "test-key" {
+		t.Errorf("api key id: got %q want 'test-key'", e.ApiKeyID)
 	}
 }
 

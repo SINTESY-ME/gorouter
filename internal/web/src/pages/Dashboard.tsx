@@ -39,7 +39,7 @@ function maskKey(k: string): string {
 }
 
 function nameKey(k: string, keys: ApiKey[]): string {
-  return keys.find((x) => x.key === k)?.name || maskKey(k);
+  return keys.find((x) => x.id === k || x.key === k)?.name || maskKey(k);
 }
 
 export default function Dashboard() {

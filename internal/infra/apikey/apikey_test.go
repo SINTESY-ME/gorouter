@@ -55,3 +55,27 @@ func TestGenerateUnique(t *testing.T) {
 		seen[k] = true
 	}
 }
+
+func TestHashKeyDeterministic(t *testing.T) {
+	k1, _ := Generate("test-secret")
+	h1 := HashKey(k1)
+	h2 := HashKey(k1)
+	if h1 != h2 {
+		t.Fatalf("HashKey not deterministic: %s vs %s", h1, h2)
+	}
+	if h1 == k1 {
+		t.Fatal("HashKey must not return the plaintext")
+	}
+	if len(h1) != 64 {
+		t.Fatalf("HashKey length = %d, want 64 (sha256 hex)", len(h1))
+	}
+}
+
+func TestHashKeyDistinguishesKeys(t *testing.T) {
+	const secret = "test-secret"
+	k1, _ := Generate(secret)
+	k2, _ := Generate(secret)
+	if HashKey(k1) == HashKey(k2) {
+		t.Fatal("distinct keys should produce distinct hashes")
+	}
+}

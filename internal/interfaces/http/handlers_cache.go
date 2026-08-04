@@ -62,15 +62,12 @@ func (s *Server) handleSavings(w http.ResponseWriter, r *http.Request) {
 	if period == "" {
 		period = "60d"
 	}
-	var apiKey string
-	if keyID := r.URL.Query().Get("api_key_id"); keyID != "" && s.Keys != nil {
-		k, err := lookupKey(s.Keys, r.Context(), keyID)
-		if err == nil {
-			apiKey = k.Key
-		}
+	var apiKeyID string
+	if keyID := r.URL.Query().Get("api_key_id"); keyID != "" {
+		apiKeyID = keyID
 	}
 	if s.Usage != nil {
-		agg, err := s.Usage.Repo.SavingsStats(r.Context(), period, apiKey)
+		agg, err := s.Usage.Repo.SavingsStats(r.Context(), period, apiKeyID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

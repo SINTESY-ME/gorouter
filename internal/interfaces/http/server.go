@@ -241,8 +241,14 @@ func (s *Server) requireApiKey(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "invalid or revoked api key")
 			return
 		}
+		// Use the key's database ID as the identity in the context and
+		// for rate/budget checks. The ID is stable (survives rotation),
+		// carries no secret material, and is what gets recorded in usage
+		// entries — so logs and stats never contain the plaintext or
+		// even the hash of the key.
+		keyID := apiKey.ID
 		if len(apiKey.Limits) == 0 && len(apiKey.AllowedModels) == 0 {
-			next.ServeHTTP(w, r.WithContext(withApiKey(r.Context(), key, apiKey)))
+			next.ServeHTTP(w, r.WithContext(withApiKey(r.Context(), keyID, apiKey)))
 			return
 		}
 		// Rate limits: all must pass (AND).
@@ -253,7 +259,7 @@ func (s *Server) requireApiKey(next http.Handler) http.Handler {
 			}
 		}
 		if s.RateLimiter != nil && len(rateLimits) > 0 {
-			allowed, retryAfter := s.RateLimiter.Allow(key, rateLimits)
+			allowed, retryAfter := s.RateLimiter.Allow(keyID, rateLimits)
 			if !allowed {
 				if retryAfter <= 0 {
 					retryAfter = 60 * time.Second
@@ -273,7 +279,7 @@ func (s *Server) requireApiKey(next http.Handler) http.Handler {
 				if err != nil || dur <= 0 {
 					continue
 				}
-				result := s.BudgetChecker.Check(r.Context(), key, l.Max, dur)
+				result := s.BudgetChecker.Check(r.Context(), keyID, l.Max, dur)
 				if !result.Allowed {
 					w.Header().Set("Retry-After", "60")
 					writeError(w, http.StatusTooManyRequests, fmt.Sprintf("budget limit exceeded: $%.2f of $%.2f per %s", result.Spent, result.Limit, l.Duration))
@@ -281,7 +287,7 @@ func (s *Server) requireApiKey(next http.Handler) http.Handler {
 				}
 			}
 		}
-		next.ServeHTTP(w, r.WithContext(withApiKey(r.Context(), key, apiKey)))
+		next.ServeHTTP(w, r.WithContext(withApiKey(r.Context(), keyID, apiKey)))
 	})
 }
 

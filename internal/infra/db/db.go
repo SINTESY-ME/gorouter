@@ -13,6 +13,7 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"github.com/jhon/gorouter/internal/domain"
+	"github.com/jhon/gorouter/internal/infra/apikey"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -81,6 +82,11 @@ func Open(ctx context.Context, driver, dsn string) (*gorm.DB, error) {
 	dropColumnIfExists(db, "api_keys", "rate_limit_rpm")
 	dropColumnIfExists(db, "api_keys", "budget_limit_usd")
 	dropColumnIfExists(db, "api_keys", "budget_period")
+	// Migrate API keys from plaintext storage to SHA-256 hash. Pre-hash
+	// databases hold the full sk-... string in the "key" column; the
+	// entity now maps KeyHash to that same column, so the migration just
+	// replaces the plaintext with its hash in place.
+	backfillKeyHashes(db)
 	return db, nil
 }
 
@@ -134,5 +140,22 @@ func dropColumnIfExists(db *gorm.DB, table, column string) {
 			db.Exec("ALTER TABLE " + table + " DROP COLUMN " + column)
 			return
 		}
+	}
+}
+
+// backfillKeyHashes migrates existing API keys from plaintext to SHA-256
+// hashes. Pre-hash databases hold the full sk-... string in the "key"
+// column; rows still in plaintext are detected by the sk- prefix and
+// replaced with their hash in place. Runs once after AutoMigrate; no-ops
+// once every row holds a hash (SHA-256 hex, no sk- prefix).
+func backfillKeyHashes(db *gorm.DB) {
+	type row struct {
+		ID  string `gorm:"column:id"`
+		Key string `gorm:"column:key"`
+	}
+	var oldRows []row
+	db.Table("api_keys").Select("id, key").Where("key LIKE 'sk-%'").Scan(&oldRows)
+	for _, r := range oldRows {
+		db.Exec("UPDATE api_keys SET key = ? WHERE id = ?", apikey.HashKey(r.Key), r.ID)
 	}
 }

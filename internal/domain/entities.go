@@ -210,10 +210,14 @@ type ComboModelMeta struct {
 }
 
 // ApiKey is a client-facing key created in the dashboard. Clients send it
-// as Authorization: Bearer or x-api-key.
+// as Authorization: Bearer or x-api-key. The plaintext key is returned to
+// the caller exactly once at creation time; at rest only the SHA-256 hash
+// is stored (in the "key" column, via KeyHash). The Key field is populated
+// only for the creation response and is empty on subsequent reads.
 type ApiKey struct {
 	ID       string `json:"id" gorm:"primaryKey"`
-	Key      string `json:"key" gorm:"uniqueIndex"`
+	Key      string `json:"key,omitempty" gorm:"-"`          // plaintext; never persisted (gorm:"-")
+	KeyHash  string `json:"-" gorm:"uniqueIndex;column:key"` // SHA-256 hash at rest (col "key")
 	Name     string `json:"name"`
 	IsActive bool   `json:"is_active" gorm:"column:is_active;default:true"`
 	// Limits holds every rate/spend limit applied to this key. An empty
@@ -294,7 +298,8 @@ type UsageEntry struct {
 	Provider            string    `json:"provider"`
 	Model               string    `json:"model"`
 	ConnectionID        string    `json:"connection_id" gorm:"column:connection_id"`
-	ApiKey              string    `json:"api_key,omitempty" gorm:"column:api_key"`
+	ApiKey              string    `json:"api_key,omitempty" gorm:"column:api_key"`             // legacy: plaintext (old rows); empty on new rows
+	ApiKeyID            string    `json:"api_key_id,omitempty" gorm:"column:api_key_id;index"` // stable key identity (FK to api_keys.id)
 	Endpoint            string    `json:"endpoint"`
 	LatencyMs           int64     `json:"latency_ms,omitempty"`
 	TTFTMs              int64     `json:"ttft_ms,omitempty" gorm:"column:ttft_ms;default:0"`

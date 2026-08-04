@@ -70,12 +70,12 @@ func (r *AsyncUsageRecorder) ModelStatsByID(ctx context.Context) (map[string]*do
 	return r.repo.ModelStatsByID(ctx)
 }
 
-func (r *AsyncUsageRecorder) SavingsStats(ctx context.Context, period string, apiKey string) (*domain.SavingsAgg, error) {
-	return r.repo.SavingsStats(ctx, period, apiKey)
+func (r *AsyncUsageRecorder) SavingsStats(ctx context.Context, period string, apiKeyID string) (*domain.SavingsAgg, error) {
+	return r.repo.SavingsStats(ctx, period, apiKeyID)
 }
 
-func (r *AsyncUsageRecorder) SumCostByApiKey(ctx context.Context, apiKey string, since time.Time) (float64, error) {
-	return r.repo.SumCostByApiKey(ctx, apiKey, since)
+func (r *AsyncUsageRecorder) SumCostByApiKeyID(ctx context.Context, apiKeyID string, since time.Time) (float64, error) {
+	return r.repo.SumCostByApiKeyID(ctx, apiKeyID, since)
 }
 
 // Close drains pending entries. Call during graceful shutdown.

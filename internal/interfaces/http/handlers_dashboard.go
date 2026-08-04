@@ -578,8 +578,10 @@ func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// The plaintext key is never stored; the list shows a masked view of
+	// the key hash so rows are distinguishable. Identity is the key ID.
 	for i := range ks {
-		ks[i].Key = maskKey(ks[i].Key)
+		ks[i].Key = maskKey(ks[i].KeyHash)
 	}
 	writeJSON(w, http.StatusOK, ks)
 }
@@ -628,7 +630,7 @@ func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, statusForError(err), err.Error())
 		return
 	}
-	existing.Key = maskKey(existing.Key)
+	existing.Key = maskKey(existing.KeyHash)
 	writeJSON(w, http.StatusOK, existing)
 }
 
@@ -644,8 +646,9 @@ func (s *Server) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUsageStats(w http.ResponseWriter, r *http.Request) {
 	q := domain.UsageStatsQuery{
-		Period: r.URL.Query().Get("period"),
-		Bucket: r.URL.Query().Get("bucket"),
+		Period:   r.URL.Query().Get("period"),
+		Bucket:   r.URL.Query().Get("bucket"),
+		ApiKeyID: r.URL.Query().Get("api_key_id"),
 	}
 	if q.Period == "" {
 		q.Period = "24h"
@@ -659,14 +662,6 @@ func (s *Server) handleUsageStats(w http.ResponseWriter, r *http.Request) {
 	if toStr := r.URL.Query().Get("to"); toStr != "" {
 		if t, err := time.Parse(time.RFC3339, toStr); err == nil {
 			q.To = t
-		}
-	}
-	// Filter by api key: the frontend passes the key ID, we resolve it
-	// to the raw key string that's stored in usage_entries.
-	if keyID := r.URL.Query().Get("api_key_id"); keyID != "" && s.Keys != nil {
-		k, err := lookupKey(s.Keys, r.Context(), keyID)
-		if err == nil {
-			q.ApiKey = k.Key
 		}
 	}
 	stats, err := s.Usage.Stats(r.Context(), q)
@@ -688,13 +683,14 @@ func (s *Server) handleUsageFilters(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUsageHistory(w http.ResponseWriter, r *http.Request) {
 	q := domain.HistoryQuery{
-		Limit:   100,
-		Page:    1,
-		PerPage: 25,
-		Model:   r.URL.Query().Get("model"),
-		Combo:   r.URL.Query().Get("combo"),
-		ApiKey:  r.URL.Query().Get("api_key"),
-		Search:  r.URL.Query().Get("search"),
+		Limit:    100,
+		Page:     1,
+		PerPage:  25,
+		Model:    r.URL.Query().Get("model"),
+		Combo:    r.URL.Query().Get("combo"),
+		ApiKey:   r.URL.Query().Get("api_key"),
+		ApiKeyID: r.URL.Query().Get("api_key_id"),
+		Search:   r.URL.Query().Get("search"),
 	}
 	if v := r.URL.Query().Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
@@ -721,12 +717,9 @@ func (s *Server) handleUsageHistory(w http.ResponseWriter, r *http.Request) {
 			q.To = t
 		}
 	}
-	// Resolve api_key_id to raw key.
-	if keyID := r.URL.Query().Get("api_key_id"); keyID != "" && s.Keys != nil {
-		k, err := lookupKey(s.Keys, r.Context(), keyID)
-		if err == nil {
-			q.ApiKey = k.Key
-		}
+	// Filter by api key ID directly — usage entries store api_key_id.
+	if keyID := r.URL.Query().Get("api_key_id"); keyID != "" {
+		q.ApiKeyID = keyID
 	}
 	h, err := s.Usage.History(r.Context(), q)
 	if err != nil {

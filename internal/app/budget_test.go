@@ -12,7 +12,7 @@ type budgetUsageRepo struct {
 	spent float64
 }
 
-func (r *budgetUsageRepo) SumCostByApiKey(ctx context.Context, apiKey string, since time.Time) (float64, error) {
+func (r *budgetUsageRepo) SumCostByApiKeyID(ctx context.Context, apiKeyID string, since time.Time) (float64, error) {
 	return r.spent, nil
 }
 

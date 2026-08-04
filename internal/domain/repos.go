@@ -52,25 +52,27 @@ type ApiKeyRepo interface {
 // instead. When To is zero, now (exclusive) is used. When Bucket is empty,
 // the repository auto-selects based on the range width.
 type UsageStatsQuery struct {
-	From   time.Time // inclusive lower bound; zero = use period preset
-	To     time.Time // exclusive upper bound; zero = now
-	Period string    // preset: "24h", "7d", "30d", "60d", "1h" — used when From is zero
-	Bucket string    // "hour", "minute", "5m", "30m", "day"; empty = auto
-	ApiKey string    // filter by raw api key; empty = all keys
+	From     time.Time // inclusive lower bound; zero = use period preset
+	To       time.Time // exclusive upper bound; zero = now
+	Period   string    // preset: "24h", "7d", "30d", "60d", "1h" — used when From is zero
+	Bucket   string    // "hour", "minute", "5m", "30m", "day"; empty = auto
+	ApiKey   string    // legacy: filter by raw api key (old rows); empty = all
+	ApiKeyID string    // filter by api key ID; empty = all
 }
 
 // HistoryQuery specifies filters for the logs/history endpoint. All fields
 // are optional; empty/zero values mean "no filter on this field".
 type HistoryQuery struct {
-	From    time.Time // inclusive; zero = no lower bound
-	To      time.Time // exclusive; zero = no upper bound
-	Model   string    // exact model name; empty = all
-	Combo   string    // combo name in the chain; empty = all
-	ApiKey  string    // raw api key; empty = all
-	Search  string    // substring match on model/provider/endpoint; empty = all
-	Limit   int       // legacy: max groups to return; ignored when PerPage > 0
-	Page    int       // 1-based page number; 0 = page 1
-	PerPage int       // groups per page; 0 = use Limit or default 100
+	From     time.Time // inclusive; zero = no lower bound
+	To       time.Time // exclusive; zero = no upper bound
+	Model    string    // exact model name; empty = all
+	Combo    string    // combo name in the chain; empty = all
+	ApiKey   string    // legacy: raw api key; empty = all
+	ApiKeyID string    // filter by api key ID; empty = all
+	Search   string    // substring match on model/provider/endpoint; empty = all
+	Limit    int       // legacy: max groups to return; ignored when PerPage > 0
+	Page     int       // 1-based page number; 0 = page 1
+	PerPage  int       // groups per page; 0 = use Limit or default 100
 }
 
 // HistoryResult is a paginated page of usage history groups. Each entry in
@@ -111,11 +113,13 @@ type UsageRepo interface {
 	// identifier so callers can match combo members unambiguously.
 	ModelStatsByID(ctx context.Context) (map[string]*ModelStat, error)
 	// SavingsStats returns aggregated savings (cache + RTK) for a time range.
-	SavingsStats(ctx context.Context, period string, apiKey string) (*SavingsAgg, error)
-	// SumCostByApiKey returns the total dollar cost spent by the given API
-	// key since the given timestamp (inclusive). Only successful requests
-	// (status < 400) are counted. Used by the budget cap middleware.
-	SumCostByApiKey(ctx context.Context, apiKey string, since time.Time) (float64, error)
+	// apiKeyID filters by the key's database ID (empty = all keys).
+	SavingsStats(ctx context.Context, period string, apiKeyID string) (*SavingsAgg, error)
+	// SumCostByApiKeyID returns the total dollar cost spent by the given
+	// API key ID since the given timestamp (inclusive). Only successful
+	// requests (status < 400) are counted. Used by the budget cap
+	// middleware.
+	SumCostByApiKeyID(ctx context.Context, apiKeyID string, since time.Time) (float64, error)
 }
 
 // ModelRepo persists the model catalog (synced + manual entries).
