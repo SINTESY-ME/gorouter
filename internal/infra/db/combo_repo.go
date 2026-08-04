@@ -17,7 +17,8 @@ func NewComboRepo(db *gorm.DB) *ComboRepo { return &ComboRepo{db: db} }
 
 func (r *ComboRepo) List(ctx context.Context) ([]domain.Combo, error) {
 	var combos []domain.Combo
-	err := r.db.WithContext(ctx).Order("name").Find(&combos).Error
+	tx := scopedTable(ctx, r.db.WithContext(ctx), "combos", "created_by", domain.UserAccessCombo)
+	err := tx.Order("name").Find(&combos).Error
 	return combos, err
 }
 

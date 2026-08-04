@@ -17,8 +17,11 @@
       "playground": "Playground",
       "logs": "Jurnallar",
       "performance": "Performans",
-      "settings": "Tənzimləmələr"
-    }
+      "settings": "Tənzimləmələr",
+      "users": "Users"
+    },
+    "roleAdmin": "Admin",
+    "roleMember": "Member"
   },
   "dashboard": {
     "title": "Ümumi baxış",
@@ -31,7 +34,7 @@
     "allTokens": "Bütün tokenlər",
     "auto": "Avtomatik",
     "buckets": {
-        "auto": "Avtomatik",
+      "auto": "Avtomatik",
       "minute": "Dəqiqə",
       "min5": "5 dəq",
       "min30": "30 dəq",
@@ -527,7 +530,9 @@
     "password": "Şifrə",
     "passwordPlaceholder": "Şifrə",
     "submitting": "Daxil olunur...",
-    "submit": "Daxil ol"
+    "submit": "Daxil ol",
+    "username": "İstifadəçi adı",
+    "usernamePlaceholder": "İstifadəçi adı"
   },
   "setup": {
     "errorShort": "Şifrə ən azı 4 simvol olmalıdır.",
@@ -542,7 +547,9 @@
     "confirm": "Şifrəni təsdiqlə",
     "confirmPlaceholder": "Şifrəni təsdiqlə",
     "submitting": "Təyin edilir...",
-    "submit": "Şifrəni təyin et"
+    "submit": "Şifrəni təyin et",
+    "username": "İstifadəçi adı",
+    "usernamePlaceholder": "İstifadəçi adı (admin (default))"
   },
   "store": {
     "errorLoad": "store yüklənmədi",
@@ -565,5 +572,48 @@
   "modelComboBox": {
     "inactive": "qeyri-aktiv",
     "combo": "kombo"
+  },
+  "users": {
+    "title": "Users",
+    "subtitle": "Manage dashboard users and their permissions.",
+    "create": "Add user",
+    "tableAria": "Users",
+    "colUser": "User",
+    "colRole": "Role",
+    "colAccess": "Access",
+    "colActions": "Actions",
+    "roleAdmin": "Admin",
+    "roleMember": "Member",
+    "allAccess": "Full access",
+    "models": "models",
+    "combos": "combos",
+    "edit": "Edit",
+    "delete": "Delete",
+    "createTitle": "Add user",
+    "editTitle": "Edit user",
+    "username": "Username",
+    "usernamePlaceholder": "Username",
+    "password": "Password",
+    "passwordPlaceholder": "Password",
+    "passwordLeave": "Leave blank to keep current",
+    "role": "Role",
+    "permissions": "Permissions",
+    "grantedModels": "Allowed models",
+    "grantedCombos": "Allowed combos",
+    "grantedProviders": "Allowed providers",
+    "pickModels": "Add a model…",
+    "pickCombos": "Add a combo…",
+    "pickProviders": "Add a provider…",
+    "permOwnProviders": "Manage own providers",
+    "permCreateCombos": "Create own combos",
+    "permCache": "Configure cache / Performance",
+    "permSettings": "Access Settings",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving…",
+    "saveError": "Failed to save user.",
+    "errUsername": "Username is required.",
+    "errPassword": "Password is required for new users.",
+    "empty": "No users yet."
   }
 }

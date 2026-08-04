@@ -68,6 +68,7 @@ type Server struct {
 	RequireKey  bool
 	RateLimiter *app.RateLimiter
 	Auth        *app.AuthService
+	Users       *app.UserService
 	// KeySecret is the HMAC secret used to stamp/verify the CRC segment of
 	// client API keys (sk-{id}-{crc}). When non-empty, malformed keys are
 	// rejected by the cheap in-memory check before any repo lookup.
@@ -123,7 +124,6 @@ func (s *Server) Routes() http.Handler {
 			// OAuth browser callback must be public (IdP redirect).
 			r.Get("/oauth/{provider}/callback", s.handleOAuthCallback)
 		})
-
 		// Dashboard API auth: requireDashboardToken is always mounted but
 		// is a no-op when no password is configured (env token or DB hash).
 		// This lets the setup flow be unprotected while password-protecting
@@ -174,6 +174,17 @@ func (s *Server) Routes() http.Handler {
 			r.Put("/keys/{id}", s.handleUpdateKey)
 			r.Delete("/keys/{id}", s.handleDeleteKey)
 
+			// Logout must run through auth so it can revoke the session.
+			r.Post("/auth/logout", s.handleAuthLogout)
+			r.Get("/auth/me", s.handleAuthMe)
+
+			// User management (admin only — enforced in handlers).
+			r.Get("/users", s.handleListUsers)
+			r.Post("/users", s.handleCreateUser)
+			r.Put("/users/{id}", s.handleUpdateUser)
+			r.Delete("/users/{id}", s.handleDeleteUser)
+			r.Put("/users/{id}/access", s.handleSetUserAccess)
+
 			r.Get("/usage/stats", s.handleUsageStats)
 			r.Get("/usage/history", s.handleUsageHistory)
 			r.Get("/usage/filters", s.handleUsageFilters)
@@ -210,13 +221,16 @@ func (s *Server) Routes() http.Handler {
 func (s *Server) requireApiKey(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bearer := bearerToken(r)
-		// Priority: a valid dashboard token always wins over an arbitrary
-		// "Bearer X" header. This lets the Playground (and dashboard-
-		// triggered tests on localhost) hit /v1 without first creating an
-		// API key. A real API key (sk-...) is never a dashboard token.
+		// Priority: a valid dashboard session token always wins over an
+		// arbitrary "Bearer X" header. This lets the Playground (and
+		// dashboard-triggered tests on localhost) hit /v1 without first
+		// creating an API key. A real API key (sk-...) is never a session
+		// token.
 		if bearer != "" && s.Auth != nil {
-			if ok, _ := s.Auth.ValidateToken(r.Context(), bearer); ok {
-				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), apiKeyCtxKey{}, dashboardInternalKey)))
+			if scope := s.resolveUserScope(r, bearer); scope != nil {
+				ctx := domain.WithUserScope(r.Context(), scope)
+				ctx = context.WithValue(ctx, apiKeyCtxKey{}, "user:"+scope.UserID)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 		}
@@ -301,18 +315,18 @@ func withApiKey(ctx context.Context, key string, apiKey *domain.ApiKey) context.
 	return ctx
 }
 
-// dashboardInternalKey is a sentinel value stored in apiKeyCtxKey when the
-// request was authenticated via the dashboard token instead of an API key.
-// Used to distinguish "no key" from "dashboard-authenticated".
-const dashboardInternalKey = "__dashboard__"
-
+// apiKeyCtxKey stores the request's identity: the API key ID for key
+// authenticated calls, or "user:<id>" for dashboard-session (playground)
+// calls. It flows into usage entries as ApiKeyID.
 type apiKeyCtxKey struct{}
 
 // requireDashboardToken validates the dashboard bearer token. Accepts
 // either Authorization: Bearer <token> or ?dashboard_token=<token> (for
-// browser sessions that can't set headers). When no password is
-// configured (env token empty AND no DB hash), auth is disabled and all
-// requests pass through (trust localhost). Returns 401 on mismatch.
+// browser sessions that can't set headers). When no auth is configured
+// (no env token, no users), auth is disabled and all requests pass through
+// (trust localhost). On success it resolves the user and injects a
+// domain.UserScope into the request context, which repos use to scope data
+// to what the user can see. Returns 401 on mismatch.
 func (s *Server) requireDashboardToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		configured, _ := s.Auth.IsConfigured(r.Context())
@@ -321,13 +335,46 @@ func (s *Server) requireDashboardToken(next http.Handler) http.Handler {
 			return
 		}
 		token := bearerToken(r)
-		ok, _ := s.Auth.ValidateToken(r.Context(), token)
-		if !ok {
+		if token == "" {
 			writeError(w, http.StatusUnauthorized, "invalid or missing dashboard token")
 			return
 		}
-		next.ServeHTTP(w, r)
+		scope := s.resolveUserScope(r, token)
+		if scope == nil {
+			writeError(w, http.StatusUnauthorized, "invalid or missing dashboard token")
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(domain.WithUserScope(r.Context(), scope)))
 	})
+}
+
+// resolveUserScope authenticates a bearer token and builds the UserScope
+// for the request. Returns nil when the token is invalid. Env-token master
+// auth is treated as an admin with a synthetic user ID.
+func (s *Server) resolveUserScope(r *http.Request, token string) *domain.UserScope {
+	if s.Auth.EnvToken != "" && token == s.Auth.EnvToken {
+		return &domain.UserScope{
+			UserID: "__env__",
+			Role:   domain.RoleAdmin,
+		}
+	}
+	user, err := s.Auth.ValidateSession(r.Context(), token)
+	if err != nil || user == nil {
+		return nil
+	}
+	scope := &domain.UserScope{
+		UserID:      user.ID,
+		Role:        user.Role,
+		Permissions: user.Permissions,
+	}
+	return scope
+}
+
+// currentUser returns the UserScope for the request, or nil when the
+// request was not authenticated via a dashboard session (internal callers
+// still pass through middleware-less paths).
+func (s *Server) currentUser(r *http.Request) *domain.UserScope {
+	return domain.UserScopeFrom(r.Context())
 }
 
 func extractApiKey(r *http.Request) string {

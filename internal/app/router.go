@@ -1178,7 +1178,7 @@ func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterRespon
 		limit: bufLimit,
 		start: start,
 		onClose: func(buf []byte, ttftMs int64) {
-			s.recordUsage(m, conn, apiKey, endpoint, res.StatusCode, res.Stream, buf, comboChain, start, ttftMs, res.RTKBytesSaved, res.RTKTokensSaved, res.RTKCostSaved, requestID, attempt)
+			s.recordUsage(ctx, m, conn, apiKey, endpoint, res.StatusCode, res.Stream, buf, comboChain, start, ttftMs, res.RTKBytesSaved, res.RTKTokensSaved, res.RTKCostSaved, requestID, attempt)
 			if cacheEligible && res.StatusCode < 400 {
 				actualModel := m.Provider + "/" + m.Model
 				reqBody, _ := requestBodyFromCtx(ctx)
@@ -1381,8 +1381,16 @@ func firstErr(errs ...error) error {
 // comboChain is the list of combo names from root to leaf (e.g.
 // ["coding", "medium"]). After inserting the usage entry, combo_executions
 // rows are inserted so every combo in the chain gets credit.
-func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, status int, stream bool, buf []byte, comboChain []string, start time.Time, ttftMs int64, rtkBytes int, rtkTokens int, rtkCost float64, requestID string, attempt int) {
-	prompt, completion, cacheRead, cacheCreation := 0, 0, 0, 0
+// userIDFromCtx returns the authenticated dashboard user ID from the
+// request context, or "" for API-key/unauth requests.
+func userIDFromCtx(ctx context.Context) string {
+	if scope := domain.UserScopeFrom(ctx); scope != nil {
+		return scope.UserID
+	}
+	return ""
+}
+
+func (s *RouterService) recordUsage(ctx context.Context, m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, status int, stream bool, buf []byte, comboChain []string, start time.Time, ttftMs int64, rtkBytes int, rtkTokens int, rtkCost float64, requestID string, attempt int) {	prompt, completion, cacheRead, cacheCreation := 0, 0, 0, 0
 	if endpoint == "" {
 		endpoint = "chat/completions"
 	}
@@ -1409,6 +1417,7 @@ func (s *RouterService) recordUsage(m domain.ModelID, conn *domain.Connection, a
 		Model:            m.Model,
 		ConnectionID:     connID,
 		ApiKeyID:         apiKey,
+		UserID:           userIDFromCtx(ctx),
 		Endpoint:         endpoint,
 		LatencyMs:        time.Since(start).Milliseconds(),
 		TTFTMs:           ttftMs,

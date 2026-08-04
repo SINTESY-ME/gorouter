@@ -17,8 +17,11 @@
       "playground": "Playground",
       "logs": "Логи",
       "performance": "Производительность",
-      "settings": "Настройки"
-    }
+      "settings": "Настройки",
+      "users": "Users"
+    },
+    "roleAdmin": "Admin",
+    "roleMember": "Member"
   },
   "dashboard": {
     "title": "Обзор",
@@ -31,7 +34,7 @@
     "allTokens": "Все токены",
     "auto": "Авто",
     "buckets": {
-        "auto": "Автоматически",
+      "auto": "Автоматически",
       "minute": "Минута",
       "min5": "5 мин",
       "min30": "30 мин",
@@ -527,7 +530,9 @@
     "password": "Пароль",
     "passwordPlaceholder": "Пароль",
     "submitting": "Вход...",
-    "submit": "Войти"
+    "submit": "Войти",
+    "username": "Имя пользователя",
+    "usernamePlaceholder": "Имя пользователя"
   },
   "setup": {
     "errorShort": "Пароль должен содержать не менее 4 символов.",
@@ -542,7 +547,9 @@
     "confirm": "Подтвердите пароль",
     "confirmPlaceholder": "Подтвердите пароль",
     "submitting": "Установка...",
-    "submit": "Установить пароль"
+    "submit": "Установить пароль",
+    "username": "Имя пользователя",
+    "usernamePlaceholder": "Имя пользователя (admin (default))"
   },
   "store": {
     "errorLoad": "не удалось загрузить каталог",
@@ -565,5 +572,48 @@
   "modelComboBox": {
     "inactive": "неактивна",
     "combo": "комбо"
+  },
+  "users": {
+    "title": "Users",
+    "subtitle": "Manage dashboard users and their permissions.",
+    "create": "Add user",
+    "tableAria": "Users",
+    "colUser": "User",
+    "colRole": "Role",
+    "colAccess": "Access",
+    "colActions": "Actions",
+    "roleAdmin": "Admin",
+    "roleMember": "Member",
+    "allAccess": "Full access",
+    "models": "models",
+    "combos": "combos",
+    "edit": "Edit",
+    "delete": "Delete",
+    "createTitle": "Add user",
+    "editTitle": "Edit user",
+    "username": "Username",
+    "usernamePlaceholder": "Username",
+    "password": "Password",
+    "passwordPlaceholder": "Password",
+    "passwordLeave": "Leave blank to keep current",
+    "role": "Role",
+    "permissions": "Permissions",
+    "grantedModels": "Allowed models",
+    "grantedCombos": "Allowed combos",
+    "grantedProviders": "Allowed providers",
+    "pickModels": "Add a model…",
+    "pickCombos": "Add a combo…",
+    "pickProviders": "Add a provider…",
+    "permOwnProviders": "Manage own providers",
+    "permCreateCombos": "Create own combos",
+    "permCache": "Configure cache / Performance",
+    "permSettings": "Access Settings",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving…",
+    "saveError": "Failed to save user.",
+    "errUsername": "Username is required.",
+    "errPassword": "Password is required for new users.",
+    "empty": "No users yet."
   }
 }

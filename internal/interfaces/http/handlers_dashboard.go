@@ -64,6 +64,10 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "provider configs not available")
 		return
 	}
+	if !s.canManageResource(r, domain.UserAccessProvider) {
+		writeError(w, http.StatusForbidden, "creating providers is not allowed for this user")
+		return
+	}
 
 	var templateAPIKey string
 	if req.TemplateID != "" && s.Catalog != nil {
@@ -88,6 +92,7 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		Format:      domain.Format(req.Format),
 		Auth:        domain.AuthScheme(req.Auth),
 		LoadBalance: req.LoadBalance,
+		CreatedBy:   s.createdByFor(r),
 	}
 
 	if cfg.Format == "" {
@@ -116,6 +121,10 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	existing, err := s.ProviderConfigs.Get(r.Context(), id)
 	if err != nil {
 		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	if !s.canManageResource(r, domain.UserAccessProvider) || !s.ownsResource(r, existing.CreatedBy) {
+		writeError(w, http.StatusForbidden, "you can only edit providers you created")
 		return
 	}
 
@@ -158,7 +167,17 @@ func (s *Server) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "provider configs not available")
 		return
 	}
-	if err := s.ProviderConfigs.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {
+	id := chi.URLParam(r, "id")
+	existing, err := s.ProviderConfigs.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	if !s.canManageResource(r, domain.UserAccessProvider) || !s.ownsResource(r, existing.CreatedBy) {
+		writeError(w, http.StatusForbidden, "you can only delete providers you created")
+		return
+	}
+	if err := s.ProviderConfigs.Delete(r.Context(), id); err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
 	}
@@ -515,12 +534,17 @@ func (s *Server) handleCreateCombo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !s.canManageResource(r, domain.UserAccessCombo) {
+		writeError(w, http.StatusForbidden, "creating combos is not allowed for this user")
+		return
+	}
 	c := &domain.Combo{
 		Name:            req.Name,
 		Models:          req.Models,
 		Strategy:        req.Strategy,
 		ModelMeta:       req.ModelMeta,
 		ClassifierModel: req.ClassifierModel,
+		CreatedBy:       s.createdByFor(r),
 	}
 	if err := s.Combos.Create(r.Context(), c); err != nil {
 		writeError(w, statusForError(err), err.Error())
@@ -541,6 +565,10 @@ func (s *Server) handleUpdateCombo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, statusForError(err), err.Error())
 		return
 	}
+	if !s.canManageResource(r, domain.UserAccessCombo) || !s.ownsResource(r, existing.CreatedBy) {
+		writeError(w, http.StatusForbidden, "you can only edit combos you created")
+		return
+	}
 	existing.Name = orDefault(req.Name, existing.Name)
 	existing.Strategy = orDefault(req.Strategy, existing.Strategy)
 	existing.ClassifierModel = req.ClassifierModel
@@ -556,7 +584,17 @@ func (s *Server) handleUpdateCombo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteCombo(w http.ResponseWriter, r *http.Request) {
-	if err := s.Combos.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {
+	id := chi.URLParam(r, "id")
+	existing, err := s.Combos.Repo.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	if !s.canManageResource(r, domain.UserAccessCombo) || !s.ownsResource(r, existing.CreatedBy) {
+		writeError(w, http.StatusForbidden, "you can only delete combos you created")
+		return
+	}
+	if err := s.Combos.Delete(r.Context(), id); err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
 	}
@@ -592,7 +630,7 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	k, err := s.Keys.Create(r.Context(), req.Name, req.Limits, req.AllowedModels)
+	k, err := s.Keys.Create(r.Context(), req.Name, req.Limits, req.AllowedModels, s.createdByFor(r))
 	if err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
@@ -607,6 +645,10 @@ func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 	existing, err := lookupKey(s.Keys, r.Context(), id)
 	if err != nil {
 		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	if !s.ownsResource(r, existing.CreatedBy) {
+		writeError(w, http.StatusForbidden, "you can only edit keys you created")
 		return
 	}
 	var req keyDTO
@@ -635,7 +677,17 @@ func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
-	if err := s.Keys.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {
+	id := chi.URLParam(r, "id")
+	existing, err := lookupKey(s.Keys, r.Context(), id)
+	if err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	if !s.ownsResource(r, existing.CreatedBy) {
+		writeError(w, http.StatusForbidden, "you can only delete keys you created")
+		return
+	}
+	if err := s.Keys.Delete(r.Context(), id); err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
 	}

@@ -17,8 +17,11 @@
       "playground": "પ્લેગ્રાઉન્ડ",
       "logs": "લોગ",
       "performance": "પર્ફોર્મન્સ",
-      "settings": "સેટિંગ્સ"
-    }
+      "settings": "સેટિંગ્સ",
+      "users": "Users"
+    },
+    "roleAdmin": "Admin",
+    "roleMember": "Member"
   },
   "dashboard": {
     "title": "ઝાંખી",
@@ -31,7 +34,7 @@
     "allTokens": "બધા ટોકન",
     "auto": "ઓટો",
     "buckets": {
-        "auto": "સ્વચાલિત",
+      "auto": "સ્વચાલિત",
       "minute": "મિનિટ",
       "min5": "5 મિનિટ",
       "min30": "30 મિનિટ",
@@ -527,7 +530,9 @@
     "password": "પાસવર્ડ",
     "passwordPlaceholder": "પાસવર્ડ",
     "submitting": "સાઇન ઇન થઈ રહ્યું છે...",
-    "submit": "સાઇન ઇન"
+    "submit": "સાઇન ઇન",
+    "username": "વપરાશકર્તા નામ",
+    "usernamePlaceholder": "વપરાશકર્તા નામ"
   },
   "setup": {
     "errorShort": "પાસવર્ડ ઓછામાં ઓછા 4 અક્ષરોનો હોવો જોઈએ.",
@@ -542,7 +547,9 @@
     "confirm": "પાસવર્ડની પુષ્ટિ કરો",
     "confirmPlaceholder": "પાસવર્ડની પુષ્ટિ કરો",
     "submitting": "સેટ થઈ રહ્યું છે...",
-    "submit": "પાસવર્ડ સેટ કરો"
+    "submit": "પાસવર્ડ સેટ કરો",
+    "username": "વપરાશકર્તા નામ",
+    "usernamePlaceholder": "વપરાશકર્તા નામ (admin (default))"
   },
   "store": {
     "errorLoad": "સ્ટોર લોડ કરવામાં નિષ્ફળ",
@@ -565,5 +572,48 @@
   "modelComboBox": {
     "inactive": "નિષ્ક્રિય",
     "combo": "કોમ્બો"
+  },
+  "users": {
+    "title": "Users",
+    "subtitle": "Manage dashboard users and their permissions.",
+    "create": "Add user",
+    "tableAria": "Users",
+    "colUser": "User",
+    "colRole": "Role",
+    "colAccess": "Access",
+    "colActions": "Actions",
+    "roleAdmin": "Admin",
+    "roleMember": "Member",
+    "allAccess": "Full access",
+    "models": "models",
+    "combos": "combos",
+    "edit": "Edit",
+    "delete": "Delete",
+    "createTitle": "Add user",
+    "editTitle": "Edit user",
+    "username": "Username",
+    "usernamePlaceholder": "Username",
+    "password": "Password",
+    "passwordPlaceholder": "Password",
+    "passwordLeave": "Leave blank to keep current",
+    "role": "Role",
+    "permissions": "Permissions",
+    "grantedModels": "Allowed models",
+    "grantedCombos": "Allowed combos",
+    "grantedProviders": "Allowed providers",
+    "pickModels": "Add a model…",
+    "pickCombos": "Add a combo…",
+    "pickProviders": "Add a provider…",
+    "permOwnProviders": "Manage own providers",
+    "permCreateCombos": "Create own combos",
+    "permCache": "Configure cache / Performance",
+    "permSettings": "Access Settings",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving…",
+    "saveError": "Failed to save user.",
+    "errUsername": "Username is required.",
+    "errPassword": "Password is required for new users.",
+    "empty": "No users yet."
   }
 }

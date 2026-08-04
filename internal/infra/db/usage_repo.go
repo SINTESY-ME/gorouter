@@ -35,6 +35,19 @@ func applyHistoryKeyFilter(tx *gorm.DB, q domain.HistoryQuery) *gorm.DB {
 	return tx
 }
 
+// applyUsageScope adds the member's data-isolation WHERE to a usage_entries
+// query: a member sees usage they generated directly (user_id = them) plus
+// usage generated through API keys they created. Admins and internal
+// callers see everything.
+func applyUsageScope(ctx context.Context, tx *gorm.DB) *gorm.DB {
+	scope := domain.UserScopeFrom(ctx)
+	if scope == nil || scope.Role == domain.RoleAdmin {
+		return tx
+	}
+	keySub := "SELECT id FROM api_keys WHERE created_by = ?"
+	return tx.Where("(user_id = ? OR api_key_id IN ("+keySub+"))", scope.UserID, scope.UserID)
+}
+
 // UsageRepo implements domain.UsageRepo via GORM.
 type UsageRepo struct{ db *gorm.DB }
 
@@ -84,6 +97,7 @@ func (r *UsageRepo) Stats(ctx context.Context, q domain.UsageStatsQuery) (*domai
 		Bucket:        bucket,
 	}
 	tx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
+	tx = applyUsageScope(ctx, tx)
 	tx = applyKeyFilter(tx, "", q)
 	// Totals + success/error split
 	var totals struct {
@@ -434,6 +448,7 @@ func (r *UsageRepo) timeseries(ctx context.Context, from, to time.Time, bucket s
 		AvgTPS   float64
 	}
 	tx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
+	tx = applyUsageScope(ctx, tx)
 	if apiKeyID != "" {
 		tx = tx.Where("api_key_id = ?", apiKeyID)
 	} else if apiKey != "" {
@@ -482,6 +497,7 @@ func (r *UsageRepo) History(ctx context.Context, q domain.HistoryQuery) (*domain
 	}
 	offset := (page - 1) * perPage
 	tx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
+	tx = applyUsageScope(ctx, tx)
 	if !q.From.IsZero() {
 		tx = tx.Where("timestamp >= ?", q.From)
 	}
@@ -515,6 +531,7 @@ func (r *UsageRepo) History(ctx context.Context, q domain.HistoryQuery) (*domain
 	// Count total groups for pagination metadata.
 	var total int64
 	countTx := r.db.WithContext(ctx).Model(&domain.UsageEntry{})
+	countTx = applyUsageScope(ctx, countTx)
 	if !q.From.IsZero() {
 		countTx = countTx.Where("timestamp >= ?", q.From)
 	}
@@ -571,8 +588,8 @@ func (r *UsageRepo) History(ctx context.Context, q domain.HistoryQuery) (*domain
 
 func (r *UsageRepo) DistinctHistoryFilters(ctx context.Context, search string) (*domain.HistoryFilters, error) {
 	var models, providers, combos []string
-	modelQuery := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("model <> ''")
-	providerQuery := r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("provider <> ''")
+	modelQuery := applyUsageScope(ctx, r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("model <> ''"))
+	providerQuery := applyUsageScope(ctx, r.db.WithContext(ctx).Model(&domain.UsageEntry{}).Where("provider <> ''"))
 	if search != "" {
 		like := "%" + search + "%"
 		modelQuery = modelQuery.Where("model LIKE ?", like)
@@ -585,6 +602,7 @@ func (r *UsageRepo) DistinctHistoryFilters(ctx context.Context, search string) (
 		return nil, err
 	}
 	comboQuery := r.db.WithContext(ctx).Model(&domain.ComboExecution{}).Where("combo_name <> ''")
+	comboQuery = applyUsageScope(ctx, comboQuery.Joins("JOIN usage_entries ON usage_entries.id = combo_executions.usage_id"))
 	if search != "" {
 		comboQuery = comboQuery.Where("combo_name LIKE ?", "%"+search+"%")
 	}

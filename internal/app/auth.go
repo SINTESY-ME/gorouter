@@ -1,7 +1,7 @@
 // Package app provides application services that orchestrate the domain
 // through the repository and executor ports. This file holds the dashboard
-// auth service: password setup (first run) and login validation against
-// either an env-provided token or a DB-stored hash.
+// auth service: user setup (first run), login via username/password with
+// session tokens, and session validation.
 package app
 
 import (
@@ -11,108 +11,216 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/google/uuid"
 
 	"github.com/jhon/gorouter/internal/domain"
 )
 
-// SettingKeyDashboardPassword is the settings key for the dashboard
-// password hash. New hashes are bcrypt (salt embedded in the string);
-// legacy unsalted sha256 hex hashes are still accepted and migrated on
-// the next successful login.
+// SettingKeyDashboardPassword is the legacy settings key for the single
+// dashboard password hash. New installs use the users table; existing
+// installs are migrated to an admin user on the first successful login.
 const SettingKeyDashboardPassword = "dashboard_password_hash"
 
 // ErrAuthAlreadyConfigured is returned by Setup when a password is already set.
 var ErrAuthAlreadyConfigured = errors.New("dashboard password already configured")
 
-// AuthService manages the dashboard password. Two sources are supported:
-//   - EnvToken: when non-empty (GOROUTER_DASHBOARD_TOKEN), it IS the password
-//     and setup is skipped — the operator pre-configured it.
-//   - Repo: a bcrypt hash persisted in the settings table, set via the
-//     first-run setup flow.
+// ErrInvalidCredentials is returned when a username/password pair is wrong.
+var ErrInvalidCredentials = errors.New("invalid username or password")
+
+// AuthService manages dashboard authentication. Two sources are supported:
+//   - EnvToken (GOROUTER_DASHBOARD_TOKEN): a master token that authenticates
+//     as the admin without a session. Kept for backwards compatibility.
+//   - Users: a users table with per-user bcrypt password hashes and
+//     session tokens. This is the primary mode going forward.
 //
-// ValidateToken accepts a candidate and returns true if it matches either
-// source. The token that the frontend stores after login is the plaintext
-// password; all /api/* calls send it as Bearer.
+// Login always produces a session token (never returns the password). The
+// frontend stores the session token and sends it as Bearer on /api/* calls.
 type AuthService struct {
 	EnvToken string
-	Repo     domain.SettingRepo
+	Users    domain.UserRepo
+	Sessions domain.SessionRepo
+	Setting  domain.SettingRepo // legacy single-password migration
 }
 
-// IsConfigured reports whether a dashboard password is set (env or DB).
+// IsConfigured reports whether authentication is set up: an env token, any
+// users, or a legacy password hash.
 func (a *AuthService) IsConfigured(ctx context.Context) (bool, error) {
 	if a.EnvToken != "" {
 		return true, nil
 	}
-	if a.Repo == nil {
-		return false, nil
+	if a.Users != nil {
+		users, err := a.Users.List(ctx)
+		if err != nil {
+			return false, err
+		}
+		if len(users) > 0 {
+			return true, nil
+		}
 	}
-	return a.Repo.Has(ctx, SettingKeyDashboardPassword)
+	if a.Setting != nil {
+		has, err := a.Setting.Has(ctx, SettingKeyDashboardPassword)
+		if err != nil {
+			return false, err
+		}
+		return has, nil
+	}
+	return false, nil
 }
 
-// Setup stores the initial password. It only succeeds when no password is
-// configured yet (env empty AND no DB hash). The password is stored as a
-// salted bcrypt hash.
-func (a *AuthService) Setup(ctx context.Context, password string) error {
-	if password == "" {
+// Setup creates the initial admin user. It only succeeds when no
+// authentication is configured yet (env token empty, no users, no legacy
+// hash). The password is stored as a salted bcrypt hash.
+func (a *AuthService) Setup(ctx context.Context, username, password string) error {
+	if strings.TrimSpace(username) == "" || password == "" {
 		return domain.ErrValidation
 	}
-	if a.EnvToken != "" {
-		return ErrAuthAlreadyConfigured
-	}
-	if a.Repo == nil {
-		return errors.New("settings repo unavailable")
-	}
-	has, err := a.Repo.Has(ctx, SettingKeyDashboardPassword)
+	configured, err := a.IsConfigured(ctx)
 	if err != nil {
 		return err
 	}
-	if has {
+	if configured {
 		return ErrAuthAlreadyConfigured
 	}
-	return a.Repo.Set(ctx, SettingKeyDashboardPassword, HashPassword(password))
+	_, err = a.createAdmin(ctx, username, password)
+	return err
 }
 
-// Login validates the password against the configured source. Returns true
-// on success.
-func (a *AuthService) Login(ctx context.Context, password string) (bool, error) {
-	return a.ValidateToken(ctx, password)
-}
-
-// ValidateToken checks a candidate token against the env var or the DB
-// hash. Used by both login and the dashboard middleware. When a legacy
-// (unsalted sha256) hash matches, it is transparently re-hashed to bcrypt
-// so the next login uses the stronger format.
-func (a *AuthService) ValidateToken(ctx context.Context, token string) (bool, error) {
-	if token == "" {
-		return false, nil
-	}
-	if a.EnvToken != "" {
-		return token == a.EnvToken, nil
-	}
-	if a.Repo == nil {
-		return false, nil
-	}
-	hash, err := a.Repo.Get(ctx, SettingKeyDashboardPassword)
+// Login validates a username/password pair and, on success, creates a fresh
+// session for the user. Returns the session (with the plaintext token) or
+// ErrInvalidCredentials.
+func (a *AuthService) Login(ctx context.Context, username, password string) (*domain.Session, error) {
+	user, err := a.authenticate(ctx, username, password)
 	if err != nil {
-		return false, nil
+		return nil, err
 	}
-	if hash == "" {
-		return false, nil
+	token := randomToken()
+	sess := &domain.Session{
+		ID:        uuid.NewString(),
+		Token:     token,
+		TokenHash: hashToken(token),
+		UserID:    user.ID,
+		CreatedAt: time.Now(),
 	}
-	if !ComparePassword(token, hash) {
-		return false, nil
+	if err := a.Sessions.Create(ctx, sess); err != nil {
+		return nil, err
 	}
-	if isLegacyHash(hash) {
-		// Migration: upgrade the stored hash in place on a successful
-		// legacy login. Non-fatal if the write fails.
-		_ = a.Repo.Set(ctx, SettingKeyDashboardPassword, HashPassword(token))
-	}
-	return true, nil
+	return sess, nil
 }
 
-// bcryptCost is the work factor used for dashboard password hashing.
+// ValidateSession resolves a presented session token to its user. Returns
+// nil when the token is invalid or the user no longer exists.
+func (a *AuthService) ValidateSession(ctx context.Context, token string) (*domain.User, error) {
+	if token == "" {
+		return nil, nil
+	}
+	sess, err := a.Sessions.GetByTokenHash(ctx, hashToken(token))
+	if err != nil {
+		return nil, err
+	}
+	if sess == nil {
+		return nil, nil
+	}
+	return a.Users.Get(ctx, sess.UserID)
+}
+
+// Logout revokes the user's session (if any).
+func (a *AuthService) Logout(ctx context.Context, userID string) error {
+	return a.Sessions.DeleteByUser(ctx, userID)
+}
+
+// authenticate validates the credentials. Order:
+//  1. Legacy migration: if no users exist and a legacy password hash is
+//     stored, a match migrates it into an admin user (in place).
+//  2. Env token: if set and the password matches it, authenticates as admin
+//     (creating the admin user lazily if needed).
+//  3. Users table: username + bcrypt password.
+func (a *AuthService) authenticate(ctx context.Context, username, password string) (*domain.User, error) {
+	users, err := a.Users.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Legacy single-password migration: no users yet + a stored hash.
+	if len(users) == 0 && a.Setting != nil {
+		if hash, gerr := a.Setting.Get(ctx, SettingKeyDashboardPassword); gerr == nil && hash != "" {
+			if ComparePassword(password, hash) {
+				user, cerr := a.createAdmin(ctx, defaultAdminUsername, password)
+				if cerr != nil {
+					return nil, cerr
+				}
+				_ = a.Setting.Set(ctx, SettingKeyDashboardPassword, "")
+				return user, nil
+			}
+		}
+	}
+
+	// Env token master: matches any username, treats as admin.
+	if a.EnvToken != "" && password == a.EnvToken {
+		u := findByUsername(users, username)
+		if u == nil {
+			u = findByUsername(users, defaultAdminUsername)
+		}
+		if u == nil {
+			u, err = a.createAdmin(ctx, defaultAdminUsername, randomToken())
+			if err != nil {
+				return nil, err
+			}
+		}
+		return u, nil
+	}
+
+	u := findByUsername(users, username)
+	if u == nil || !ComparePassword(password, u.PasswordHash) {
+		return nil, ErrInvalidCredentials
+	}
+	return u, nil
+}
+
+func (a *AuthService) createAdmin(ctx context.Context, username, password string) (*domain.User, error) {
+	u := &domain.User{
+		ID:           uuid.NewString(),
+		Username:     username,
+		PasswordHash: HashPassword(password),
+		Role:         domain.RoleAdmin,
+		Permissions:  domain.UserPermissions{},
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
+	if err := a.Users.Create(ctx, u); err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+func findByUsername(users []domain.User, username string) *domain.User {
+	for i := range users {
+		if users[i].Username == username {
+			return &users[i]
+		}
+	}
+	return nil
+}
+
+// defaultAdminUsername is used by the legacy migration and env-token mode.
+const defaultAdminUsername = "admin"
+
+// hashToken returns the SHA-256 hex digest of a session token, stored at
+// rest so a database compromise does not leak active session tokens.
+func hashToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
+}
+
+// randomToken returns a fresh random session token.
+func randomToken() string {
+	return uuid.NewString() + uuid.NewString()
+}
+
+// bcryptCost is the work factor used for password hashing.
 const bcryptCost = bcrypt.DefaultCost
 
 // HashPassword returns a salted bcrypt hash of the password. The salt and

@@ -18,7 +18,16 @@ func NewConnectionRepo(db *gorm.DB) *ConnectionRepo { return &ConnectionRepo{db:
 
 func (r *ConnectionRepo) List(ctx context.Context) ([]domain.Connection, error) {
 	var conns []domain.Connection
-	err := r.db.WithContext(ctx).Order("provider_id, priority, created_at").Find(&conns).Error
+	scope := domain.UserScopeFrom(ctx)
+	tx := r.db.WithContext(ctx)
+	if scope != nil && scope.Role != domain.RoleAdmin {
+		// Dashboard: members only see connections belonging to providers
+		// they own or were granted. (Routing uses ListByProvider, which is
+		// intentionally unscoped — the router must resolve any provider.)
+		sub := "SELECT id FROM provider_configs WHERE created_by = ? OR id IN (SELECT resource_id FROM user_accesses WHERE kind = ? AND user_id = ?)"
+		tx = tx.Where("provider_id IN ("+sub+")", scope.UserID, domain.UserAccessProvider, scope.UserID)
+	}
+	err := tx.Order("provider_id, priority, created_at").Find(&conns).Error
 	return conns, err
 }
 

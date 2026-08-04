@@ -84,7 +84,10 @@ type Connection struct {
 	RefreshToken   string    `json:"-" gorm:"column:refresh_token"` // never expose in list JSON
 	TokenExpiresAt time.Time `json:"token_expires_at,omitempty" gorm:"column:token_expires_at"`
 	// Meta is JSON for provider-specific oauth data (project_id, account_id, email…).
-	Meta      string    `json:"meta,omitempty" gorm:"column:meta;type:text"`
+	Meta string `json:"meta,omitempty" gorm:"column:meta;type:text"`
+	// CreatedBy is the dashboard user ID that owns this connection. Empty
+	// means admin-owned (created before multi-user, or by an admin).
+	CreatedBy string    `json:"-" gorm:"column:created_by;index"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -111,9 +114,12 @@ type ProviderConfig struct {
 	// "failover" (default): always try the first active connection, only
 	// fall through on failure. "round-robin": rotate the starting index
 	// across requests to distribute load evenly.
-	LoadBalance string    `json:"load_balance" gorm:"column:load_balance;default:failover"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	LoadBalance string `json:"load_balance" gorm:"column:load_balance;default:failover"`
+	// CreatedBy is the dashboard user ID that owns this provider. Empty
+	// means admin-owned (pre-multi-user or created by an admin).
+	CreatedBy string    `json:"-" gorm:"column:created_by;index"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // ModelInfo is one model surfaced through /v1/models. Combos appear as
@@ -199,8 +205,11 @@ type Combo struct {
 	ModelMeta       map[string]ComboModelMeta `json:"model_meta,omitempty" gorm:"serializer:json;type:text"`
 	ClassifierModel string                    `json:"classifier_model,omitempty" gorm:"column:classifier_model"`
 	Kind            ModelKind                 `json:"kind,omitempty" gorm:"default:llm"`
-	CreatedAt       time.Time                 `json:"created_at"`
-	UpdatedAt       time.Time                 `json:"updated_at"`
+	// CreatedBy is the dashboard user ID that owns this combo. Empty means
+	// admin-owned.
+	CreatedBy string    `json:"-" gorm:"column:created_by;index"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // ComboModelMeta holds per-member metadata for combo routing strategies.
@@ -226,8 +235,11 @@ type ApiKey struct {
 	// AllowedModels restricts which models/combos this key may use. Empty
 	// (or nil) means all models are allowed. Entries match a model id
 	// ("openai/gpt-4o"), a bare model name ("gpt-4o"), or a combo name.
-	AllowedModels []string  `json:"allowed_models,omitempty" gorm:"serializer:json;type:text"`
-	CreatedAt     time.Time `json:"created_at"`
+	AllowedModels []string `json:"allowed_models,omitempty" gorm:"serializer:json;type:text"`
+	// CreatedBy is the dashboard user ID that owns this key. Empty means
+	// admin-owned.
+	CreatedBy string    `json:"-" gorm:"column:created_by;index"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // KeyLimitKind distinguishes the two kinds of limits a key can carry.
@@ -299,7 +311,8 @@ type UsageEntry struct {
 	Model               string    `json:"model"`
 	ConnectionID        string    `json:"connection_id" gorm:"column:connection_id"`
 	ApiKey              string    `json:"api_key,omitempty" gorm:"column:api_key"`             // legacy: plaintext (old rows); empty on new rows
-	ApiKeyID            string    `json:"api_key_id,omitempty" gorm:"column:api_key_id;index"` // stable key identity (FK to api_keys.id)
+	ApiKeyID            string    `json:"api_key_id,omitempty" gorm:"column:api_key_id;index"` // stable key identity (FK to api_keys.id), or "user:<id>" for dashboard/playground use
+	UserID              string    `json:"user_id,omitempty" gorm:"column:user_id;index"`       // dashboard user ID when authenticated via session
 	Endpoint            string    `json:"endpoint"`
 	LatencyMs           int64     `json:"latency_ms,omitempty"`
 	TTFTMs              int64     `json:"ttft_ms,omitempty" gorm:"column:ttft_ms;default:0"`

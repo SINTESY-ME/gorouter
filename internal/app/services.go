@@ -234,13 +234,17 @@ func (s *ApiKeyService) List(ctx context.Context) ([]domain.ApiKey, error) {
 	return s.Repo.List(ctx)
 }
 
-func (s *ApiKeyService) Create(ctx context.Context, name string, limits []domain.KeyLimit, allowedModels []string) (*domain.ApiKey, error) {
+func (s *ApiKeyService) Create(ctx context.Context, name string, limits []domain.KeyLimit, allowedModels []string, createdBy ...string) (*domain.ApiKey, error) {
 	key, err := apikeyGenerate(s.Secret)
 	if err != nil {
 		return nil, err
 	}
 	if err := normalizeKeyLimits(limits); err != nil {
 		return nil, err
+	}
+	owner := ""
+	if len(createdBy) > 0 {
+		owner = createdBy[0]
 	}
 	k := &domain.ApiKey{
 		ID:            uuid.NewString(),
@@ -250,6 +254,7 @@ func (s *ApiKeyService) Create(ctx context.Context, name string, limits []domain
 		IsActive:      true,
 		Limits:        limits,
 		AllowedModels: normalizeAllowedModels(allowedModels),
+		CreatedBy:     owner,
 	}
 	if err := s.Repo.Create(ctx, k); err != nil {
 		return nil, err

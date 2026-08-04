@@ -17,8 +17,11 @@
       "playground": "Playground",
       "logs": "로그",
       "performance": "성능",
-      "settings": "설정"
-    }
+      "settings": "설정",
+      "users": "Users"
+    },
+    "roleAdmin": "Admin",
+    "roleMember": "Member"
   },
   "dashboard": {
     "title": "개요",
@@ -31,7 +34,7 @@
     "allTokens": "모든 Token",
     "auto": "자동",
     "buckets": {
-        "auto": "자동",
+      "auto": "자동",
       "minute": "분",
       "min5": "5분",
       "min30": "30분",
@@ -527,7 +530,9 @@
     "password": "비밀번호",
     "passwordPlaceholder": "비밀번호",
     "submitting": "로그인 중...",
-    "submit": "로그인"
+    "submit": "로그인",
+    "username": "사용자 이름",
+    "usernamePlaceholder": "사용자 이름"
   },
   "setup": {
     "errorShort": "비밀번호는 최소 4자 이상이어야 합니다.",
@@ -542,7 +547,9 @@
     "confirm": "비밀번호 확인",
     "confirmPlaceholder": "비밀번호 확인",
     "submitting": "설정 중...",
-    "submit": "비밀번호 설정"
+    "submit": "비밀번호 설정",
+    "username": "사용자 이름",
+    "usernamePlaceholder": "사용자 이름 (admin (default))"
   },
   "store": {
     "errorLoad": "스토어 로드 실패",
@@ -565,5 +572,48 @@
   "modelComboBox": {
     "inactive": "비활성",
     "combo": "콤보"
+  },
+  "users": {
+    "title": "Users",
+    "subtitle": "Manage dashboard users and their permissions.",
+    "create": "Add user",
+    "tableAria": "Users",
+    "colUser": "User",
+    "colRole": "Role",
+    "colAccess": "Access",
+    "colActions": "Actions",
+    "roleAdmin": "Admin",
+    "roleMember": "Member",
+    "allAccess": "Full access",
+    "models": "models",
+    "combos": "combos",
+    "edit": "Edit",
+    "delete": "Delete",
+    "createTitle": "Add user",
+    "editTitle": "Edit user",
+    "username": "Username",
+    "usernamePlaceholder": "Username",
+    "password": "Password",
+    "passwordPlaceholder": "Password",
+    "passwordLeave": "Leave blank to keep current",
+    "role": "Role",
+    "permissions": "Permissions",
+    "grantedModels": "Allowed models",
+    "grantedCombos": "Allowed combos",
+    "grantedProviders": "Allowed providers",
+    "pickModels": "Add a model…",
+    "pickCombos": "Add a combo…",
+    "pickProviders": "Add a provider…",
+    "permOwnProviders": "Manage own providers",
+    "permCreateCombos": "Create own combos",
+    "permCache": "Configure cache / Performance",
+    "permSettings": "Access Settings",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving…",
+    "saveError": "Failed to save user.",
+    "errUsername": "Username is required.",
+    "errPassword": "Password is required for new users.",
+    "empty": "No users yet."
   }
 }

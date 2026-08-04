@@ -115,6 +115,18 @@ export interface KeyLimit {
 export interface ApiKey {
   id: string; key: string; name: string; is_active: boolean; limits: KeyLimit[]; allowed_models?: string[]; created_at: string;
 }
+export interface UserPermissions {
+  can_manage_own_providers: boolean;
+  can_create_combos: boolean;
+  can_manage_cache: boolean;
+  can_access_settings: boolean;
+}
+export interface User {
+  id: string; username: string; role: "admin" | "member";
+  permissions?: UserPermissions;
+  allowed_models?: string[]; allowed_combos?: string[]; allowed_providers?: string[];
+  created_at: string; updated_at: string;
+}
 export interface UsageStats {
   requests: number; prompt_tokens: number; completion_tokens: number; cost: number;
   by_provider: Record<string, number>; by_model: Record<string, number>;
@@ -200,10 +212,13 @@ export const api = {
   auth: {
     status: () =>
       request<{ configured: boolean; authenticated: boolean }>("/api/auth/status"),
-    setup: (password: string) =>
-      request<{ status: string }>("/api/auth/setup", { method: "POST", body: JSON.stringify({ password }) }),
-    login: (password: string) =>
-      request<{ token: string }>("/api/auth/login", { method: "POST", body: JSON.stringify({ password }) }),
+    me: () =>
+      request<User>("/api/auth/me"),
+    setup: (username: string, password: string) =>
+      request<{ token: string }>("/api/auth/setup", { method: "POST", body: JSON.stringify({ username, password }) }),
+    login: (username: string, password: string) =>
+      request<{ token: string }>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+    logout: () => request<void>("/api/auth/logout", { method: "POST" }),
   },
   providers: {
     list: () => request<Provider[]>("/api/providers"),
@@ -261,6 +276,16 @@ export const api = {
     create: (k: { name: string; limits?: KeyLimit[]; allowed_models?: string[] }) => request<ApiKey>("/api/keys", { method: "POST", body: JSON.stringify(k) }),
     update: (id: string, k: { name?: string; is_active?: boolean; limits?: KeyLimit[]; allowed_models?: string[] }) => request<ApiKey>(`/api/keys/${id}`, { method: "PUT", body: JSON.stringify(k) }),
     remove: (id: string) => request<void>(`/api/keys/${id}`, { method: "DELETE" }),
+  },
+  users: {
+    list: () => request<User[]>("/api/users"),
+    create: (u: { username: string; password: string; role: string; permissions?: UserPermissions }) =>
+      request<User>("/api/users", { method: "POST", body: JSON.stringify(u) }),
+    update: (id: string, u: { username?: string; password?: string; role?: string; permissions?: UserPermissions }) =>
+      request<User>(`/api/users/${id}`, { method: "PUT", body: JSON.stringify(u) }),
+    remove: (id: string) => request<void>(`/api/users/${id}`, { method: "DELETE" }),
+    setAccess: (id: string, kind: "provider" | "model" | "combo", ids: string[]) =>
+      request<User>(`/api/users/${id}/access`, { method: "PUT", body: JSON.stringify({ kind, ids }) }),
   },
   usage: {
     stats: (params: { period?: string; from?: string; to?: string; bucket?: string; api_key_id?: string } | string = "24h") => {

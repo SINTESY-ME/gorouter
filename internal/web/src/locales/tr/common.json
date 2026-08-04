@@ -17,8 +17,11 @@
       "playground": "Deneme Alanı",
       "logs": "Günlükler",
       "performance": "Performans",
-      "settings": "Ayarlar"
-    }
+      "settings": "Ayarlar",
+      "users": "Users"
+    },
+    "roleAdmin": "Admin",
+    "roleMember": "Member"
   },
   "dashboard": {
     "title": "Genel Bakış",
@@ -31,7 +34,7 @@
     "allTokens": "Tüm token'lar",
     "auto": "Otomatik",
     "buckets": {
-        "auto": "Otomatik",
+      "auto": "Otomatik",
       "minute": "Dakika",
       "min5": "5 dk",
       "min30": "30 dk",
@@ -527,7 +530,9 @@
     "password": "Parola",
     "passwordPlaceholder": "Parola",
     "submitting": "Giriş yapılıyor...",
-    "submit": "Giriş yap"
+    "submit": "Giriş yap",
+    "username": "Kullanıcı adı",
+    "usernamePlaceholder": "Kullanıcı adı"
   },
   "setup": {
     "errorShort": "Parola en az 4 karakter olmalıdır.",
@@ -542,7 +547,9 @@
     "confirm": "Parolayı doğrula",
     "confirmPlaceholder": "Parolayı doğrula",
     "submitting": "Ayarlanıyor...",
-    "submit": "Parolayı ayarla"
+    "submit": "Parolayı ayarla",
+    "username": "Kullanıcı adı",
+    "usernamePlaceholder": "Kullanıcı adı (admin (default))"
   },
   "store": {
     "errorLoad": "store yüklenemedi",
@@ -565,5 +572,48 @@
   "modelComboBox": {
     "inactive": "pasif",
     "combo": "kombo"
+  },
+  "users": {
+    "title": "Users",
+    "subtitle": "Manage dashboard users and their permissions.",
+    "create": "Add user",
+    "tableAria": "Users",
+    "colUser": "User",
+    "colRole": "Role",
+    "colAccess": "Access",
+    "colActions": "Actions",
+    "roleAdmin": "Admin",
+    "roleMember": "Member",
+    "allAccess": "Full access",
+    "models": "models",
+    "combos": "combos",
+    "edit": "Edit",
+    "delete": "Delete",
+    "createTitle": "Add user",
+    "editTitle": "Edit user",
+    "username": "Username",
+    "usernamePlaceholder": "Username",
+    "password": "Password",
+    "passwordPlaceholder": "Password",
+    "passwordLeave": "Leave blank to keep current",
+    "role": "Role",
+    "permissions": "Permissions",
+    "grantedModels": "Allowed models",
+    "grantedCombos": "Allowed combos",
+    "grantedProviders": "Allowed providers",
+    "pickModels": "Add a model…",
+    "pickCombos": "Add a combo…",
+    "pickProviders": "Add a provider…",
+    "permOwnProviders": "Manage own providers",
+    "permCreateCombos": "Create own combos",
+    "permCache": "Configure cache / Performance",
+    "permSettings": "Access Settings",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving…",
+    "saveError": "Failed to save user.",
+    "errUsername": "Username is required.",
+    "errPassword": "Password is required for new users.",
+    "empty": "No users yet."
   }
 }

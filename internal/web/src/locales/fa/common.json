@@ -17,8 +17,11 @@
       "playground": "زمین بازی",
       "logs": "لاگ‌ها",
       "performance": "عملکرد",
-      "settings": "تنظیمات"
-    }
+      "settings": "تنظیمات",
+      "users": "Users"
+    },
+    "roleAdmin": "Admin",
+    "roleMember": "Member"
   },
   "dashboard": {
     "title": "نمای کلی",
@@ -31,7 +34,7 @@
     "allTokens": "همه توکن‌ها",
     "auto": "خودکار",
     "buckets": {
-        "auto": "خودکار",
+      "auto": "خودکار",
       "minute": "دقیقه",
       "min5": "۵ دقیقه",
       "min30": "۳۰ دقیقه",
@@ -527,7 +530,9 @@
     "password": "رمز عبور",
     "passwordPlaceholder": "رمز عبور",
     "submitting": "در حال ورود...",
-    "submit": "ورود"
+    "submit": "ورود",
+    "username": "نام کاربری",
+    "usernamePlaceholder": "نام کاربری"
   },
   "setup": {
     "errorShort": "رمز عبور باید حداقل ۴ کاراکتر باشد.",
@@ -542,7 +547,9 @@
     "confirm": "تأیید رمز عبور",
     "confirmPlaceholder": "تأیید رمز عبور",
     "submitting": "در حال تنظیم...",
-    "submit": "تنظیم رمز عبور"
+    "submit": "تنظیم رمز عبور",
+    "username": "نام کاربری",
+    "usernamePlaceholder": "نام کاربری (admin (default))"
   },
   "store": {
     "errorLoad": "بارگذاری فروشگاه ناموفق بود",
@@ -565,5 +572,48 @@
   "modelComboBox": {
     "inactive": "غیرفعال",
     "combo": "ترکیب"
+  },
+  "users": {
+    "title": "Users",
+    "subtitle": "Manage dashboard users and their permissions.",
+    "create": "Add user",
+    "tableAria": "Users",
+    "colUser": "User",
+    "colRole": "Role",
+    "colAccess": "Access",
+    "colActions": "Actions",
+    "roleAdmin": "Admin",
+    "roleMember": "Member",
+    "allAccess": "Full access",
+    "models": "models",
+    "combos": "combos",
+    "edit": "Edit",
+    "delete": "Delete",
+    "createTitle": "Add user",
+    "editTitle": "Edit user",
+    "username": "Username",
+    "usernamePlaceholder": "Username",
+    "password": "Password",
+    "passwordPlaceholder": "Password",
+    "passwordLeave": "Leave blank to keep current",
+    "role": "Role",
+    "permissions": "Permissions",
+    "grantedModels": "Allowed models",
+    "grantedCombos": "Allowed combos",
+    "grantedProviders": "Allowed providers",
+    "pickModels": "Add a model…",
+    "pickCombos": "Add a combo…",
+    "pickProviders": "Add a provider…",
+    "permOwnProviders": "Manage own providers",
+    "permCreateCombos": "Create own combos",
+    "permCache": "Configure cache / Performance",
+    "permSettings": "Access Settings",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving…",
+    "saveError": "Failed to save user.",
+    "errUsername": "Username is required.",
+    "errPassword": "Password is required for new users.",
+    "empty": "No users yet."
   }
 }

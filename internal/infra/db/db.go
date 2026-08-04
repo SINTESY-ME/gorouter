@@ -62,7 +62,7 @@ func Open(ctx context.Context, driver, dsn string) (*gorm.DB, error) {
 			sqlDB.SetMaxOpenConns(1)
 		}
 	}
-	if err := db.AutoMigrate(&domain.Connection{}, &domain.ProviderConfig{}, &domain.Combo{}, &domain.ApiKey{}, &domain.UsageEntry{}, &domain.ComboExecution{}, &domain.ModelEntry{}, &domain.Setting{}); err != nil {
+	if err := db.AutoMigrate(&domain.Connection{}, &domain.ProviderConfig{}, &domain.Combo{}, &domain.ApiKey{}, &domain.UsageEntry{}, &domain.ComboExecution{}, &domain.ModelEntry{}, &domain.Setting{}, &domain.User{}, &domain.Session{}, &domain.UserAccess{}); err != nil {
 		_ = Close(db)
 		return nil, fmt.Errorf("auto-migrate: %w", err)
 	}

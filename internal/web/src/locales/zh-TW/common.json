@@ -17,8 +17,11 @@
       "playground": "Playground",
       "logs": "紀錄",
       "performance": "效能",
-      "settings": "設定"
-    }
+      "settings": "設定",
+      "users": "Users"
+    },
+    "roleAdmin": "Admin",
+    "roleMember": "Member"
   },
   "dashboard": {
     "title": "總覽",
@@ -31,7 +34,7 @@
     "allTokens": "所有 Token",
     "auto": "自動",
     "buckets": {
-        "auto": "自動",
+      "auto": "自動",
       "minute": "分鐘",
       "min5": "5 分鐘",
       "min30": "30 分鐘",
@@ -527,7 +530,9 @@
     "password": "密碼",
     "passwordPlaceholder": "密碼",
     "submitting": "登入中…",
-    "submit": "登入"
+    "submit": "登入",
+    "username": "用戶名",
+    "usernamePlaceholder": "用戶名"
   },
   "setup": {
     "errorShort": "密碼至少需要 4 個字元。",
@@ -542,7 +547,9 @@
     "confirm": "確認密碼",
     "confirmPlaceholder": "確認密碼",
     "submitting": "設定中…",
-    "submit": "設定密碼"
+    "submit": "設定密碼",
+    "username": "用戶名",
+    "usernamePlaceholder": "用戶名 (admin (default))"
   },
   "store": {
     "errorLoad": "載入商店失敗",
@@ -565,5 +572,48 @@
   "modelComboBox": {
     "inactive": "停用",
     "combo": "組合"
+  },
+  "users": {
+    "title": "Users",
+    "subtitle": "Manage dashboard users and their permissions.",
+    "create": "Add user",
+    "tableAria": "Users",
+    "colUser": "User",
+    "colRole": "Role",
+    "colAccess": "Access",
+    "colActions": "Actions",
+    "roleAdmin": "Admin",
+    "roleMember": "Member",
+    "allAccess": "Full access",
+    "models": "models",
+    "combos": "combos",
+    "edit": "Edit",
+    "delete": "Delete",
+    "createTitle": "Add user",
+    "editTitle": "Edit user",
+    "username": "Username",
+    "usernamePlaceholder": "Username",
+    "password": "Password",
+    "passwordPlaceholder": "Password",
+    "passwordLeave": "Leave blank to keep current",
+    "role": "Role",
+    "permissions": "Permissions",
+    "grantedModels": "Allowed models",
+    "grantedCombos": "Allowed combos",
+    "grantedProviders": "Allowed providers",
+    "pickModels": "Add a model…",
+    "pickCombos": "Add a combo…",
+    "pickProviders": "Add a provider…",
+    "permOwnProviders": "Manage own providers",
+    "permCreateCombos": "Create own combos",
+    "permCache": "Configure cache / Performance",
+    "permSettings": "Access Settings",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving…",
+    "saveError": "Failed to save user.",
+    "errUsername": "Username is required.",
+    "errPassword": "Password is required for new users.",
+    "empty": "No users yet."
   }
 }

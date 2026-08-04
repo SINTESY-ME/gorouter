@@ -20,7 +20,13 @@ func NewApiKeyRepo(db *gorm.DB) *ApiKeyRepo { return &ApiKeyRepo{db: db} }
 
 func (r *ApiKeyRepo) List(ctx context.Context) ([]domain.ApiKey, error) {
 	var keys []domain.ApiKey
-	err := r.db.WithContext(ctx).Order("created_at DESC").Find(&keys).Error
+	// Members only see their own keys (no access grants for keys).
+	scope := domain.UserScopeFrom(ctx)
+	tx := r.db.WithContext(ctx)
+	if scope != nil && scope.Role != domain.RoleAdmin {
+		tx = tx.Where("created_by = ?", scope.UserID)
+	}
+	err := tx.Order("created_at DESC").Find(&keys).Error
 	return keys, err
 }
 

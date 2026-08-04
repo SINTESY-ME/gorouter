@@ -118,7 +118,11 @@ func run() error {
 	tokenRefresher := &oauth.Refresher{Manager: oauthMgr, Repo: cachedConns}
 
 	// Application services
-	auth := &app.AuthService{EnvToken: cfg.DashboardToken, Repo: settingRepo}
+	userRepo := db.NewUserRepo(gdb)
+	sessionRepo := db.NewSessionRepo(gdb)
+	accessRepo := db.NewUserAccessRepo(gdb)
+	auth := &app.AuthService{EnvToken: cfg.DashboardToken, Users: userRepo, Sessions: sessionRepo, Setting: settingRepo}
+	usersSvc := &app.UserService{Users: userRepo, Access: accessRepo}
 	apiKeys := &app.ApiKeyService{Repo: cachedKeys, Secret: cfg.KeySecret}
 	router := app.NewRouterService(comboRepo, cachedConns, exec, tr, asyncUsage)
 	router.Tokens = tokenRefresher
@@ -383,6 +387,7 @@ func run() error {
 		SemanticCache:        semanticSvc,
 		RequireKey:           cfg.RequireKey,
 		Auth:                 auth,
+		Users:                usersSvc,
 		KeySecret:            cfg.KeySecret,
 		RateLimiter:          app.NewRateLimiter(),
 		Catalog:              catalogSvc,

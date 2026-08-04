@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { Routes, Route, NavLink, useLocation } from "react-router-dom";
+import { Routes, Route, NavLink } from "react-router-dom";
 import { Button, Toast, Select, ListBox } from "@heroui/react";
 import { useTranslation } from "react-i18next";
 import { setLocale, LOCALES, LANGUAGE_NAMES } from "./i18n";
-import { api, clearDashboardToken } from "./api";
+import { api, clearDashboardToken, User } from "./api";
 import Dashboard from "./pages/Dashboard";
 import Providers from "./pages/Providers";
 import Combos from "./pages/Combos";
@@ -12,12 +12,22 @@ import Logs from "./pages/Logs";
 import Models from "./pages/Models";
 import Performance from "./pages/Performance";
 import Settings from "./pages/Settings";
+import Users from "./pages/Users";
 import Playground from "./pages/Playground";
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
-import { IconRoute, IconHome, IconServer, IconLayers, IconBox, IconKey, IconActivity, IconGauge, IconChat, IconLogout, IconSettings } from "./icons";
+import { IconRoute, IconHome, IconServer, IconLayers, IconBox, IconKey, IconActivity, IconGauge, IconChat, IconLogout, IconSettings, IconUsers } from "./icons";
 
-const nav = [
+interface NavItem {
+  to: string;
+  labelKey: string;
+  icon: (props: { className?: string }) => React.JSX.Element;
+  end?: boolean;
+  adminOnly?: boolean;
+  permKey?: "can_manage_cache" | "can_access_settings";
+}
+
+const nav: NavItem[] = [
   { to: "/", labelKey: "app.nav.dashboard", icon: IconHome, end: true },
   { to: "/providers", labelKey: "app.nav.providers", icon: IconServer },
   { to: "/combos", labelKey: "app.nav.combos", icon: IconLayers },
@@ -25,23 +35,27 @@ const nav = [
   { to: "/keys", labelKey: "app.nav.keys", icon: IconKey },
   { to: "/playground", labelKey: "app.nav.playground", icon: IconChat },
   { to: "/logs", labelKey: "app.nav.logs", icon: IconActivity },
-  { to: "/performance", labelKey: "app.nav.performance", icon: IconGauge },
-  { to: "/settings", labelKey: "app.nav.settings", icon: IconSettings },
+  { to: "/performance", labelKey: "app.nav.performance", icon: IconGauge, permKey: "can_manage_cache" },
+  { to: "/settings", labelKey: "app.nav.settings", icon: IconSettings, permKey: "can_access_settings" },
+  { to: "/users", labelKey: "app.nav.users", icon: IconUsers, adminOnly: true },
 ];
-
 
 type AuthState = "loading" | "setup" | "login" | "dashboard";
 
 export default function App() {
   const { t } = useTranslation();
   const [authState, setAuthState] = useState<AuthState>("loading");
+  const [me, setMe] = useState<User | null>(null);
 
   async function checkAuth() {
     try {
       const s = await api.auth.status();
       if (!s.configured) setAuthState("setup");
       else if (!s.authenticated) setAuthState("login");
-      else setAuthState("dashboard");
+      else {
+        try { setMe(await api.auth.me()); } catch { setMe(null); }
+        setAuthState("dashboard");
+      }
     } catch {
       setAuthState("dashboard");
     }
@@ -49,8 +63,10 @@ export default function App() {
 
   useEffect(() => { checkAuth(); }, []);
 
-  function logout() {
+  async function logout() {
+    try { await api.auth.logout(); } catch {}
     clearDashboardToken();
+    setMe(null);
     setAuthState("login");
   }
 
@@ -64,11 +80,18 @@ export default function App() {
   if (authState === "setup") return <Setup onDone={checkAuth} />;
   if (authState === "login") return <Login onDone={checkAuth} />;
 
-  return <DashboardLayout onLogout={logout} />;
+  return <DashboardLayout onLogout={logout} me={me} />;
 }
 
-function DashboardLayout({ onLogout }: { onLogout: () => void }) {
+function DashboardLayout({ onLogout, me }: { onLogout: () => void; me: User | null }) {
   const { t } = useTranslation();
+  const isAdmin = me?.role === "admin";
+  const perms = me?.permissions;
+  const visibleNav = nav.filter((it) => {
+    if (it.adminOnly && !isAdmin) return false;
+    if (it.permKey && !isAdmin && !perms?.[it.permKey]) return false;
+    return true;
+  });
   return (
     <>
     <Toast.Provider />
@@ -82,7 +105,7 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
           </div>
         </div>
         <nav className="p-3 space-y-1 flex-1">
-          {nav.map((it) => (
+          {visibleNav.map((it) => (
             <NavLink
               key={it.to}
               to={it.to}
@@ -101,6 +124,10 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
           ))}
         </nav>
         <div className="p-3 border-t border-border space-y-2">
+          <div className="px-3 py-1">
+            <p className="text-sm font-medium truncate">{me?.username ?? "admin"}</p>
+            <p className="text-xs text-muted">{isAdmin ? t("app.roleAdmin") : t("app.roleMember")}</p>
+          </div>
           <ReadinessPill />
           <LanguageSwitcher />
           <Button variant="tertiary" fullWidth isIconOnly={false} onPress={onLogout} className="justify-start">
@@ -122,6 +149,7 @@ function DashboardLayout({ onLogout }: { onLogout: () => void }) {
               <Route path="/logs" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Logs /></div></div>} />
               <Route path="/performance" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Performance /></div></div>} />
               <Route path="/settings" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Settings /></div></div>} />
+              <Route path="/users" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Users /></div></div>} />
             </Routes>
         </main>
       </div>

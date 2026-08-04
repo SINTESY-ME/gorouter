@@ -17,7 +17,8 @@ func NewProviderConfigRepo(db *gorm.DB) *ProviderConfigRepo {
 
 func (r *ProviderConfigRepo) List(ctx context.Context) ([]domain.ProviderConfig, error) {
 	var ps []domain.ProviderConfig
-	err := r.db.WithContext(ctx).Order("id").Find(&ps).Error
+	tx := scopedTable(ctx, r.db.WithContext(ctx), "provider_configs", "created_by", domain.UserAccessProvider)
+	err := tx.Order("id").Find(&ps).Error
 	return ps, err
 }
 

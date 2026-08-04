@@ -153,6 +153,37 @@ type SettingRepo interface {
 	Has(ctx context.Context, key string) (bool, error)
 }
 
+// UserRepo persists dashboard users.
+type UserRepo interface {
+	List(ctx context.Context) ([]User, error)
+	Get(ctx context.Context, id string) (*User, error)
+	GetByUsername(ctx context.Context, username string) (*User, error)
+	Create(ctx context.Context, u *User) error
+	Update(ctx context.Context, u *User) error
+	Delete(ctx context.Context, id string) error
+}
+
+// SessionRepo persists dashboard login sessions. A user has at most one
+// active session; creating a new one replaces the previous.
+type SessionRepo interface {
+	Create(ctx context.Context, s *Session) error
+	// GetByTokenHash returns the session matching the SHA-256 hash of the
+	// presented token, or nil when not found.
+	GetByTokenHash(ctx context.Context, tokenHash string) (*Session, error)
+	// Delete removes the session for a user (logout).
+	DeleteByUser(ctx context.Context, userID string) error
+}
+
+// UserAccessRepo persists member grants (which resources a user can see).
+type UserAccessRepo interface {
+	// List returns the resource IDs of a given kind granted to the user.
+	List(ctx context.Context, kind UserAccessKind, userID string) ([]string, error)
+	// Set replaces the grants of a given kind for the user in one call.
+	Set(ctx context.Context, kind UserAccessKind, userID string, resourceIDs []string) error
+	// DeleteAll removes every grant for the user (used when deleting a user).
+	DeleteAll(ctx context.Context, userID string) error
+}
+
 // UsageStats is the aggregated dashboard summary. Bucket indicates the
 // granularity of the Daily series ("hour", "minute", "5m", "30m", "day").
 type UsageStats struct {

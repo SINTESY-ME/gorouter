@@ -16,9 +16,25 @@ type ModelRepo struct{ db *gorm.DB }
 
 func NewModelRepo(db *gorm.DB) *ModelRepo { return &ModelRepo{db: db} }
 
+// scopedModels adds a WHERE clause restricting models to those the caller
+// can see: models of providers they own/were granted, or models explicitly
+// granted via user_model_access. Admins/internal callers see everything.
+func scopedModels(ctx context.Context, tx *gorm.DB) *gorm.DB {
+	scope := domain.UserScopeFrom(ctx)
+	if scope == nil || scope.Role == domain.RoleAdmin {
+		return tx
+	}
+	provSub := "SELECT id FROM provider_configs WHERE created_by = ? OR id IN (SELECT resource_id FROM user_accesses WHERE kind = ? AND user_id = ?)"
+	modelSub := "SELECT resource_id FROM user_accesses WHERE kind = ? AND user_id = ?"
+	return tx.Where("provider_id IN ("+provSub+") OR id IN ("+modelSub+")",
+		scope.UserID, domain.UserAccessProvider, scope.UserID,
+		domain.UserAccessModel, scope.UserID)
+}
+
 func (r *ModelRepo) List(ctx context.Context) ([]domain.ModelEntry, error) {
 	var out []domain.ModelEntry
-	err := r.db.WithContext(ctx).Order("provider_id, model_id").Find(&out).Error
+	tx := scopedModels(ctx, r.db.WithContext(ctx))
+	err := tx.Order("provider_id, model_id").Find(&out).Error
 	return out, err
 }
 
@@ -30,7 +46,8 @@ func (r *ModelRepo) ListByProvider(ctx context.Context, providerID string) ([]do
 
 func (r *ModelRepo) ListActive(ctx context.Context) ([]domain.ModelEntry, error) {
 	var out []domain.ModelEntry
-	err := r.db.WithContext(ctx).Where("is_active = true").Order("provider_id, model_id").Find(&out).Error
+	tx := scopedModels(ctx, r.db.WithContext(ctx))
+	err := tx.Where("is_active = true").Order("provider_id, model_id").Find(&out).Error
 	return out, err
 }
 
@@ -105,6 +122,7 @@ func (r *ModelRepo) DeactivateStaleSync(ctx context.Context, providerID string, 
 	}
 	return q.Updates(map[string]any{"is_active": false, "updated_at": time.Now()}).Error
 }
+
 // ReactivateSync re-enables sync-sourced models for the given provider that
 // match the provided active IDs. This is used when the API starts listing a
 // previously-disappeared model again.

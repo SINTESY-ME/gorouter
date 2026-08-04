@@ -4,11 +4,11 @@ import { useTranslation } from "react-i18next";
 import { api, setDashboardToken } from "../api";
 import { IconRoute } from "../icons";
 
-// Setup is the first-run page shown when no dashboard password is
-// configured. The user sets a password; it's stored hashed on the server
-// and the user is logged in immediately.
+// Setup is the first-run page shown when no auth is configured. The first
+// user becomes the admin; they're logged in immediately.
 export default function Setup({ onDone }: { onDone: () => void }) {
   const { t } = useTranslation();
+  const [username, setUsername] = useState("");
   const [pw, setPw] = useState("");
   const [confirm, setConfirm] = useState("");
   const [err, setErr] = useState("");
@@ -21,8 +21,7 @@ export default function Setup({ onDone }: { onDone: () => void }) {
     if (pw !== confirm) { setErr(t("setup.errorMismatch")); return; }
     setBusy(true);
     try {
-      await api.auth.setup(pw);
-      const res = await api.auth.login(pw);
+      const res = await api.auth.setup(username || "admin", pw);
       setDashboardToken(res.token);
       onDone();
     } catch (e: any) {
@@ -50,13 +49,17 @@ export default function Setup({ onDone }: { onDone: () => void }) {
             </p>
           </div>
           <form onSubmit={submit} className="space-y-3">
+            <TextField isRequired value={username} onChange={setUsername}>
+              <Label>{t("setup.username")}</Label>
+              <Input placeholder={t("setup.usernamePlaceholder")} autoFocus disabled={busy} autoComplete="username" />
+            </TextField>
             <TextField isRequired value={pw} onChange={setPw} type="password">
               <Label>{t("setup.password")}</Label>
-              <Input placeholder={t("setup.passwordPlaceholder")} autoFocus disabled={busy} />
+              <Input placeholder={t("setup.passwordPlaceholder")} disabled={busy} autoComplete="new-password" />
             </TextField>
             <TextField isRequired value={confirm} onChange={setConfirm} type="password">
               <Label>{t("setup.confirm")}</Label>
-              <Input placeholder={t("setup.confirmPlaceholder")} disabled={busy} />
+              <Input placeholder={t("setup.confirmPlaceholder")} disabled={busy} autoComplete="new-password" />
             </TextField>
             {err && <p className="text-sm text-danger">{err}</p>}
             <Button type="submit" fullWidth isPending={busy}>
