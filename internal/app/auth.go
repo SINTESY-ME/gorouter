@@ -1,6 +1,6 @@
 // Package app provides application services that orchestrate the domain
 // through the repository and executor ports. This file holds the dashboard
-// auth service: user setup (first run), login via username/password with
+// auth service: user setup (first run), login via email/password with
 // session tokens, and session validation.
 package app
 
@@ -10,6 +10,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -28,8 +29,8 @@ const SettingKeyDashboardPassword = "dashboard_password_hash"
 // ErrAuthAlreadyConfigured is returned by Setup when a password is already set.
 var ErrAuthAlreadyConfigured = errors.New("dashboard password already configured")
 
-// ErrInvalidCredentials is returned when a username/password pair is wrong.
-var ErrInvalidCredentials = errors.New("invalid username or password")
+// ErrInvalidCredentials is returned when an email/password pair is wrong.
+var ErrInvalidCredentials = errors.New("invalid email or password")
 
 // AuthService manages dashboard authentication. Two sources are supported:
 //   - EnvToken (GOROUTER_DASHBOARD_TOKEN): a master token that authenticates
@@ -74,8 +75,12 @@ func (a *AuthService) IsConfigured(ctx context.Context) (bool, error) {
 // Setup creates the initial admin user. It only succeeds when no
 // authentication is configured yet (env token empty, no users, no legacy
 // hash). The password is stored as a salted bcrypt hash.
-func (a *AuthService) Setup(ctx context.Context, username, password string) error {
-	if strings.TrimSpace(username) == "" || password == "" {
+func (a *AuthService) Setup(ctx context.Context, name, email, password string) error {
+	if strings.TrimSpace(name) == "" || password == "" {
+		return domain.ErrValidation
+	}
+	email, err := normalizeAuthEmail(email)
+	if err != nil {
 		return domain.ErrValidation
 	}
 	configured, err := a.IsConfigured(ctx)
@@ -85,15 +90,15 @@ func (a *AuthService) Setup(ctx context.Context, username, password string) erro
 	if configured {
 		return ErrAuthAlreadyConfigured
 	}
-	_, err = a.createAdmin(ctx, username, password)
+	_, err = a.createAdmin(ctx, name, email, password)
 	return err
 }
 
-// Login validates a username/password pair and, on success, creates a fresh
+// Login validates an email/password pair and, on success, creates a fresh
 // session for the user. Returns the session (with the plaintext token) or
 // ErrInvalidCredentials.
-func (a *AuthService) Login(ctx context.Context, username, password string) (*domain.Session, error) {
-	user, err := a.authenticate(ctx, username, password)
+func (a *AuthService) Login(ctx context.Context, email, password string) (*domain.Session, error) {
+	user, err := a.authenticate(ctx, email, password)
 	if err != nil {
 		return nil, err
 	}
@@ -137,8 +142,8 @@ func (a *AuthService) Logout(ctx context.Context, userID string) error {
 //     stored, a match migrates it into an admin user (in place).
 //  2. Env token: if set and the password matches it, authenticates as admin
 //     (creating the admin user lazily if needed).
-//  3. Users table: username + bcrypt password.
-func (a *AuthService) authenticate(ctx context.Context, username, password string) (*domain.User, error) {
+//  3. Users table: email + bcrypt password.
+func (a *AuthService) authenticate(ctx context.Context, email, password string) (*domain.User, error) {
 	users, err := a.Users.List(ctx)
 	if err != nil {
 		return nil, err
@@ -148,7 +153,7 @@ func (a *AuthService) authenticate(ctx context.Context, username, password strin
 	if len(users) == 0 && a.Setting != nil {
 		if hash, gerr := a.Setting.Get(ctx, SettingKeyDashboardPassword); gerr == nil && hash != "" {
 			if ComparePassword(password, hash) {
-				user, cerr := a.createAdmin(ctx, defaultAdminUsername, password)
+				user, cerr := a.createAdmin(ctx, defaultAdminName, defaultAdminEmail, password)
 				if cerr != nil {
 					return nil, cerr
 				}
@@ -158,14 +163,14 @@ func (a *AuthService) authenticate(ctx context.Context, username, password strin
 		}
 	}
 
-	// Env token master: matches any username, treats as admin.
+	// Env token master: treats the configured admin as authenticated.
 	if a.EnvToken != "" && password == a.EnvToken {
-		u := findByUsername(users, username)
+		u := findByEmail(users, email)
 		if u == nil {
-			u = findByUsername(users, defaultAdminUsername)
+			u = findByEmail(users, defaultAdminEmail)
 		}
 		if u == nil {
-			u, err = a.createAdmin(ctx, defaultAdminUsername, randomToken())
+			u, err = a.createAdmin(ctx, defaultAdminName, defaultAdminEmail, randomToken())
 			if err != nil {
 				return nil, err
 			}
@@ -173,17 +178,23 @@ func (a *AuthService) authenticate(ctx context.Context, username, password strin
 		return u, nil
 	}
 
-	u := findByUsername(users, username)
+	email, err = normalizeAuthEmail(email)
+	if err != nil {
+		return nil, ErrInvalidCredentials
+	}
+	u := findByEmail(users, email)
 	if u == nil || !ComparePassword(password, u.PasswordHash) {
 		return nil, ErrInvalidCredentials
 	}
 	return u, nil
 }
 
-func (a *AuthService) createAdmin(ctx context.Context, username, password string) (*domain.User, error) {
+func (a *AuthService) createAdmin(ctx context.Context, name, email, password string) (*domain.User, error) {
 	u := &domain.User{
 		ID:           uuid.NewString(),
-		Username:     username,
+		Name:         name,
+		Email:        email,
+		Username:     email,
 		PasswordHash: HashPassword(password),
 		Role:         domain.RoleAdmin,
 		Permissions:  domain.UserPermissions{},
@@ -196,17 +207,28 @@ func (a *AuthService) createAdmin(ctx context.Context, username, password string
 	return u, nil
 }
 
-func findByUsername(users []domain.User, username string) *domain.User {
+func findByEmail(users []domain.User, email string) *domain.User {
 	for i := range users {
-		if users[i].Username == username {
+		if users[i].Email == email {
 			return &users[i]
 		}
 	}
 	return nil
 }
 
-// defaultAdminUsername is used by the legacy migration and env-token mode.
-const defaultAdminUsername = "admin"
+func normalizeAuthEmail(email string) (string, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	parsed, err := mail.ParseAddress(email)
+	if err != nil || parsed.Address != email {
+		return "", err
+	}
+	return email, nil
+}
+
+const (
+	defaultAdminName  = "Admin"
+	defaultAdminEmail = "admin@localhost"
+)
 
 // hashToken returns the SHA-256 hex digest of a session token, stored at
 // rest so a database compromise does not leak active session tokens.

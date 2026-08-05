@@ -87,7 +87,37 @@ func Open(ctx context.Context, driver, dsn string) (*gorm.DB, error) {
 	// entity now maps KeyHash to that same column, so the migration just
 	// replaces the plaintext with its hash in place.
 	backfillKeyHashes(db)
+	if err := backfillUserIdentity(db); err != nil {
+		_ = Close(db)
+		return nil, fmt.Errorf("backfill user identity: %w", err)
+	}
+	if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)").Error; err != nil {
+		_ = Close(db)
+		return nil, fmt.Errorf("create user email index: %w", err)
+	}
 	return db, nil
+}
+
+func backfillUserIdentity(db *gorm.DB) error {
+	var users []domain.User
+	if err := db.Find(&users).Error; err != nil {
+		return err
+	}
+	for _, user := range users {
+		updates := map[string]any{}
+		if strings.TrimSpace(user.Name) == "" {
+			updates["name"] = user.Username
+		}
+		if strings.TrimSpace(user.Email) == "" {
+			updates["email"] = "legacy-" + user.ID + "@localhost"
+		}
+		if len(updates) > 0 {
+			if err := db.Model(&domain.User{}).Where("id = ?", user.ID).Updates(updates).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // Close closes the underlying *sql.DB managed by GORM.

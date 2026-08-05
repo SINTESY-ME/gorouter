@@ -30,9 +30,9 @@ func (r *UserRepo) Get(ctx context.Context, id string) (*domain.User, error) {
 	return &u, err
 }
 
-func (r *UserRepo) GetByUsername(ctx context.Context, username string) (*domain.User, error) {
+func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	var u domain.User
-	err := r.db.WithContext(ctx).First(&u, "username = ?", username).Error
+	err := r.db.WithContext(ctx).First(&u, "email = ?", email).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -42,7 +42,7 @@ func (r *UserRepo) GetByUsername(ctx context.Context, username string) (*domain.
 func (r *UserRepo) Create(ctx context.Context, u *domain.User) error {
 	err := r.db.WithContext(ctx).Create(u).Error
 	if errors.Is(err, gorm.ErrDuplicatedKey) {
-		return fmt.Errorf("%w: username %q already exists", domain.ErrAlreadyExists, u.Username)
+		return fmt.Errorf("%w: email %q already exists", domain.ErrAlreadyExists, u.Email)
 	}
 	return err
 }
@@ -50,7 +50,7 @@ func (r *UserRepo) Create(ctx context.Context, u *domain.User) error {
 func (r *UserRepo) Update(ctx context.Context, u *domain.User) error {
 	u.UpdatedAt = time.Now()
 	res := r.db.WithContext(ctx).Model(&domain.User{}).Where("id = ?", u.ID).
-		Select("Username", "PasswordHash", "Role", "Permissions", "UpdatedAt").
+		Select("Name", "Email", "PasswordHash", "Role", "Permissions", "UpdatedAt").
 		Updates(u)
 	if res.Error != nil {
 		return res.Error

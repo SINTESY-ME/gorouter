@@ -40,7 +40,9 @@ type UserPermissions struct {
 // setup) is always an admin; admins create additional admin/member users.
 type User struct {
 	ID           string          `json:"id" gorm:"primaryKey"`
-	Username     string          `json:"username" gorm:"uniqueIndex"`
+	Name         string          `json:"name"`
+	Email        string          `json:"email"`
+	Username     string          `json:"-" gorm:"uniqueIndex"`
 	Password     string          `json:"-" gorm:"-"` // plaintext; never persisted
 	PasswordHash string          `json:"-" gorm:"column:password_hash;type:text"`
 	Role         UserRole        `json:"role"`

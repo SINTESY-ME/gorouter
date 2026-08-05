@@ -128,7 +128,7 @@ function DashboardLayout({ onLogout, me }: { onLogout: () => void; me: User | nu
           <LanguageSwitcher />
           <div className="px-3 py-1 flex items-center justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-sm font-medium truncate">{me?.username ?? "admin"}</p>
+              <p className="text-sm font-medium truncate">{me?.name ?? "Admin"}</p>
               <p className="text-xs text-muted">{isAdmin ? t("app.roleAdmin") : t("app.roleMember")}</p>
             </div>
             <Button variant="tertiary" isIconOnly onPress={onLogout} aria-label={t("app.logout")}>

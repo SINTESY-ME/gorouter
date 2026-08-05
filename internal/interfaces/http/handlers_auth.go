@@ -46,55 +46,53 @@ func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 // authentication is configured yet.
 func (s *Server) handleAuthSetup(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Username string `json:"username"`
+		Name     string `json:"name"`
+		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if body.Username == "" {
-		body.Username = "admin"
-	}
 	if body.Password == "" {
 		writeError(w, http.StatusBadRequest, "password is required")
 		return
 	}
-	if err := s.Auth.Setup(r.Context(), body.Username, body.Password); err != nil {
+	if err := s.Auth.Setup(r.Context(), body.Name, body.Email, body.Password); err != nil {
 		if err == app.ErrAuthAlreadyConfigured {
 			writeError(w, http.StatusConflict, "dashboard auth already configured")
 			return
 		}
 		if isDomain(err, domain.ErrValidation) {
-			writeError(w, http.StatusBadRequest, "invalid username or password")
+			writeError(w, http.StatusBadRequest, "invalid name, email, or password")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "setup failed")
 		return
 	}
 	// Auto-login so the first admin lands directly in the dashboard.
-	s.respondLogin(r.Context(), w, body.Username, body.Password)
+	s.respondLogin(r.Context(), w, body.Email, body.Password)
 }
 
 // handleAuthLogin validates username/password and returns a session token.
 // The frontend stores the token as the bearer for subsequent /api/* calls.
 func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Username string `json:"username"`
+		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	s.respondLogin(r.Context(), w, body.Username, body.Password)
+	s.respondLogin(r.Context(), w, body.Email, body.Password)
 }
 
-func (s *Server) respondLogin(ctx context.Context, w http.ResponseWriter, username, password string) {
-	sess, err := s.Auth.Login(ctx, username, password)
+func (s *Server) respondLogin(ctx context.Context, w http.ResponseWriter, email, password string) {
+	sess, err := s.Auth.Login(ctx, email, password)
 	if err != nil {
 		if err == app.ErrInvalidCredentials {
-			writeError(w, http.StatusUnauthorized, "invalid username or password")
+			writeError(w, http.StatusUnauthorized, "invalid email or password")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "login failed")
@@ -113,10 +111,11 @@ func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 
 // meResponse is the current-user payload for /api/auth/me.
 type meResponse struct {
-	ID       string                 `json:"id"`
-	Username string                 `json:"username"`
-	Role     domain.UserRole        `json:"role"`
-	Perms    domain.UserPermissions `json:"permissions"`
+	ID    string                 `json:"id"`
+	Name  string                 `json:"name"`
+	Email string                 `json:"email"`
+	Role  domain.UserRole        `json:"role"`
+	Perms domain.UserPermissions `json:"permissions"`
 }
 
 // handleAuthMe returns the authenticated dashboard user. Public route that
@@ -127,19 +126,20 @@ func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	username := scope.UserID
+	name, email := scope.UserID, ""
 	if scope.UserID != "__env__" {
 		if u, err := s.Users.Get(r.Context(), scope.UserID); err == nil && u != nil {
-			username = u.Username
+			name, email = u.Name, u.Email
 		}
 	} else {
-		username = "admin"
+		name, email = "Admin", "admin@localhost"
 	}
 	writeJSON(w, http.StatusOK, meResponse{
-		ID:       scope.UserID,
-		Username: username,
-		Role:     scope.Role,
-		Perms:    scope.Permissions,
+		ID:    scope.UserID,
+		Name:  name,
+		Email: email,
+		Role:  scope.Role,
+		Perms: scope.Permissions,
 	})
 }
 

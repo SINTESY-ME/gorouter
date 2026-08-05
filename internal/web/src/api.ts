@@ -122,7 +122,7 @@ export interface UserPermissions {
   can_access_settings: boolean;
 }
 export interface User {
-  id: string; username: string; role: "admin" | "member";
+  id: string; name: string; email: string; role: "admin" | "member";
   permissions?: UserPermissions;
   allowed_models?: string[]; allowed_combos?: string[]; allowed_providers?: string[];
   api_keys_count: number; session_active: boolean;
@@ -215,10 +215,10 @@ export const api = {
       request<{ configured: boolean; authenticated: boolean }>("/api/auth/status"),
     me: () =>
       request<User>("/api/auth/me"),
-    setup: (username: string, password: string) =>
-      request<{ token: string }>("/api/auth/setup", { method: "POST", body: JSON.stringify({ username, password }) }),
-    login: (username: string, password: string) =>
-      request<{ token: string }>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+    setup: (name: string, email: string, password: string) =>
+      request<{ token: string }>("/api/auth/setup", { method: "POST", body: JSON.stringify({ name, email, password }) }),
+    login: (email: string, password: string) =>
+      request<{ token: string }>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
     logout: () => request<void>("/api/auth/logout", { method: "POST" }),
   },
   providers: {
@@ -280,9 +280,9 @@ export const api = {
   },
   users: {
     list: () => request<User[]>("/api/users"),
-    create: (u: { username: string; password: string; role: string; permissions?: UserPermissions }) =>
+    create: (u: { name: string; email: string; password: string; role: string; permissions?: UserPermissions }) =>
       request<User>("/api/users", { method: "POST", body: JSON.stringify(u) }),
-    update: (id: string, u: { username?: string; password?: string; role?: string; permissions?: UserPermissions }) =>
+    update: (id: string, u: { name?: string; email?: string; password?: string; role?: string; permissions?: UserPermissions }) =>
       request<User>(`/api/users/${id}`, { method: "PUT", body: JSON.stringify(u) }),
     remove: (id: string) => request<void>(`/api/users/${id}`, { method: "DELETE" }),
     setAccess: (id: string, kind: "provider" | "model" | "combo", ids: string[]) =>

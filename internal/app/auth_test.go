@@ -45,9 +45,9 @@ func (r *fakeUserRepo) Get(_ context.Context, id string) (*domain.User, error) {
 	}
 	return nil, domain.ErrNotFound
 }
-func (r *fakeUserRepo) GetByUsername(_ context.Context, username string) (*domain.User, error) {
+func (r *fakeUserRepo) GetByEmail(_ context.Context, email string) (*domain.User, error) {
 	for i := range r.users {
-		if r.users[i].Username == username {
+		if r.users[i].Email == email {
 			return &r.users[i], nil
 		}
 	}
@@ -138,13 +138,13 @@ func TestComparePasswordLegacy(t *testing.T) {
 
 func TestSetupCreatesAdminAndLogin(t *testing.T) {
 	auth, _, sessions, _ := newAuthHarness()
-	if err := auth.Setup(context.Background(), "admin", "secret"); err != nil {
+	if err := auth.Setup(context.Background(), "Admin", "admin@example.com", "secret"); err != nil {
 		t.Fatalf("Setup error: %v", err)
 	}
 	if !auth.IsConfiguredVal(context.Background()) {
 		t.Fatal("IsConfigured should be true after setup")
 	}
-	sess, err := auth.Login(context.Background(), "admin", "secret")
+	sess, err := auth.Login(context.Background(), "admin@example.com", "secret")
 	if err != nil {
 		t.Fatalf("Login error: %v", err)
 	}
@@ -155,11 +155,11 @@ func TestSetupCreatesAdminAndLogin(t *testing.T) {
 		t.Fatalf("sessions = %d, want 1", len(sessions.sessions))
 	}
 	// Wrong password.
-	if _, err := auth.Login(context.Background(), "admin", "wrong"); err != ErrInvalidCredentials {
+	if _, err := auth.Login(context.Background(), "admin@example.com", "wrong"); err != ErrInvalidCredentials {
 		t.Fatalf("wrong password err = %v, want ErrInvalidCredentials", err)
 	}
 	// Second setup must fail.
-	if err := auth.Setup(context.Background(), "x", "y"); err != ErrAuthAlreadyConfigured {
+	if err := auth.Setup(context.Background(), "Other", "other@example.com", "y"); err != ErrAuthAlreadyConfigured {
 		t.Fatalf("second Setup err = %v, want ErrAuthAlreadyConfigured", err)
 	}
 }
@@ -172,10 +172,10 @@ func (a *AuthService) IsConfiguredVal(ctx context.Context) bool {
 
 func TestValidateSessionRoundTrip(t *testing.T) {
 	auth, _, _, _ := newAuthHarness()
-	if err := auth.Setup(context.Background(), "admin", "secret"); err != nil {
+	if err := auth.Setup(context.Background(), "Admin", "admin@example.com", "secret"); err != nil {
 		t.Fatal(err)
 	}
-	sess, err := auth.Login(context.Background(), "admin", "secret")
+	sess, err := auth.Login(context.Background(), "admin@example.com", "secret")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestValidateSessionRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ValidateSession error: %v", err)
 	}
-	if user == nil || user.Username != "admin" {
+	if user == nil || user.Email != "admin@example.com" {
 		t.Fatalf("ValidateSession = %+v, want admin user", user)
 	}
 	// Invalid token → nil.
@@ -195,7 +195,7 @@ func TestValidateSessionRoundTrip(t *testing.T) {
 func TestEnvTokenMaster(t *testing.T) {
 	auth, users, _, _ := newAuthHarness()
 	auth.EnvToken = "env-token"
-	sess, err := auth.Login(context.Background(), "admin", "env-token")
+	sess, err := auth.Login(context.Background(), "admin@localhost", "env-token")
 	if err != nil {
 		t.Fatalf("env-token Login error: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestEnvTokenMaster(t *testing.T) {
 func TestLegacyPasswordMigration(t *testing.T) {
 	auth, users, _, settings := newAuthHarness()
 	settings.Set(context.Background(), SettingKeyDashboardPassword, "2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf527a25b")
-	sess, err := auth.Login(context.Background(), "admin", "secret")
+	sess, err := auth.Login(context.Background(), "admin@localhost", "secret")
 	if err != nil {
 		t.Fatalf("legacy Login error: %v", err)
 	}
@@ -229,10 +229,10 @@ func TestLegacyPasswordMigration(t *testing.T) {
 
 func TestLogoutRevokesSession(t *testing.T) {
 	auth, _, sessions, _ := newAuthHarness()
-	if err := auth.Setup(context.Background(), "admin", "secret"); err != nil {
+	if err := auth.Setup(context.Background(), "Admin", "admin@example.com", "secret"); err != nil {
 		t.Fatal(err)
 	}
-	sess, err := auth.Login(context.Background(), "admin", "secret")
+	sess, err := auth.Login(context.Background(), "admin@example.com", "secret")
 	if err != nil {
 		t.Fatal(err)
 	}

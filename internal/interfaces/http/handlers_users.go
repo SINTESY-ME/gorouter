@@ -22,7 +22,8 @@ func (s *Server) requireAdmin(next http.Handler) http.Handler {
 
 // userPayload is the create/update DTO for users.
 type userPayload struct {
-	Username    string                  `json:"username"`
+	Name        string                  `json:"name"`
+	Email       string                  `json:"email"`
 	Password    string                  `json:"password"`
 	Role        domain.UserRole         `json:"role"`
 	Permissions *domain.UserPermissions `json:"permissions"`
@@ -48,7 +49,7 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	items := make([]UserListItem, 0, len(users))
 	for _, u := range users {
 		item := UserListItem{
-			ID: u.ID, Username: u.Username, Role: u.Role, Permissions: u.Permissions,
+			ID: u.ID, Name: u.Name, Email: u.Email, Role: u.Role, Permissions: u.Permissions,
 			CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
 		}
 		if summary, ok := summaries[u.ID]; ok {
@@ -77,7 +78,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	if req.Permissions != nil {
 		perms = *req.Permissions
 	}
-	u, err := s.Users.CreateUser(r.Context(), req.Username, req.Password, req.Role, perms)
+	u, err := s.Users.CreateUser(r.Context(), req.Name, req.Email, req.Password, req.Role, perms)
 	if err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
@@ -96,7 +97,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	u, err := s.Users.UpdateUser(r.Context(), id, req.Username, req.Password, req.Role, req.Permissions)
+	u, err := s.Users.UpdateUser(r.Context(), id, req.Name, req.Email, req.Password, req.Role, req.Permissions)
 	if err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return

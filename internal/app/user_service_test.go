@@ -38,7 +38,7 @@ func TestUserServiceCreateUpdateDelete(t *testing.T) {
 	svc := &UserService{Users: users, Access: access}
 	ctx := context.Background()
 
-	admin, err := svc.CreateUser(ctx, "admin", "pw1", domain.RoleAdmin, domain.UserPermissions{})
+	admin, err := svc.CreateUser(ctx, "Admin", "admin@example.com", "pw1", domain.RoleAdmin, domain.UserPermissions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestUserServiceCreateUpdateDelete(t *testing.T) {
 		t.Fatal("password must be hashed")
 	}
 
-	member, err := svc.CreateUser(ctx, "bob", "pw2", domain.RoleMember, domain.UserPermissions{CanCreateCombos: true})
+	member, err := svc.CreateUser(ctx, "Bob", "bob@example.com", "pw2", domain.RoleMember, domain.UserPermissions{CanCreateCombos: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestUserServiceCreateUpdateDelete(t *testing.T) {
 	}
 
 	// Update member permissions.
-	updated, err := svc.UpdateUser(ctx, member.ID, "", "", domain.RoleMember, &domain.UserPermissions{CanManageCache: true})
+	updated, err := svc.UpdateUser(ctx, member.ID, "", "", "", domain.RoleMember, &domain.UserPermissions{CanManageCache: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestUserServiceAccess(t *testing.T) {
 	svc := &UserService{Users: users, Access: access}
 	ctx := context.Background()
 
-	member, err := svc.CreateUser(ctx, "bob", "pw", domain.RoleMember, domain.UserPermissions{})
+	member, err := svc.CreateUser(ctx, "Bob", "bob@example.com", "pw", domain.RoleMember, domain.UserPermissions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestUserServiceAccess(t *testing.T) {
 func TestUserServiceLoadGrantsAdminNoop(t *testing.T) {
 	users := &fakeUserRepo{}
 	svc := &UserService{Users: users, Access: newFakeAccessRepo()}
-	admin, err := svc.CreateUser(ctx(), "admin", "pw", domain.RoleAdmin, domain.UserPermissions{})
+	admin, err := svc.CreateUser(ctx(), "Admin", "admin@example.com", "pw", domain.RoleAdmin, domain.UserPermissions{})
 	if err != nil {
 		t.Fatal(err)
 	}

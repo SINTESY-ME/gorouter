@@ -4,12 +4,12 @@ import { useTranslation } from "react-i18next";
 import { api, setDashboardToken, clearDashboardToken } from "../api";
 import { IconRoute } from "../icons";
 
-// Login is the dashboard login page. The user enters their username and
+// Login is the dashboard login page. The user enters their email and
 // password; on success the returned session token is stored and the
 // dashboard mounts.
 export default function Login({ onDone }: { onDone: () => void }) {
   const { t } = useTranslation();
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -19,7 +19,7 @@ export default function Login({ onDone }: { onDone: () => void }) {
     setErr("");
     setBusy(true);
     try {
-      const res = await api.auth.login(username, pw);
+      const res = await api.auth.login(email, pw);
       setDashboardToken(res.token);
       onDone();
     } catch (e: any) {
@@ -44,13 +44,13 @@ export default function Login({ onDone }: { onDone: () => void }) {
         <Card className="p-6 space-y-4">
           <h2 className="text-lg font-semibold">{t("login.title")}</h2>
           <form onSubmit={submit} className="space-y-3">
-            <TextField isRequired value={username} onChange={setUsername}>
-              <Label>{t("login.username")}</Label>
-              <Input placeholder={t("login.usernamePlaceholder")} autoFocus disabled={busy} autoComplete="username" />
+            <TextField isRequired value={email} onChange={setEmail} type="email">
+              <Label>{t("login.email")}</Label>
+              <Input variant="secondary" placeholder={t("login.emailPlaceholder")} autoFocus disabled={busy} autoComplete="email" />
             </TextField>
             <TextField isRequired value={pw} onChange={setPw} type="password">
               <Label>{t("login.password")}</Label>
-              <Input placeholder={t("login.passwordPlaceholder")} disabled={busy} autoComplete="current-password" />
+              <Input variant="secondary" placeholder={t("login.passwordPlaceholder")} disabled={busy} autoComplete="current-password" />
             </TextField>
             {err && <p className="text-sm text-danger">{err}</p>}
             <Button type="submit" fullWidth isPending={busy}>

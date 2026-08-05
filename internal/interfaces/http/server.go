@@ -40,7 +40,8 @@ type ModelSyncer interface {
 // at startup; *http.Server is the caller's responsibility.
 type UserListItem struct {
 	ID               string                 `json:"id"`
-	Username         string                 `json:"username"`
+	Name             string                 `json:"name"`
+	Email            string                 `json:"email"`
 	Role             domain.UserRole        `json:"role"`
 	Permissions      domain.UserPermissions `json:"permissions"`
 	AllowedModels    []string               `json:"allowed_models,omitempty"`

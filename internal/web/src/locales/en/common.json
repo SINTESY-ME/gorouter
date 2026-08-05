@@ -542,8 +542,8 @@
     "passwordPlaceholder": "Password",
     "submitting": "Signing in...",
     "submit": "Sign in",
-    "username": "Username",
-    "usernamePlaceholder": "Username"
+    "email": "Email",
+    "emailPlaceholder": "you@example.com"
   },
   "setup": {
     "errorShort": "Password must be at least 4 characters.",
@@ -559,8 +559,10 @@
     "confirmPlaceholder": "Confirm password",
     "submitting": "Setting...",
     "submit": "Set password",
-    "username": "Username",
-    "usernamePlaceholder": "Username (admin (default))"
+    "name": "Name",
+    "namePlaceholder": "Your name",
+    "email": "Email",
+    "emailPlaceholder": "you@example.com"
   },
   "store": {
     "errorLoad": "failed to load store",
@@ -609,8 +611,10 @@
     "delete": "Delete",
     "createTitle": "Add user",
     "editTitle": "Edit user",
-    "username": "Username",
-    "usernamePlaceholder": "Username",
+    "name": "Name",
+    "namePlaceholder": "Full name",
+    "email": "Email",
+    "emailPlaceholder": "you@example.com",
     "password": "Password",
     "passwordPlaceholder": "Password",
     "passwordLeave": "Leave blank to keep current",
@@ -630,7 +634,7 @@
     "save": "Save",
     "saving": "Saving…",
     "saveError": "Failed to save user.",
-    "errUsername": "Username is required.",
+    "errIdentity": "Name and email are required.",
     "errPassword": "Password is required for new users.",
     "empty": "No users yet."
   }

@@ -157,7 +157,7 @@ type SettingRepo interface {
 type UserRepo interface {
 	List(ctx context.Context) ([]User, error)
 	Get(ctx context.Context, id string) (*User, error)
-	GetByUsername(ctx context.Context, username string) (*User, error)
+	GetByEmail(ctx context.Context, email string) (*User, error)
 	Create(ctx context.Context, u *User) error
 	Update(ctx context.Context, u *User) error
 	Delete(ctx context.Context, id string) error

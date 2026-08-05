@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -21,9 +22,10 @@ type UserService struct {
 
 // CreateUser creates a user. The plaintext password is hashed before
 // storage. A nil permissions slice means "no member permissions".
-func (s *UserService) CreateUser(ctx context.Context, username, password string, role domain.UserRole, perms domain.UserPermissions) (*domain.User, error) {
-	username = strings.TrimSpace(username)
-	if username == "" || password == "" {
+func (s *UserService) CreateUser(ctx context.Context, name, email, password string, role domain.UserRole, perms domain.UserPermissions) (*domain.User, error) {
+	name = strings.TrimSpace(name)
+	email, err := normalizeEmail(email)
+	if name == "" || err != nil || password == "" {
 		return nil, domain.ErrValidation
 	}
 	if role != domain.RoleAdmin && role != domain.RoleMember {
@@ -31,7 +33,9 @@ func (s *UserService) CreateUser(ctx context.Context, username, password string,
 	}
 	u := &domain.User{
 		ID:           uuid.NewString(),
-		Username:     username,
+		Name:         name,
+		Email:        email,
+		Username:     email,
 		PasswordHash: HashPassword(password),
 		Role:         role,
 		Permissions:  perms,
@@ -46,13 +50,20 @@ func (s *UserService) CreateUser(ctx context.Context, username, password string,
 
 // UpdateUser updates a user's role, permissions, and optionally password.
 // A non-empty password resets it; role "" keeps the current role.
-func (s *UserService) UpdateUser(ctx context.Context, id, username, password string, role domain.UserRole, perms *domain.UserPermissions) (*domain.User, error) {
+func (s *UserService) UpdateUser(ctx context.Context, id, name, email, password string, role domain.UserRole, perms *domain.UserPermissions) (*domain.User, error) {
 	u, err := s.Users.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if username != "" {
-		u.Username = username
+	if name = strings.TrimSpace(name); name != "" {
+		u.Name = name
+	}
+	if email != "" {
+		normalized, err := normalizeEmail(email)
+		if err != nil {
+			return nil, domain.ErrValidation
+		}
+		u.Email = normalized
 	}
 	if password != "" {
 		u.PasswordHash = HashPassword(password)
@@ -104,6 +115,15 @@ func (s *UserService) DeleteUser(ctx context.Context, id string) error {
 // List returns all users, oldest first.
 func (s *UserService) List(ctx context.Context) ([]domain.User, error) {
 	return s.Users.List(ctx)
+}
+
+func normalizeEmail(email string) (string, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	parsed, err := mail.ParseAddress(email)
+	if err != nil || parsed.Address != email {
+		return "", domain.ErrValidation
+	}
+	return email, nil
 }
 
 func (s *UserService) ListAdminSummaries(ctx context.Context, users []domain.User) (map[string]domain.UserAdminSummary, error) {

@@ -15,7 +15,8 @@ const PERM_KEYS: { key: PermKey; label: string }[] = [
 
 interface FormState {
   id: string | null;
-  username: string;
+  name: string;
+  email: string;
   password: string;
   role: "admin" | "member";
   perms: UserPermissions;
@@ -25,7 +26,7 @@ interface FormState {
 }
 
 const emptyForm = (): FormState => ({
-  id: null, username: "", password: "", role: "member",
+  id: null, name: "", email: "", password: "", role: "member",
   perms: { can_manage_own_providers: false, can_create_combos: false, can_manage_cache: false, can_access_settings: false },
   models: [], combos: [], providers: [],
 });
@@ -63,7 +64,8 @@ export default function Users() {
   const openEdit = (u: User) => {
     setForm({
       id: u.id,
-      username: u.username,
+      name: u.name,
+      email: u.email,
       password: "",
       role: u.role,
       perms: u.permissions ?? emptyForm().perms,
@@ -76,20 +78,21 @@ export default function Users() {
   };
 
   const save = async () => {
-    if (!form.username) { setError(t("users.errUsername")); return; }
+    if (!form.name || !form.email) { setError(t("users.errIdentity")); return; }
     if (!form.id && !form.password) { setError(t("users.errPassword")); return; }
     setSaving(true);
     setError("");
     try {
       if (form.id) {
         await api.users.update(form.id, {
-          username: form.username,
+          name: form.name,
+          email: form.email,
           ...(form.password ? { password: form.password } : {}),
           role: form.role,
           permissions: form.perms,
         });
       } else {
-        await api.users.create({ username: form.username, password: form.password, role: form.role, permissions: form.perms });
+        await api.users.create({ name: form.name, email: form.email, password: form.password, role: form.role, permissions: form.perms });
       }
       if (form.id && form.role === "member") {
         await api.users.setAccess(form.id, "model", form.models);
@@ -140,7 +143,7 @@ export default function Users() {
                   <Table.Cell>
                     <div className="flex items-center gap-2">
                       <span className={`size-2 rounded-full shrink-0 ${u.session_active ? "bg-success" : "bg-default-soft"}`} title={u.session_active ? t("users.sessionActive") : t("users.sessionInactive")} />
-                      <span className="font-medium">{u.username}</span>
+                      <div className="min-w-0"><span className="font-medium block truncate">{u.name}</span><span className="text-xs text-muted block truncate">{u.email}</span></div>
                     </div>
                   </Table.Cell>
                   <Table.Cell>
@@ -192,9 +195,13 @@ export default function Users() {
               <Modal.Heading>{form.id ? t("users.editTitle") : t("users.createTitle")}</Modal.Heading>
             </Modal.Header>
             <Modal.Body className="space-y-4">
-              <TextField isRequired value={form.username} onChange={(v) => setForm({ ...form, username: v })}>
-                <Label>{t("users.username")}</Label>
-                <Input variant="secondary" placeholder={t("users.usernamePlaceholder")} />
+              <TextField isRequired value={form.name} onChange={(v) => setForm({ ...form, name: v })}>
+                <Label>{t("users.name")}</Label>
+                <Input variant="secondary" placeholder={t("users.namePlaceholder")} />
+              </TextField>
+              <TextField isRequired value={form.email} onChange={(v) => setForm({ ...form, email: v })} type="email">
+                <Label>{t("users.email")}</Label>
+                <Input variant="secondary" placeholder={t("users.emailPlaceholder")} />
               </TextField>
               <TextField isRequired={!form.id} value={form.password} onChange={(v) => setForm({ ...form, password: v })} type="password">
                 <Label>{t("users.password")}</Label>

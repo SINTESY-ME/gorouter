@@ -13,7 +13,6 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// sqliteOpen mirrors Open()'s SQLite DSN handling (file: URI prefix).
 func sqliteOpen(dsn string) gorm.Dialector {
 	if !strings.HasPrefix(dsn, "file:") {
 		dsn = "file:" + dsn
@@ -21,16 +20,9 @@ func sqliteOpen(dsn string) gorm.Dialector {
 	return sqlite.Open(dsn)
 }
 
-// TestMigrationPlaintextKeyToHash simulates an old database that still has
-// the plaintext "key" column (pre-hash schema), then runs Open() which
-// applies AutoMigrate + migrations. It verifies:
-//  1. key_hash is backfilled from the plaintext column
-//  2. the old "key" column and its unique index are dropped
-//  3. GetByKey finds the key by hashing the incoming plaintext
 func TestMigrationPlaintextKeyToHash(t *testing.T) {
 	dsn := filepath.Join(t.TempDir(), "migrate.db")
 
-	// Phase 1: create an OLD-schema database with a plaintext key column.
 	gdb, err := gorm.Open(sqliteOpen(dsn), &gorm.Config{
 		TranslateError: true,
 		Logger:         logger.Default.LogMode(logger.Warn),
@@ -57,7 +49,6 @@ func TestMigrationPlaintextKeyToHash(t *testing.T) {
 	sqlDB, _ := gdb.DB()
 	sqlDB.Close()
 
-	// Phase 2: Open() runs AutoMigrate + backfill + column/index drop.
 	ctx := context.Background()
 	db, err := Open(ctx, "sqlite", dsn)
 	if err != nil {
@@ -66,8 +57,6 @@ func TestMigrationPlaintextKeyToHash(t *testing.T) {
 	defer Close(db)
 
 	repo := NewApiKeyRepo(db)
-
-	// Backfill worked: lookup by hashing the plaintext finds the key.
 	k, err := repo.GetByKey(ctx, plaintext)
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +71,6 @@ func TestMigrationPlaintextKeyToHash(t *testing.T) {
 		t.Fatalf("Name = %q, want legacy", k.Name)
 	}
 
-	// The stored value is now the hash, not the plaintext.
 	var stored string
 	db.Table("api_keys").Select("key").Where("id = ?", "key-1").Scan(&stored)
 	if stored == plaintext {
@@ -92,12 +80,55 @@ func TestMigrationPlaintextKeyToHash(t *testing.T) {
 		t.Fatalf("stored = %q, want %q", stored, apikey.HashKey(plaintext))
 	}
 
-	// A fresh key persists only its hash.
 	if err := repo.Create(ctx, &domain.ApiKey{ID: "key-2", KeyHash: apikey.HashKey("sk-fresh"), Name: "new"}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	k2, err := repo.GetByKey(ctx, "sk-fresh")
 	if err != nil || k2 == nil {
 		t.Fatalf("fresh key lookup failed: %v (nil=%v)", err, k2 == nil)
+	}
+}
+
+func TestMigrationUserIdentity(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "users.db")
+	gdb, err := gorm.Open(sqliteOpen(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Warn)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gdb.Exec(`CREATE TABLE users (
+		id TEXT PRIMARY KEY,
+		username TEXT NOT NULL UNIQUE,
+		password_hash TEXT NOT NULL,
+		role TEXT NOT NULL,
+		permissions TEXT,
+		created_at DATETIME,
+		updated_at DATETIME
+	)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := gdb.Exec(`INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)`, "user-1", "legacy-admin", "hash", "admin").Error; err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, _ := gdb.DB()
+	sqlDB.Close()
+
+	db, err := Open(context.Background(), "sqlite", dsn)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer Close(db)
+
+	user, err := NewUserRepo(db).Get(context.Background(), "user-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.Name != "legacy-admin" {
+		t.Fatalf("Name = %q, want legacy-admin", user.Name)
+	}
+	if user.Email != "legacy-user-1@localhost" {
+		t.Fatalf("Email = %q, want legacy-user-1@localhost", user.Email)
+	}
+	if !db.Migrator().HasIndex(&domain.User{}, "idx_users_email") {
+		t.Fatal("email index was not created")
 	}
 }

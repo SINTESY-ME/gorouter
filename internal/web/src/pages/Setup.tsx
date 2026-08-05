@@ -8,7 +8,8 @@ import { IconRoute } from "../icons";
 // user becomes the admin; they're logged in immediately.
 export default function Setup({ onDone }: { onDone: () => void }) {
   const { t } = useTranslation();
-  const [username, setUsername] = useState("");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [confirm, setConfirm] = useState("");
   const [err, setErr] = useState("");
@@ -21,7 +22,7 @@ export default function Setup({ onDone }: { onDone: () => void }) {
     if (pw !== confirm) { setErr(t("setup.errorMismatch")); return; }
     setBusy(true);
     try {
-      const res = await api.auth.setup(username || "admin", pw);
+      const res = await api.auth.setup(name, email, pw);
       setDashboardToken(res.token);
       onDone();
     } catch (e: any) {
@@ -49,17 +50,21 @@ export default function Setup({ onDone }: { onDone: () => void }) {
             </p>
           </div>
           <form onSubmit={submit} className="space-y-3">
-            <TextField isRequired value={username} onChange={setUsername}>
-              <Label>{t("setup.username")}</Label>
-              <Input placeholder={t("setup.usernamePlaceholder")} autoFocus disabled={busy} autoComplete="username" />
+            <TextField isRequired value={name} onChange={setName}>
+              <Label>{t("setup.name")}</Label>
+              <Input variant="secondary" placeholder={t("setup.namePlaceholder")} autoFocus disabled={busy} autoComplete="name" />
+            </TextField>
+            <TextField isRequired value={email} onChange={setEmail} type="email">
+              <Label>{t("setup.email")}</Label>
+              <Input variant="secondary" placeholder={t("setup.emailPlaceholder")} disabled={busy} autoComplete="email" />
             </TextField>
             <TextField isRequired value={pw} onChange={setPw} type="password">
               <Label>{t("setup.password")}</Label>
-              <Input placeholder={t("setup.passwordPlaceholder")} disabled={busy} autoComplete="new-password" />
+              <Input variant="secondary" placeholder={t("setup.passwordPlaceholder")} disabled={busy} autoComplete="new-password" />
             </TextField>
             <TextField isRequired value={confirm} onChange={setConfirm} type="password">
               <Label>{t("setup.confirm")}</Label>
-              <Input placeholder={t("setup.confirmPlaceholder")} disabled={busy} autoComplete="new-password" />
+              <Input variant="secondary" placeholder={t("setup.confirmPlaceholder")} disabled={busy} autoComplete="new-password" />
             </TextField>
             {err && <p className="text-sm text-danger">{err}</p>}
             <Button type="submit" fullWidth isPending={busy}>
