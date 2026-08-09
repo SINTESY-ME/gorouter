@@ -194,8 +194,6 @@ func translateOpenAIToGeminiRequest(upstreamModel string, body []byte) ([]byte, 
 	genCfg := map[string]any{}
 	if r.MaxTokens != nil {
 		genCfg["maxOutputTokens"] = *r.MaxTokens
-	} else {
-		genCfg["maxOutputTokens"] = 4096
 	}
 	if r.Temperature != nil {
 		genCfg["temperature"] = *r.Temperature

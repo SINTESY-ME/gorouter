@@ -52,8 +52,6 @@ func translateOpenAIToResponsesRequest(upstreamModel string, body []byte) ([]byt
 	out["input"] = input
 	if r.MaxTokens != nil {
 		out["max_output_tokens"] = *r.MaxTokens
-	} else {
-		out["max_output_tokens"] = 4096
 	}
 	if r.Temperature != nil {
 		out["temperature"] = *r.Temperature

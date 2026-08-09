@@ -41,6 +41,77 @@ func TestOpenAIToAnthropicRequest(t *testing.T) {
 	}
 }
 
+func TestOpenAIToAnthropicRequest_NoMaxTokens_UsesKnownModelDefault(t *testing.T) {
+	out, err := translateOpenAIToAnthropicRequest("claude-opus-4-6", []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r anthropicRequest
+	if err := json.Unmarshal(out, &r); err != nil {
+		t.Fatal(err)
+	}
+	if r.MaxTokens != knownMaxOutputTokens["claude-opus-4-6"] {
+		t.Errorf("max_tokens: got %d want %d (known model ceiling)", r.MaxTokens, knownMaxOutputTokens["claude-opus-4-6"])
+	}
+}
+
+func TestOpenAIToAnthropicRequest_DefaultMaxTokens_KnownBaseFromPrefixed(t *testing.T) {
+	out, err := translateOpenAIToAnthropicRequest("openrouter/anthropic/claude-sonnet-4.6-cheap:metered:full-context", []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r anthropicRequest
+	if err := json.Unmarshal(out, &r); err != nil {
+		t.Fatal(err)
+	}
+	if r.MaxTokens != knownMaxOutputTokens["claude-sonnet-4-6"] {
+		t.Errorf("max_tokens: got %d want %d", r.MaxTokens, knownMaxOutputTokens["claude-sonnet-4-6"])
+	}
+}
+
+func TestOpenAIToAnthropicRequest_DefaultMaxTokens_NewestModels(t *testing.T) {
+	for _, tc := range []struct {
+		model string
+		want  int
+	}{
+		{"claude-opus-5", 128000},
+		{"claude-opus-4-8", 128000},
+		{"claude-opus-4-7", 128000},
+		{"claude-sonnet-5", 128000},
+		{"claude-fable-5", 128000},
+		{"anthropic/claude-opus-5:batch", 128000},
+		{"claude-opus-4.8-code:metered", 128000},
+		{"claude-sonnet-4.6-flatcost:full-context", 64000},
+		{"claude-haiku-4.5-cheap:metered", 64000},
+	} {
+		out, err := translateOpenAIToAnthropicRequest(tc.model, []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"hi"}]}`))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.model, err)
+		}
+		var r anthropicRequest
+		if err := json.Unmarshal(out, &r); err != nil {
+			t.Fatalf("%s: %v", tc.model, err)
+		}
+		if r.MaxTokens != tc.want {
+			t.Errorf("%s: max_tokens: got %d want %d", tc.model, r.MaxTokens, tc.want)
+		}
+	}
+}
+
+func TestOpenAIToAnthropicRequest_DefaultMaxTokens_UnknownModelFallback(t *testing.T) {
+	out, err := translateOpenAIToAnthropicRequest("some-unknown-model", []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r anthropicRequest
+	if err := json.Unmarshal(out, &r); err != nil {
+		t.Fatal(err)
+	}
+	if r.MaxTokens != fallbackMaxOutputTokens {
+		t.Errorf("max_tokens: got %d want %d (fallback)", r.MaxTokens, fallbackMaxOutputTokens)
+	}
+}
+
 func TestAnthropicToOpenAIResponseJSON(t *testing.T) {
 	body := `{"id":"msg_1","model":"claude-3","role":"assistant","content":[{"type":"text","text":"hello world"}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`
 	out, err := translateAnthropicToOpenAIResponseJSONImpl([]byte(body))
@@ -94,6 +165,35 @@ func TestOpenAIToGeminiRequest(t *testing.T) {
 	genCfg := r["generationConfig"].(map[string]any)
 	if genCfg["maxOutputTokens"].(float64) != 200 {
 		t.Errorf("maxOutputTokens: got %v want 200", genCfg["maxOutputTokens"])
+	}
+}
+
+func TestOpenAIToGeminiRequest_NoMaxTokens_OmitsField(t *testing.T) {
+	out, err := translateOpenAIToGeminiRequest("gemini-pro", []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r map[string]any
+	if err := json.Unmarshal(out, &r); err != nil {
+		t.Fatal(err)
+	}
+	genCfg := r["generationConfig"].(map[string]any)
+	if _, ok := genCfg["maxOutputTokens"]; ok {
+		t.Errorf("maxOutputTokens should be omitted when client sends none, got %v", genCfg["maxOutputTokens"])
+	}
+}
+
+func TestOpenAIToResponsesRequest_NoMaxTokens_OmitsField(t *testing.T) {
+	out, err := translateOpenAIToResponsesRequest("gpt-5", []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r map[string]any
+	if err := json.Unmarshal(out, &r); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r["max_output_tokens"]; ok {
+		t.Errorf("max_output_tokens should be omitted when client sends none, got %v", r["max_output_tokens"])
 	}
 }
 

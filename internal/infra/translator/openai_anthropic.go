@@ -100,7 +100,7 @@ func translateOpenAIToAnthropicRequest(upstreamModel string, body []byte) ([]byt
 	if r.MaxTokens != nil {
 		out.MaxTokens = *r.MaxTokens
 	} else {
-		out.MaxTokens = 4096
+		out.MaxTokens = defaultMaxOutputTokens(upstreamModel)
 	}
 	out.Temperature = r.Temperature
 	out.TopP = r.TopP
