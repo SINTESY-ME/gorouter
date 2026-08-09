@@ -351,7 +351,6 @@
     "colRecord": "Záznam",
     "colTimestamp": "Časová pečiatka",
     "colProvider": "Poskytovateľ",
-    "colTokens": "Tokeny",
     "colCost": "Náklady",
     "colStatus": "Stav",
     "colLatency": "Latencia",

@@ -31,7 +31,6 @@ interface LogRow {
   timestamp: string;
   provider: string;
   model: string;
-  tokens: number;
   promptTokens: number;
   completionTokens: number;
   cost: number;
@@ -58,7 +57,6 @@ function toRow(e: UsageEntry, key: string): LogRow {
     timestamp: e.timestamp,
     provider: e.provider || "—",
     model: e.model || "—",
-    tokens,
     promptTokens: e.prompt_tokens,
     completionTokens: e.completion_tokens,
     cost: e.cost,
@@ -206,12 +204,11 @@ export default function Logs() {
       </Table.Cell>
       <Table.Cell><span className="text-xs text-muted">{new Date(item.timestamp).toLocaleString()}</span></Table.Cell>
       <Table.Cell><span className="text-xs">{item.provider}</span></Table.Cell>
-      <Table.Cell className="tabular-nums" textValue={String(item.tokens)}>
-        <span className="text-xs whitespace-nowrap" title={`${t("logs.tokensIn")}: ${item.promptTokens} / ${t("logs.tokensOut")}: ${item.completionTokens}`}>
-          <span className="text-muted">{formatCompact(item.promptTokens)}</span>
-          <span className="text-muted"> / </span>
-          {formatCompact(item.completionTokens)}
-        </span>
+      <Table.Cell className="tabular-nums" textValue={String(item.promptTokens)}>
+        <span className="text-xs text-muted whitespace-nowrap">{formatCompact(item.promptTokens)}</span>
+      </Table.Cell>
+      <Table.Cell className="tabular-nums" textValue={String(item.completionTokens)}>
+        <span className="text-xs whitespace-nowrap">{formatCompact(item.completionTokens)}</span>
       </Table.Cell>
       <Table.Cell textValue={String(item.cost)}>
         <span className={cn("tabular-nums text-xs", costColor(item.cost))} title={`$${item.cost.toFixed(6)}`}>
@@ -322,7 +319,8 @@ export default function Logs() {
               <Table.Column isRowHeader id="label">{t("logs.colRecord")}</Table.Column>
               <Table.Column id="timestamp">{t("logs.colTimestamp")}</Table.Column>
               <Table.Column id="provider">{t("logs.colProvider")}</Table.Column>
-              <Table.Column id="tokens">{t("logs.colTokens")}</Table.Column>
+              <Table.Column id="prompt_tokens">{t("logs.tokensIn")}</Table.Column>
+              <Table.Column id="completion_tokens">{t("logs.tokensOut")}</Table.Column>
               <Table.Column id="cost">{t("logs.colCost")}</Table.Column>
               <Table.Column id="status">{t("logs.colStatus")}</Table.Column>
               <Table.Column id="latency">{t("logs.colLatency")}</Table.Column>
@@ -333,7 +331,7 @@ export default function Logs() {
               </div>
             )}>
               {loading ? () => (
-                <Table.Row id="loading"><Table.Cell colSpan={7}><div className="p-10 flex justify-center"><Spinner /></div></Table.Cell></Table.Row>
+                <Table.Row id="loading"><Table.Cell colSpan={8}><div className="p-10 flex justify-center"><Spinner /></div></Table.Cell></Table.Row>
               ) : renderRow}
             </Table.Body>
           </Table.Content>

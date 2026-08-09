@@ -351,7 +351,6 @@
     "colRecord": "Запись",
     "colTimestamp": "Время",
     "colProvider": "Провайдер",
-    "colTokens": "Токены",
     "colCost": "Стоимость",
     "colStatus": "Статус",
     "colLatency": "Задержка",

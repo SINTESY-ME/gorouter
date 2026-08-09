@@ -351,7 +351,6 @@
     "colRecord": "Catatan",
     "colTimestamp": "Waktu",
     "colProvider": "Penyedia",
-    "colTokens": "Token",
     "colCost": "Biaya",
     "colStatus": "Status",
     "colLatency": "Latensi",

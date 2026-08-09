@@ -351,7 +351,6 @@
     "colRecord": "레코드",
     "colTimestamp": "타임스탬프",
     "colProvider": "프로바이더",
-    "colTokens": "Token",
     "colCost": "비용",
     "colStatus": "상태",
     "colLatency": "지연 시간",

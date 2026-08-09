@@ -351,7 +351,6 @@
     "colRecord": "Registro",
     "colTimestamp": "Marca de tiempo",
     "colProvider": "Proveedor",
-    "colTokens": "Tokens",
     "colCost": "Costo",
     "colStatus": "Estado",
     "colLatency": "Latencia",

@@ -351,7 +351,6 @@
     "colRecord": "Post",
     "colTimestamp": "Tidsstempel",
     "colProvider": "Leverandør",
-    "colTokens": "Tokens",
     "colCost": "Kostnad",
     "colStatus": "Status",
     "colLatency": "Latens",

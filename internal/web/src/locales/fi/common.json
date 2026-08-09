@@ -351,7 +351,6 @@
     "colRecord": "Tietue",
     "colTimestamp": "Aikaleima",
     "colProvider": "Tarjoaja",
-    "colTokens": "Tokenit",
     "colCost": "Kustannus",
     "colStatus": "Tila",
     "colLatency": "Latenssi",

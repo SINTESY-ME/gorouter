@@ -351,7 +351,6 @@
     "colRecord": "Enregistrement",
     "colTimestamp": "Horodatage",
     "colProvider": "Fournisseur",
-    "colTokens": "Tokens",
     "colCost": "Coût",
     "colStatus": "Statut",
     "colLatency": "Latence",

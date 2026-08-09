@@ -351,7 +351,6 @@
     "colRecord": "Rekord",
     "colTimestamp": "Znacznik czasu",
     "colProvider": "Dostawca",
-    "colTokens": "Tokeny",
     "colCost": "Koszt",
     "colStatus": "Status",
     "colLatency": "Opóźnienie",
