@@ -167,17 +167,68 @@ func TestResponsesToOpenAIResponseJSON(t *testing.T) {
 	if msg["content"] != "hello from responses" {
 		t.Errorf("content: got %v want 'hello from responses'", msg["content"])
 	}
+	if choice["finish_reason"] != "stop" {
+		t.Errorf("finish_reason: got %v want stop", choice["finish_reason"])
+	}
 	usage := r["usage"].(map[string]any)
 	if usage["prompt_tokens"].(float64) != 3 {
 		t.Errorf("prompt_tokens: got %v want 3", usage["prompt_tokens"])
 	}
 }
 
+// TestResponsesToOpenAIResponseJSON_IncompleteMaxTokens mirrors the real
+// empty-completion case: a Responses API model that exhausts
+// max_output_tokens while reasoning returns only reasoning output with
+// incomplete_details.reason = max_output_tokens. The translator must surface
+// finish_reason "length" (instead of the hardcoded "stop") so the router can
+// fall back rather than serve the empty 200 to the client — litellm's
+// Responses handling raises from this exact condition.
+func TestResponsesToOpenAIResponseJSON_IncompleteMaxTokens(t *testing.T) {
+	body := `{"id":"resp_1","object":"response","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"reasoning","id":"rs_x","summary":[{"type":"summary_text","text":"thinking hard"}]}],"usage":{"input_tokens":3,"output_tokens":2048,"total_tokens":2051}}`
+	out, err := translateResponsesToOpenAIResponseJSON([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r map[string]any
+	if err := json.Unmarshal(out, &r); err != nil {
+		t.Fatal(err)
+	}
+	choices := r["choices"].([]any)
+	choice := choices[0].(map[string]any)
+	msg := choice["message"].(map[string]any)
+	if msg["content"] != "" {
+		t.Errorf("content: got %v want ''", msg["content"])
+	}
+	if choice["finish_reason"] != "length" {
+		t.Errorf("finish_reason: got %v want length", choice["finish_reason"])
+	}
+}
+
+// TestResponsesToOpenAIResponseJSON_EmptyOutputNoReason: an empty output
+// without incomplete_details keeps the previous safe default ("stop") so odd
+// upstreams that return empty but nominal responses are not misclassified.
+func TestResponsesToOpenAIResponseJSON_EmptyOutputNoReason(t *testing.T) {
+	body := `{"id":"resp_1","object":"response","output":[],"usage":{"input_tokens":1,"output_tokens":0,"total_tokens":1}}`
+	out, err := translateResponsesToOpenAIResponseJSON([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r map[string]any
+	if err := json.Unmarshal(out, &r); err != nil {
+		t.Fatal(err)
+	}
+	choices := r["choices"].([]any)
+	choice := choices[0].(map[string]any)
+	if choice["finish_reason"] != "stop" {
+		t.Errorf("finish_reason: got %v want stop", choice["finish_reason"])
+	}
+}
+
 func TestGeminiFinishMapping(t *testing.T) {
 	cases := map[string]string{
-		"STOP":                     "stop",
-		"MAX_TOKENS":               "length",
-		"SAFETY":                   "content_filter",
+		"STOP":                      "stop",
+		"MAX_TOKENS":                "length",
+		"SAFETY":                    "content_filter",
 		"FINISH_REASON_UNSPECIFIED": "stop",
 	}
 	for in, want := range cases {

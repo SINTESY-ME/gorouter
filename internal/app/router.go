@@ -921,6 +921,29 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 			}
 			continue
 		}
+		// Blank-completion guard (combos only): a 2xx completion that ran out
+		// of output budget ("length"/"max_tokens") with no content and no
+		// tool calls is an upstream soft-failure, not a success — the client
+		// asked for a working answer and got an empty one. Mirrors litellm's
+		// Responses API incomplete_details fallback behavior. The provider
+		// itself is healthy (the client's max_tokens is what cut it short),
+		// so no health/probe action — just try the next connection/model.
+		if opts.Endpoint == "" && !res.Stream {
+			if reason, berr := blankCompletionReason(res); reason != "" || berr != nil {
+				msg := reason
+				status := 0
+				if berr != nil {
+					msg = "read upstream response: " + berr.Error()
+				}
+				s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, status, msg, connStart, comboChain, requestID, *attempt)
+				*attempt++
+				lastUpstream = &domain.UpstreamError{Status: status, Message: msg}
+				if res.Body != nil {
+					res.Body.Close()
+				}
+				continue
+			}
+		}
 		s.Health.MarkHealthy(modelStr, conn.ID)
 		if err := s.finalizeSuccess(ctx, res, m, conn, apiKey, opts.Endpoint, comboChain, start, requestID, *attempt); err != nil {
 			return nil, err
@@ -1380,6 +1403,73 @@ func upstreamErrorMessage(res *RouterResponse) string {
 	return msg
 }
 
+// blankCompletionReason inspects a non-stream chat completion response and
+// reports when the upstream produced no usable content while exhausting its
+// output budget (finish_reason "length"/"max_tokens" with empty message
+// content and no tool calls). This mirrors litellm's Responses API handling
+// of incomplete_details.reason = max_output_tokens, which raises so the
+// router can fall back to the next model group instead of passing the empty
+// response through. The body is preserved for the caller — fully read
+// responses are rewinded, larger ones are spliced back onto the remainder —
+// and no cache entry is created for blank completions.
+func blankCompletionReason(res *RouterResponse) (string, error) {
+	const cap = 512 << 10 // 512 KiB: blank completions are tiny; larger bodies are left untouched
+	if res.Body == nil {
+		return "upstream response body is nil", nil
+	}
+	head, err := io.ReadAll(io.LimitReader(res.Body, cap))
+	if err != nil {
+		res.Body.Close()
+		return "", err
+	}
+	if len(head) == cap {
+		// Body is bigger than the inspection cap — reattach the tail so the
+		// client still receives the full response untouched.
+		res.Body = &readTailCloser{r: io.MultiReader(bytes.NewReader(head), res.Body), c: res.Body}
+		return "", nil
+	}
+	res.Body = io.NopCloser(bytes.NewReader(head))
+	var out struct {
+		Choices []struct {
+			Message struct {
+				Content   string `json:"content"`
+				ToolCalls any    `json:"tool_calls"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(head, &out); err != nil {
+		return "", nil // not a JSON completion — pass through
+	}
+	if len(out.Choices) == 0 {
+		return "upstream returned a completion with no choices", nil
+	}
+	for _, c := range out.Choices {
+		if c.Message.ToolCalls != nil {
+			return "", nil // empty content + tool calls is a valid response
+		}
+		switch c.FinishReason {
+		case "length", "max_tokens":
+			if strings.TrimSpace(c.Message.Content) == "" {
+				return fmt.Sprintf("upstream exhausted tokens (%s) with empty content", c.FinishReason), nil
+			}
+			return "", nil
+		}
+		return "", nil
+	}
+	return "", nil
+}
+
+// readTailCloser presents the head+tail of a partially-consumed body as one
+// ReadCloser, closing the underlying stream once.
+type readTailCloser struct {
+	r io.Reader
+	c io.Closer
+}
+
+func (b *readTailCloser) Read(p []byte) (int, error) { return b.r.Read(p) }
+func (b *readTailCloser) Close() error               { return b.c.Close() }
+
 // firstErr returns the first non-nil error in errs, or nil.
 func firstErr(errs ...error) error {
 	for _, e := range errs {
@@ -1406,7 +1496,8 @@ func userIDFromCtx(ctx context.Context) string {
 	return ""
 }
 
-func (s *RouterService) recordUsage(ctx context.Context, m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, status int, stream bool, buf []byte, comboChain []string, start time.Time, ttftMs int64, rtkBytes int, rtkTokens int, rtkCost float64, requestID string, attempt int) {	prompt, completion, cacheRead, cacheCreation := 0, 0, 0, 0
+func (s *RouterService) recordUsage(ctx context.Context, m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, status int, stream bool, buf []byte, comboChain []string, start time.Time, ttftMs int64, rtkBytes int, rtkTokens int, rtkCost float64, requestID string, attempt int) {
+	prompt, completion, cacheRead, cacheCreation := 0, 0, 0, 0
 	if endpoint == "" {
 		endpoint = "chat/completions"
 	}

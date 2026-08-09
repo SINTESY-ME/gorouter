@@ -29,11 +29,12 @@ type mockExecutor struct {
 	body        string
 	stream      bool
 	headers     http.Header
-	failModels  map[string]int // model -> HTTP status (overrides default)
-	failConns   map[string]int // connection ID -> HTTP status (overrides failModels)
-	failFirst   map[string]int // model -> how many initial calls return 503 before succeeding
-	called      []string       // sequence of UpstreamModel per Execute call
-	calledConns []string       // sequence of Connection.ID per non-probe Execute call
+	bodies      map[string]string // model -> response body (overrides body)
+	failModels  map[string]int    // model -> HTTP status (overrides default)
+	failConns   map[string]int    // connection ID -> HTTP status (overrides failModels)
+	failFirst   map[string]int    // model -> how many initial calls return 503 before succeeding
+	called      []string          // sequence of UpstreamModel per Execute call
+	calledConns []string          // sequence of Connection.ID per non-probe Execute call
 }
 
 func (m *mockExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) (*domain.ExecuteResult, error) {
@@ -84,6 +85,11 @@ func (m *mockExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) (
 // For non-streaming, the raw body is returned as-is.
 func (m *mockExecutor) bodyFor(req domain.ExecuteRequest) io.ReadCloser {
 	raw := []byte(m.body)
+	if m.bodies != nil {
+		if b, ok := m.bodies[req.UpstreamModel]; ok {
+			raw = []byte(b)
+		}
+	}
 	if !req.Stream {
 		return io.NopCloser(bytes.NewReader(raw))
 	}
@@ -287,6 +293,83 @@ func TestRouteSingle_NonStreaming_UsageRecorded(t *testing.T) {
 	if e.ApiKeyID != "test-key" {
 		t.Errorf("api key id: got %q want 'test-key'", e.ApiKeyID)
 	}
+}
+
+func TestRouteCombo_EmptyCompletionLength_Fallbacks(t *testing.T) {
+	exec := &mockExecutor{
+		status: 200,
+		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
+		bodies: map[string]string{
+			"gpt-4": `{"id":"1","choices":[{"message":{"content":""},"finish_reason":"length"}]}`,
+		},
+	}
+	usage := &mockUsageRepo{}
+	comboRepo := &mockComboRepo{
+		combos: map[string]*domain.Combo{
+			"cb1": {
+				ID:       "cb1",
+				Name:     "emptyfb",
+				Models:   []string{"openai/gpt-4", "anthropic/claude-3"},
+				Strategy: "ordered_fallback",
+			},
+		},
+	}
+	srv := NewRouterService(comboRepo, twoProviderConnRepo(), exec, &mockTranslator{}, usage)
+
+	body := []byte(`{"model":"emptyfb","messages":[{"role":"user","content":"hi"}]}`)
+	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.StatusCode != 200 {
+		t.Fatalf("status: got %d want 200", res.StatusCode)
+	}
+	buf, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if string(buf) != `{"id":"1","choices":[{"message":{"content":"ok"}}]}` {
+		t.Errorf("body = %s, want second model content", buf)
+	}
+	// gpt-4's blank completion counts as a soft failure; claude-3 succeeds.
+	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4", "claude-3"}) {
+		t.Fatalf("called = %v, want [gpt-4 claude-3]", got)
+	}
+	time.Sleep(50 * time.Millisecond)
+}
+
+func TestRouteCombo_AllModelsBlankCompletion_ReturnsUpstreamError(t *testing.T) {
+	exec := &mockExecutor{
+		status: 200,
+		body:   `{"id":"1","choices":[{"message":{"content":""},"finish_reason":"length"}]}`,
+	}
+	usage := &mockUsageRepo{}
+	comboRepo := &mockComboRepo{
+		combos: map[string]*domain.Combo{
+			"cb1": {
+				ID:       "cb1",
+				Name:     "allblank",
+				Models:   []string{"openai/gpt-4", "anthropic/claude-3"},
+				Strategy: "ordered_fallback",
+			},
+		},
+	}
+	srv := NewRouterService(comboRepo, twoProviderConnRepo(), exec, &mockTranslator{}, usage)
+
+	body := []byte(`{"model":"allblank","messages":[{"role":"user","content":"hi"}]}`)
+	_, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
+	var ue *domain.UpstreamError
+	if !errors.As(err, &ue) {
+		t.Fatalf("err = %v; want *domain.UpstreamError", err)
+	}
+	if ue.Status != 0 {
+		t.Fatalf("UpstreamError.Status = %d, want 0", ue.Status)
+	}
+	if !strings.Contains(ue.Message, "exhausted tokens") {
+		t.Errorf("UpstreamError.Message = %q, want mention of exhausted tokens", ue.Message)
+	}
+	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4", "claude-3"}) {
+		t.Fatalf("called = %v, want [gpt-4 claude-3]", got)
+	}
+	time.Sleep(50 * time.Millisecond)
 }
 
 func TestRouteCombo_OrderedFallback(t *testing.T) {

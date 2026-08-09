@@ -75,6 +75,9 @@ func translateResponsesToOpenAIResponseJSON(body []byte) ([]byte, error) {
 				Text string `json:"text"`
 			} `json:"content"`
 		} `json:"output"`
+		IncompleteDetails *struct {
+			Reason string `json:"reason"`
+		} `json:"incomplete_details"`
 		Usage struct {
 			InputTokens  int `json:"input_tokens"`
 			OutputTokens int `json:"output_tokens"`
@@ -85,14 +88,26 @@ func translateResponsesToOpenAIResponseJSON(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("responses->openai response: parse: %w", err)
 	}
 	var text string
+	hasMessage := false
 	for _, item := range in.Output {
 		if item.Type == "message" {
+			hasMessage = true
 			for _, c := range item.Content {
 				if c.Type == "output_text" {
 					text += c.Text
 				}
 			}
 		}
+	}
+	// Mirror litellm's Responses handling: a response that hit its token
+	// budget while reasoning comes back with no message output at all
+	// (incomplete_details.reason = max_output_tokens). litellm raises from
+	// this so the router can fall back; we surface the reason as
+	// finish_reason "length" so the router's blank-completion detection
+	// triggers the same fallback instead of passing an empty 200 through.
+	finishReason := "stop"
+	if !hasMessage && in.IncompleteDetails != nil && in.IncompleteDetails.Reason != "" {
+		finishReason = "length"
 	}
 	out := map[string]any{
 		"id":     in.ID,
@@ -101,7 +116,7 @@ func translateResponsesToOpenAIResponseJSON(body []byte) ([]byte, error) {
 		"choices": []map[string]any{{
 			"index":         0,
 			"message":       map[string]any{"role": "assistant", "content": text},
-			"finish_reason": "stop",
+			"finish_reason": finishReason,
 		}},
 		"usage": map[string]any{
 			"prompt_tokens":     in.Usage.InputTokens,
@@ -127,6 +142,7 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 	first := true
 	id := ""
 	model := ""
+	emittedContent := false
 	var promptTokens, completionTokens int
 	for {
 		select {
@@ -163,13 +179,22 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 			id = resp.ID
 			model = resp.Model
 		case "response.output_text.delta":
-			chunk := openAIStreamChunk(id, model, ev.Delta, first, nil)
+			chunk := openAIStreamChunk(id, model, ev.Delta, first, nil, "")
 			first = false
+			emittedContent = true
 			if _, err := w.Write([]byte("data: " + chunk + "\n\n")); err != nil {
 				return err
 			}
-		case "response.completed":
+		case "response.incomplete", "response.completed":
+			// Surface the final state: a stream that finished via
+			// incomplete_details (max_output_tokens exhausted while
+			// reasoning) emits no output_text deltas — tell the client it
+			// ran out of budget (finish_reason "length") instead of
+			// silently ending with an empty reply.
 			var resp struct {
+				IncompleteDetails *struct {
+					Reason string `json:"reason"`
+				} `json:"incomplete_details"`
 				Usage struct {
 					InputTokens  int `json:"input_tokens"`
 					OutputTokens int `json:"output_tokens"`
@@ -183,7 +208,11 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 				"completion_tokens": completionTokens,
 				"total_tokens":      promptTokens + completionTokens,
 			}
-			chunk := openAIStreamChunk(id, model, "", first, usage)
+			finish := ""
+			if ev.Type == "response.incomplete" && resp.IncompleteDetails != nil && resp.IncompleteDetails.Reason != "" && !emittedContent {
+				finish = "length"
+			}
+			chunk := openAIStreamChunk(id, model, "", first, usage, finish)
 			if _, err := w.Write([]byte("data: " + chunk + "\n\n")); err != nil {
 				return err
 			}
@@ -273,8 +302,8 @@ func parseResponsesInput(raw json.RawMessage) ([]openaiMessage, error) {
 		Role    string          `json:"role"`
 		Content json.RawMessage `json:"content"`
 		// function_call fields
-		CallID   string `json:"call_id"`
-		Name     string `json:"name"`
+		CallID    string `json:"call_id"`
+		Name      string `json:"name"`
 		Arguments string `json:"arguments"`
 		// function_call_output fields
 		Output json.RawMessage `json:"output"`
@@ -299,8 +328,8 @@ func parseResponsesInput(raw json.RawMessage) ([]openaiMessage, error) {
 			})
 		case "function_call_output":
 			out = append(out, openaiMessage{
-				Role:      "tool",
-				Content:   m.Output,
+				Role:       "tool",
+				Content:    m.Output,
 				ToolCallID: m.CallID,
 			})
 		default:
@@ -451,8 +480,8 @@ func (r *reasoningItem) close(w io.Writer, idx int) error {
 		"type":         "response.output_item.done",
 		"output_index": idx,
 		"item": map[string]any{
-			"id":   r.itemID,
-			"type": "reasoning",
+			"id":      r.itemID,
+			"type":    "reasoning",
 			"summary": []map[string]any{{"type": "summary_text", "text": r.buf.String()}},
 		},
 	})

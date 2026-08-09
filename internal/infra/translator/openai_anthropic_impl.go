@@ -20,7 +20,7 @@ func translateAnthropicToOpenAIRequestImpl(upstreamModel string, body []byte) ([
 		Messages    []anthropicMessage `json:"messages"`
 		MaxTokens   int                `json:"max_tokens"`
 		Temperature *float64           `json:"temperature,omitempty"`
-		TopP        *float64            `json:"top_p,omitempty"`
+		TopP        *float64           `json:"top_p,omitempty"`
 		Stop        []string           `json:"stop_sequences,omitempty"`
 		Stream      bool               `json:"stream"`
 	}
@@ -75,7 +75,7 @@ func translateAnthropicToOpenAIResponseJSONImpl(body []byte) ([]byte, error) {
 			Text string `json:"text"`
 		} `json:"content"`
 		StopReason string `json:"stop_reason"`
-		Usage struct {
+		Usage      struct {
 			InputTokens  int `json:"input_tokens"`
 			OutputTokens int `json:"output_tokens"`
 		} `json:"usage"`
@@ -90,9 +90,9 @@ func translateAnthropicToOpenAIResponseJSONImpl(body []byte) ([]byte, error) {
 		}
 	}
 	out := map[string]any{
-		"id":      in.ID,
-		"object":  "chat.completion",
-		"model":   in.Model,
+		"id":     in.ID,
+		"object": "chat.completion",
+		"model":  in.Model,
 		"choices": []map[string]any{{
 			"index":         0,
 			"message":       map[string]any{"role": "assistant", "content": text.String()},
@@ -101,7 +101,7 @@ func translateAnthropicToOpenAIResponseJSONImpl(body []byte) ([]byte, error) {
 		"usage": map[string]any{
 			"prompt_tokens":     in.Usage.InputTokens,
 			"completion_tokens": in.Usage.OutputTokens,
-			"total_tokens":       in.Usage.InputTokens + in.Usage.OutputTokens,
+			"total_tokens":      in.Usage.InputTokens + in.Usage.OutputTokens,
 		},
 	}
 	return json.Marshal(out)
@@ -137,11 +137,11 @@ func translateOpenAIToAnthropicResponseJSONImpl(body []byte) ([]byte, error) {
 	}
 	stop := openAIToAnthropicStop(firstOr(in.Choices, "finish_reason"))
 	out := map[string]any{
-		"id":      in.ID,
-		"type":    "message",
-		"role":    "assistant",
-		"model":   in.Model,
-		"content": textContent,
+		"id":          in.ID,
+		"type":        "message",
+		"role":        "assistant",
+		"model":       in.Model,
+		"content":     textContent,
 		"stop_reason": stop,
 		"usage": map[string]any{
 			"input_tokens":  in.Usage.PromptTokens,
@@ -234,7 +234,7 @@ func streamAnthropicToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer,
 			if d.Type != "text_delta" {
 				continue
 			}
-			chunk := openAIStreamChunk(*id, *model, d.Text, first, nil)
+			chunk := openAIStreamChunk(*id, *model, d.Text, first, nil, "")
 			first = false
 			if _, err := w.Write([]byte("data: " + chunk + "\n\n")); err != nil {
 				return err
@@ -253,7 +253,7 @@ func streamAnthropicToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer,
 				"completion_tokens": completionTokens,
 				"total_tokens":      promptTokens + completionTokens,
 			}
-			chunk := openAIStreamChunk(*id, *model, "", first, usage)
+			chunk := openAIStreamChunk(*id, *model, "", first, usage, "")
 			if _, err := w.Write([]byte("data: " + chunk + "\n\n")); err != nil {
 				return err
 			}
@@ -261,7 +261,7 @@ func streamAnthropicToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer,
 	}
 }
 
-func openAIStreamChunk(id, model, content string, includeRole bool, usage map[string]any) string {
+func openAIStreamChunk(id, model, content string, includeRole bool, usage map[string]any, finishReason string) string {
 	choices := []map[string]any{{
 		"index":         0,
 		"delta":         map[string]any{"content": content},
@@ -269,6 +269,9 @@ func openAIStreamChunk(id, model, content string, includeRole bool, usage map[st
 	}}
 	if includeRole {
 		choices[0]["delta"] = map[string]any{"role": "assistant", "content": content}
+	}
+	if finishReason != "" {
+		choices[0]["finish_reason"] = finishReason
 	}
 	out := map[string]any{
 		"id":      id,
