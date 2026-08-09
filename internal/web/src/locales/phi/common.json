@@ -361,7 +361,9 @@
     "err": "err",
     "emptyFiltered": "Walang nahanap na record.",
     "empty": "Wala pang logs.",
-    "pagination": "{{start}} hanggang {{end}} ng {{total}}"
+    "pagination": "{{start}} hanggang {{end}} ng {{total}}",
+    "tokensIn": "input",
+    "tokensOut": "output"
   },
   "playground": {
     "suggestionRecursion": "Ipaliwanag kung paano gumagana ang recursion sa programming",

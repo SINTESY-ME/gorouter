@@ -361,7 +361,9 @@
     "err": "خطا",
     "emptyFiltered": "رکوردی یافت نشد.",
     "empty": "هنوز لاگی نیست.",
-    "pagination": "{{start}} تا {{end}} از {{total}}"
+    "pagination": "{{start}} تا {{end}} از {{total}}",
+    "tokensIn": "ورودی",
+    "tokensOut": "خروجی"
   },
   "playground": {
     "suggestionRecursion": "توضیح دهید بازگشت چگونه در برنامه‌نویسی کار می‌کند",

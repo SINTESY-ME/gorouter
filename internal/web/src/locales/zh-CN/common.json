@@ -361,7 +361,9 @@
     "err": "err",
     "emptyFiltered": "未找到记录。",
     "empty": "还没有日志。",
-    "pagination": "共 {{total}} 条，第 {{start}} 到 {{end}} 条"
+    "pagination": "共 {{total}} 条，第 {{start}} 到 {{end}} 条",
+    "tokensIn": "输入",
+    "tokensOut": "输出"
   },
   "playground": {
     "suggestionRecursion": "解释编程中递归的工作原理",

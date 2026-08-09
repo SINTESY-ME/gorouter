@@ -408,7 +408,7 @@ func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body 
 			connStart := time.Now()
 			res, err := s.executeOneWithRetry(ctx, m, conn, body, stream, opts, ct, phaseHealthy)
 			if err != nil {
-				s.recordFailedUsage(m, conn, apiKey, endpoint, 0, err.Error(), connStart, nil, requestID, *attempt)
+				s.recordFailedUsage(m, conn, apiKey, endpoint, 0, err.Error(), connStart, nil, requestID, *attempt, 0, 0)
 				*attempt++
 				s.Health.MarkUnhealthy(modelStr, conn.ID)
 				s.maybeProbe(modelStr, m, conn.ID)
@@ -419,7 +419,7 @@ func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body 
 				if message == "" {
 					message = fmt.Sprintf("upstream %d", res.StatusCode)
 				}
-				s.recordFailedUsage(m, conn, apiKey, endpoint, res.StatusCode, message, connStart, nil, requestID, *attempt)
+				s.recordFailedUsage(m, conn, apiKey, endpoint, res.StatusCode, message, connStart, nil, requestID, *attempt, 0, 0)
 				if !domain.ShouldFallback(res.StatusCode, nil) {
 					return res, nil
 				}
@@ -687,14 +687,14 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 			res, err := s.routeCombo(ctx, nested, body, stream, apiKey, opts, endpoint, depth+1, nestedChain, requestID, attempt, ct)
 			if err != nil {
 				slog.Warn("combo fallback: nested combo failed, trying next", "parent_combo", combo.Name, "failed_combo", modelStr, "err", err)
-				s.recordFailedUsage(domain.ModelID{}, nil, apiKey, endpoint, 0, err.Error(), nestedStart, nestedChain, requestID, *attempt)
+				s.recordFailedUsage(domain.ModelID{}, nil, apiKey, endpoint, 0, err.Error(), nestedStart, nestedChain, requestID, *attempt, 0, 0)
 				*attempt++
 				lastErr = keepLastError(lastErr, err)
 				continue
 			}
 			if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
 				slog.Warn("combo fallback: nested combo returned error status, trying next", "parent_combo", combo.Name, "failed_combo", modelStr, "status", res.StatusCode)
-				s.recordFailedUsage(domain.ModelID{}, nil, apiKey, endpoint, res.StatusCode, fmt.Sprintf("upstream %d", res.StatusCode), nestedStart, nestedChain, requestID, *attempt)
+				s.recordFailedUsage(domain.ModelID{}, nil, apiKey, endpoint, res.StatusCode, fmt.Sprintf("upstream %d", res.StatusCode), nestedStart, nestedChain, requestID, *attempt, 0, 0)
 				*attempt++
 				lastErr = fmt.Errorf("upstream %d", res.StatusCode)
 				if res.Body != nil {
@@ -894,7 +894,7 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 		connStart := time.Now()
 		res, err := s.executeOneWithRetry(ctx, m, conn, body, stream, opts, ct, phaseHealthy)
 		if err != nil {
-			s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, 0, err.Error(), connStart, comboChain, requestID, *attempt)
+			s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, 0, err.Error(), connStart, comboChain, requestID, *attempt, 0, 0)
 			*attempt++
 			s.Health.MarkUnhealthy(modelStr, conn.ID)
 			s.maybeProbe(modelStr, m, conn.ID)
@@ -906,10 +906,10 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 				message = fmt.Sprintf("upstream %d", res.StatusCode)
 			}
 			if !domain.ShouldFallback(res.StatusCode, nil) {
-				s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, res.StatusCode, message, connStart, comboChain, requestID, *attempt)
+				s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, res.StatusCode, message, connStart, comboChain, requestID, *attempt, 0, 0)
 				return res, nil
 			}
-			s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, res.StatusCode, message, connStart, comboChain, requestID, *attempt)
+			s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, res.StatusCode, message, connStart, comboChain, requestID, *attempt, 0, 0)
 			*attempt++
 			s.Health.MarkUnhealthy(modelStr, conn.ID)
 			s.markRateLimited(ctx, conn, res)
@@ -929,13 +929,13 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 		// itself is healthy (the client's max_tokens is what cut it short),
 		// so no health/probe action — just try the next connection/model.
 		if opts.Endpoint == "" && !res.Stream {
-			if reason, berr := blankCompletionReason(res); reason != "" || berr != nil {
+			if reason, prompt, completion, berr := blankCompletionReason(res); reason != "" || berr != nil {
 				msg := reason
 				status := 0
 				if berr != nil {
 					msg = "read upstream response: " + berr.Error()
 				}
-				s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, status, msg, connStart, comboChain, requestID, *attempt)
+				s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, status, msg, connStart, comboChain, requestID, *attempt, prompt, completion)
 				*attempt++
 				lastUpstream = &domain.UpstreamError{Status: status, Message: msg}
 				if res.Body != nil {
@@ -1412,21 +1412,32 @@ func upstreamErrorMessage(res *RouterResponse) string {
 // response through. The body is preserved for the caller — fully read
 // responses are rewinded, larger ones are spliced back onto the remainder —
 // and no cache entry is created for blank completions.
-func blankCompletionReason(res *RouterResponse) (string, error) {
+// blankCompletionReason inspects a non-stream chat completion response and
+// reports when the upstream produced no usable content while exhausting its
+// output budget (finish_reason "length"/"max_tokens" with empty message
+// content and no tool calls). This mirrors litellm's Responses API handling
+// of incomplete_details.reason = max_output_tokens, which raises so the
+// router can fall back to the next model group instead of passing the empty
+// response through. The body is preserved for the caller — fully read
+// responses are rewinded, larger ones are spliced back onto the remainder —
+// and no cache entry is created for blank completions. When a blank
+// completion is detected, the tokens the upstream actually consumed are
+// returned so the failure is still accounted for.
+func blankCompletionReason(res *RouterResponse) (reason string, prompt, completion int, err error) {
 	const cap = 512 << 10 // 512 KiB: blank completions are tiny; larger bodies are left untouched
 	if res.Body == nil {
-		return "upstream response body is nil", nil
+		return "upstream response body is nil", 0, 0, nil
 	}
-	head, err := io.ReadAll(io.LimitReader(res.Body, cap))
-	if err != nil {
+	head, readErr := io.ReadAll(io.LimitReader(res.Body, cap))
+	if readErr != nil {
 		res.Body.Close()
-		return "", err
+		return "", 0, 0, readErr
 	}
 	if len(head) == cap {
 		// Body is bigger than the inspection cap — reattach the tail so the
 		// client still receives the full response untouched.
 		res.Body = &readTailCloser{r: io.MultiReader(bytes.NewReader(head), res.Body), c: res.Body}
-		return "", nil
+		return "", 0, 0, nil
 	}
 	res.Body = io.NopCloser(bytes.NewReader(head))
 	var out struct {
@@ -1439,25 +1450,22 @@ func blankCompletionReason(res *RouterResponse) (string, error) {
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(head, &out); err != nil {
-		return "", nil // not a JSON completion — pass through
-	}
-	if len(out.Choices) == 0 {
-		return "upstream returned a completion with no choices", nil
+		return "", 0, 0, nil // not a JSON completion — pass through
 	}
 	for _, c := range out.Choices {
 		if c.Message.ToolCalls != nil {
-			return "", nil // empty content + tool calls is a valid response
+			return "", 0, 0, nil // empty content + tool calls is a valid response
 		}
-		switch c.FinishReason {
-		case "length", "max_tokens":
+		if c.FinishReason == "length" || c.FinishReason == "max_tokens" {
 			if strings.TrimSpace(c.Message.Content) == "" {
-				return fmt.Sprintf("upstream exhausted tokens (%s) with empty content", c.FinishReason), nil
+				prompt, completion = parseUsageFromJSON(head)
+				return fmt.Sprintf("upstream exhausted tokens (%s) with empty content", c.FinishReason), prompt, completion, nil
 			}
-			return "", nil
+			return "", 0, 0, nil
 		}
-		return "", nil
+		return "", 0, 0, nil
 	}
-	return "", nil
+	return "upstream returned a completion with no choices", 0, 0, nil
 }
 
 // readTailCloser presents the head+tail of a partially-consumed body as one
@@ -1650,7 +1658,7 @@ func (s *RouterService) checkComboCache(ctx context.Context, body []byte, strat 
 	return nil, false
 }
 
-func (s *RouterService) recordFailedUsage(m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, status int, errMsg string, start time.Time, comboChain []string, requestID string, attempt int) {
+func (s *RouterService) recordFailedUsage(m domain.ModelID, conn *domain.Connection, apiKey string, endpoint string, status int, errMsg string, start time.Time, comboChain []string, requestID string, attempt int, promptTokens, completionTokens int) {
 	if endpoint == "" {
 		endpoint = "chat/completions"
 	}
@@ -1658,19 +1666,28 @@ func (s *RouterService) recordFailedUsage(m domain.ModelID, conn *domain.Connect
 	if conn != nil {
 		connID = conn.ID
 	}
+	var cost float64
+	if s.Pricing != nil {
+		if pricing, ok := s.Pricing.Get(m); ok {
+			cost = CalculateCost(pricing, endpoint, promptTokens, completionTokens, 0, 0)
+		}
+	}
 	entry := domain.UsageEntry{
-		Timestamp:    time.Now(),
-		Provider:     m.Provider,
-		Model:        m.Model,
-		ConnectionID: connID,
-		ApiKeyID:     apiKey,
-		Endpoint:     endpoint,
-		LatencyMs:    time.Since(start).Milliseconds(),
-		Status:       status,
-		Error:        errMsg,
-		ComboChain:   comboChain,
-		RequestID:    requestID,
-		Attempt:      attempt,
+		Timestamp:        time.Now(),
+		Provider:         m.Provider,
+		Model:            m.Model,
+		ConnectionID:     connID,
+		ApiKeyID:         apiKey,
+		Endpoint:         endpoint,
+		LatencyMs:        time.Since(start).Milliseconds(),
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		Cost:             cost,
+		Status:           status,
+		Error:            errMsg,
+		ComboChain:       comboChain,
+		RequestID:        requestID,
+		Attempt:          attempt,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

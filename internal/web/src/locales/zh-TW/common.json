@@ -361,7 +361,9 @@
     "err": "err",
     "emptyFiltered": "找不到任何紀錄。",
     "empty": "尚無紀錄。",
-    "pagination": "{{start}} 至 {{end}}，共 {{total}}"
+    "pagination": "{{start}} 至 {{end}}，共 {{total}}",
+    "tokensIn": "輸入",
+    "tokensOut": "輸出"
   },
   "playground": {
     "suggestionRecursion": "說明程式設計中的遞迴是如何運作的",

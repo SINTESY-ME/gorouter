@@ -361,7 +361,9 @@
     "err": "błąd",
     "emptyFiltered": "Nie znaleziono rekordów.",
     "empty": "Brak logów.",
-    "pagination": "od {{start}} do {{end}} z {{total}}"
+    "pagination": "od {{start}} do {{end}} z {{total}}",
+    "tokensIn": "wejście",
+    "tokensOut": "wyjście"
   },
   "playground": {
     "suggestionRecursion": "Wyjaśnij, jak działa rekurencja w programowaniu",

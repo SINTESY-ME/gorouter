@@ -361,7 +361,9 @@
     "err": "hata",
     "emptyFiltered": "Kayıt bulunamadı.",
     "empty": "Henüz günlük yok.",
-    "pagination": "{{total}} kayıttan {{start}} ile {{end}} arası"
+    "pagination": "{{total}} kayıttan {{start}} ile {{end}} arası",
+    "tokensIn": "girdi",
+    "tokensOut": "çıktı"
   },
   "playground": {
     "suggestionRecursion": "Programlamada özyinelemenin nasıl çalıştığını açıkla",

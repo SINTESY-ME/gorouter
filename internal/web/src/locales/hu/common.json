@@ -361,7 +361,9 @@
     "err": "hiba",
     "emptyFiltered": "Nem találhatók rekordok.",
     "empty": "Még nincsenek naplók.",
-    "pagination": "{{start}} – {{end}} / {{total}}"
+    "pagination": "{{start}} – {{end}} / {{total}}",
+    "tokensIn": "bemenet",
+    "tokensOut": "kimenet"
   },
   "playground": {
     "suggestionRecursion": "Magyarázd el, hogyan működik a rekurzió a programozásban",

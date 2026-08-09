@@ -361,7 +361,9 @@
     "err": "त्रुटि",
     "emptyFiltered": "कोई रिकॉर्ड नहीं मिला।",
     "empty": "अभी कोई लॉग नहीं।",
-    "pagination": "{{start}} से {{end}}, कुल {{total}}"
+    "pagination": "{{start}} से {{end}}, कुल {{total}}",
+    "tokensIn": "इनपुट",
+    "tokensOut": "आउटपुट"
   },
   "playground": {
     "suggestionRecursion": "प्रोग्रामिंग में रिकर्सन कैसे काम करता है समझाएँ",

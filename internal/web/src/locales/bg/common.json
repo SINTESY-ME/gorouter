@@ -361,7 +361,9 @@
     "err": "грешка",
     "emptyFiltered": "Няма намерени записи.",
     "empty": "Все още няма логове.",
-    "pagination": "{{start}} до {{end}} от {{total}}"
+    "pagination": "{{start}} до {{end}} от {{total}}",
+    "tokensIn": "вход",
+    "tokensOut": "изход"
   },
   "playground": {
     "suggestionRecursion": "Обясни как работи рекурсията в програмирането",

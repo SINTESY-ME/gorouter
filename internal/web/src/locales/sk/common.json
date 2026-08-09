@@ -361,7 +361,9 @@
     "err": "chyba",
     "emptyFiltered": "Nenašli sa žiadne záznamy.",
     "empty": "Zatiaľ žiadne protokoly.",
-    "pagination": "{{start}} až {{end}} z {{total}}"
+    "pagination": "{{start}} až {{end}} z {{total}}",
+    "tokensIn": "vstup",
+    "tokensOut": "výstup"
   },
   "playground": {
     "suggestionRecursion": "Vysvetli, ako funguje rekurzia v programovaní",

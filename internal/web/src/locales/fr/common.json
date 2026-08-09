@@ -361,7 +361,9 @@
     "err": "erreur",
     "emptyFiltered": "Aucun enregistrement trouvé.",
     "empty": "Pas encore de journaux.",
-    "pagination": "{{start}} à {{end}} sur {{total}}"
+    "pagination": "{{start}} à {{end}} sur {{total}}",
+    "tokensIn": "entrée",
+    "tokensOut": "sortie"
   },
   "playground": {
     "suggestionRecursion": "Expliquez comment fonctionne la récursivité en programmation",

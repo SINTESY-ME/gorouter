@@ -361,7 +361,9 @@
     "err": "err",
     "emptyFiltered": "Không tìm thấy bản ghi nào.",
     "empty": "Chưa có nhật ký nào.",
-    "pagination": "{{start}} đến {{end}} trong {{total}}"
+    "pagination": "{{start}} đến {{end}} trong {{total}}",
+    "tokensIn": "đầu vào",
+    "tokensOut": "đầu ra"
   },
   "playground": {
     "suggestionRecursion": "Giải thích cách đệ quy hoạt động trong lập trình",

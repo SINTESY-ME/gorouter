@@ -361,7 +361,9 @@
     "err": "fout",
     "emptyFiltered": "Geen records gevonden.",
     "empty": "Nog geen logs.",
-    "pagination": "{{start}} tot {{end}} van {{total}}"
+    "pagination": "{{start}} tot {{end}} van {{total}}",
+    "tokensIn": "invoer",
+    "tokensOut": "uitvoer"
   },
   "playground": {
     "suggestionRecursion": "Leg uit hoe recursie werkt in programmeren",

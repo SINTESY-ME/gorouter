@@ -361,7 +361,9 @@
     "err": "ralat",
     "emptyFiltered": "Tiada rekod ditemui.",
     "empty": "Belum ada log.",
-    "pagination": "{{start}} hingga {{end}} daripada {{total}}"
+    "pagination": "{{start}} hingga {{end}} daripada {{total}}",
+    "tokensIn": "input",
+    "tokensOut": "output"
   },
   "playground": {
     "suggestionRecursion": "Terangkan cara rekursi berfungsi dalam pengaturcaraan",

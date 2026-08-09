@@ -361,7 +361,9 @@
     "err": "ભૂલ",
     "emptyFiltered": "કોઈ રેકોર્ડ મળ્યો નહીં.",
     "empty": "હજી કોઈ લોગ નથી.",
-    "pagination": "{{start}} થી {{end}}, કુલ {{total}}"
+    "pagination": "{{start}} થી {{end}}, કુલ {{total}}",
+    "tokensIn": "ઇનપુટ",
+    "tokensOut": "આઉટપુટ"
   },
   "playground": {
     "suggestionRecursion": "સમજાવો કે પ્રોગ્રામિંગમાં રિકર્શન કેવી રીતે કામ કરે છે",

@@ -361,7 +361,9 @@
     "err": "помилка",
     "emptyFiltered": "Записів не знайдено.",
     "empty": "Журналів ще немає.",
-    "pagination": "{{start}}–{{end}} із {{total}}"
+    "pagination": "{{start}}–{{end}} із {{total}}",
+    "tokensIn": "вхід",
+    "tokensOut": "вихід"
   },
   "playground": {
     "suggestionRecursion": "Поясни, як працює рекурсія в програмуванні",

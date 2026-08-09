@@ -361,7 +361,9 @@
     "err": "err",
     "emptyFiltered": "レコードが見つかりません。",
     "empty": "ログはまだありません。",
-    "pagination": "{{start}} から {{end}} / 全 {{total}} 件"
+    "pagination": "{{start}} から {{end}} / 全 {{total}} 件",
+    "tokensIn": "入力",
+    "tokensOut": "出力"
   },
   "playground": {
     "suggestionRecursion": "プログラミングにおける再帰の仕組みを説明してください",

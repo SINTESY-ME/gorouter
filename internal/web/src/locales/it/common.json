@@ -361,7 +361,9 @@
     "err": "err",
     "emptyFiltered": "Nessun record trovato.",
     "empty": "Nessun log.",
-    "pagination": "{{start}} a {{end}} di {{total}}"
+    "pagination": "{{start}} a {{end}} di {{total}}",
+    "tokensIn": "input",
+    "tokensOut": "output"
   },
   "playground": {
     "suggestionRecursion": "Spiega come funziona la ricorsione nella programmazione",

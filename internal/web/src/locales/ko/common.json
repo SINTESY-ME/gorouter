@@ -361,7 +361,9 @@
     "err": "err",
     "emptyFiltered": "레코드를 찾을 수 없습니다.",
     "empty": "아직 로그가 없습니다.",
-    "pagination": "전체 {{total}}개 중 {{start}}~{{end}}"
+    "pagination": "전체 {{total}}개 중 {{start}}~{{end}}",
+    "tokensIn": "입력",
+    "tokensOut": "출력"
   },
   "playground": {
     "suggestionRecursion": "프로그래밍에서 재귀가 어떻게 동작하는지 설명해 주세요",

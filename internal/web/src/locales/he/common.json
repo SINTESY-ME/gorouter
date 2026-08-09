@@ -361,7 +361,9 @@
     "err": "שגיאה",
     "emptyFiltered": "לא נמצאו רשומות.",
     "empty": "אין עדיין יומנים.",
-    "pagination": "{{start}} עד {{end}} מתוך {{total}}"
+    "pagination": "{{start}} עד {{end}} מתוך {{total}}",
+    "tokensIn": "קלט",
+    "tokensOut": "פלט"
   },
   "playground": {
     "suggestionRecursion": "הסבר איך פועלת רקורסיה בתכנות",

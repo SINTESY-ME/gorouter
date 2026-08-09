@@ -361,7 +361,9 @@
     "err": "err",
     "emptyFiltered": "Записей не найдено.",
     "empty": "Журналов пока нет.",
-    "pagination": "{{start}}–{{end}} из {{total}}"
+    "pagination": "{{start}}–{{end}} из {{total}}",
+    "tokensIn": "вход",
+    "tokensOut": "выход"
   },
   "playground": {
     "suggestionRecursion": "Объясни, как работает рекурсия в программировании",

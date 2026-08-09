@@ -361,7 +361,9 @@
     "err": "خرابی",
     "emptyFiltered": "کوئی ریکارڈ نہیں ملا۔",
     "empty": "ابھی کوئی لاگ نہیں۔",
-    "pagination": "{{total}} میں سے {{start}} سے {{end}}"
+    "pagination": "{{total}} میں سے {{start}} سے {{end}}",
+    "tokensIn": "ان پٹ",
+    "tokensOut": "آؤٹ پٹ"
   },
   "playground": {
     "suggestionRecursion": "وضاحت کریں کہ پروگرامنگ میں ریکرژن کیسے کام کرتا ہے",

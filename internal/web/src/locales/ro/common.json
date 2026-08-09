@@ -361,7 +361,9 @@
     "err": "err",
     "emptyFiltered": "Nu s-au găsit înregistrări.",
     "empty": "Încă niciun jurnal.",
-    "pagination": "{{start}} până la {{end}} din {{total}}"
+    "pagination": "{{start}} până la {{end}} din {{total}}",
+    "tokensIn": "intrare",
+    "tokensOut": "ieșire"
   },
   "playground": {
     "suggestionRecursion": "Explică cum funcționează recursivitatea în programare",

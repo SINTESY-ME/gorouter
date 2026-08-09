@@ -361,7 +361,9 @@
     "err": "خطأ",
     "emptyFiltered": "لا توجد سجلات مطابقة.",
     "empty": "لا توجد سجلات بعد.",
-    "pagination": "{{start}} إلى {{end}} من {{total}}"
+    "pagination": "{{start}} إلى {{end}} من {{total}}",
+    "tokensIn": "المدخلات",
+    "tokensOut": "المخرجات"
   },
   "playground": {
     "suggestionRecursion": "اشرح كيف تعمل العودية في البرمجة",

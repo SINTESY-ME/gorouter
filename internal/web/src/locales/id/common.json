@@ -361,7 +361,9 @@
     "err": "galat",
     "emptyFiltered": "Tidak ada catatan ditemukan.",
     "empty": "Belum ada log.",
-    "pagination": "{{start}} hingga {{end}} dari {{total}}"
+    "pagination": "{{start}} hingga {{end}} dari {{total}}",
+    "tokensIn": "masukan",
+    "tokensOut": "keluaran"
   },
   "playground": {
     "suggestionRecursion": "Jelaskan cara kerja rekursi dalam pemrograman",

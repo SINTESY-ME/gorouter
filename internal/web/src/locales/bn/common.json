@@ -361,7 +361,9 @@
     "err": "ত্রুটি",
     "emptyFiltered": "কোনো রেকর্ড পাওয়া যায়নি।",
     "empty": "এখনও কোনো লগ নেই।",
-    "pagination": "{{start}} থেকে {{end}}, মোট {{total}}"
+    "pagination": "{{start}} থেকে {{end}}, মোট {{total}}",
+    "tokensIn": "ইনপুট",
+    "tokensOut": "আউটপুট"
   },
   "playground": {
     "suggestionRecursion": "প্রোগ্রামিংয়ে রিকার্সন কীভাবে কাজ করে তা ব্যাখ্যা করুন",

@@ -361,7 +361,9 @@
     "err": "virhe",
     "emptyFiltered": "Ei tietueita löytynyt.",
     "empty": "Ei lokia vielä.",
-    "pagination": "{{start}}–{{end}} / {{total}}"
+    "pagination": "{{start}}–{{end}} / {{total}}",
+    "tokensIn": "syöte",
+    "tokensOut": "tulos"
   },
   "playground": {
     "suggestionRecursion": "Selitä, miten rekursio toimii ohjelmoinnissa",

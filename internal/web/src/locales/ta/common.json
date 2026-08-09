@@ -361,7 +361,9 @@
     "err": "பிழை",
     "emptyFiltered": "பதிவுகள் எதுவும் இல்லை.",
     "empty": "இன்னும் பதிவுகள் இல்லை.",
-    "pagination": "{{total}} இல் {{start}} முதல் {{end}} வரை"
+    "pagination": "{{total}} இல் {{start}} முதல் {{end}} வரை",
+    "tokensIn": "உள்ளீடு",
+    "tokensOut": "வெளியீடு"
   },
   "playground": {
     "suggestionRecursion": "நிரலாக்கத்தில் மறுநிகழ்வு எவ்வாறு செயல்படுகிறது என்பதை விளக்கவும்",

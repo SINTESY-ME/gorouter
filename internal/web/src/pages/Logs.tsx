@@ -32,6 +32,8 @@ interface LogRow {
   provider: string;
   model: string;
   tokens: number;
+  promptTokens: number;
+  completionTokens: number;
   cost: number;
   status: number;
   latency: number;
@@ -57,6 +59,8 @@ function toRow(e: UsageEntry, key: string): LogRow {
     provider: e.provider || "—",
     model: e.model || "—",
     tokens,
+    promptTokens: e.prompt_tokens,
+    completionTokens: e.completion_tokens,
     cost: e.cost,
     status: e.status,
     latency: lat,
@@ -202,7 +206,13 @@ export default function Logs() {
       </Table.Cell>
       <Table.Cell><span className="text-xs text-muted">{new Date(item.timestamp).toLocaleString()}</span></Table.Cell>
       <Table.Cell><span className="text-xs">{item.provider}</span></Table.Cell>
-      <Table.Cell className="tabular-nums" textValue={String(item.tokens)}>{formatCompact(item.tokens)}</Table.Cell>
+      <Table.Cell className="tabular-nums" textValue={String(item.tokens)}>
+        <span className="text-xs whitespace-nowrap" title={`${t("logs.tokensIn")}: ${item.promptTokens} / ${t("logs.tokensOut")}: ${item.completionTokens}`}>
+          <span className="text-muted">{formatCompact(item.promptTokens)}</span>
+          <span className="text-muted"> / </span>
+          {formatCompact(item.completionTokens)}
+        </span>
+      </Table.Cell>
       <Table.Cell textValue={String(item.cost)}>
         <span className={cn("tabular-nums text-xs", costColor(item.cost))} title={`$${item.cost.toFixed(6)}`}>
           {item.cost > 0 ? formatCost(item.cost) : "—"}

@@ -361,7 +361,9 @@
     "err": "fejl",
     "emptyFiltered": "Ingen poster fundet.",
     "empty": "Endnu ingen logfiler.",
-    "pagination": "{{start}} til {{end}} af {{total}}"
+    "pagination": "{{start}} til {{end}} af {{total}}",
+    "tokensIn": "input",
+    "tokensOut": "output"
   },
   "playground": {
     "suggestionRecursion": "Forklar, hvordan rekursion virker i programmering",

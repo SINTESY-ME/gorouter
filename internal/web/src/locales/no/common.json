@@ -361,7 +361,9 @@
     "err": "feil",
     "emptyFiltered": "Ingen poster funnet.",
     "empty": "Ingen logger ennå.",
-    "pagination": "{{start}} til {{end}} av {{total}}"
+    "pagination": "{{start}} til {{end}} av {{total}}",
+    "tokensIn": "inndata",
+    "tokensOut": "utdata"
   },
   "playground": {
     "suggestionRecursion": "Forklar hvordan rekursjon fungerer i programmering",

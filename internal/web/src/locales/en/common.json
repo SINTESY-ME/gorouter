@@ -363,7 +363,9 @@
     "err": "err",
     "emptyFiltered": "No records found.",
     "empty": "No logs yet.",
-    "pagination": "{{start}} to {{end}} of {{total}}"
+    "pagination": "{{start}} to {{end}} of {{total}}",
+    "tokensIn": "Prompt",
+    "tokensOut": "Completion"
   },
   "playground": {
     "suggestionRecursion": "Explain how recursion works in programming",

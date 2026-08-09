@@ -300,7 +300,7 @@ func TestRouteCombo_EmptyCompletionLength_Fallbacks(t *testing.T) {
 		status: 200,
 		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
 		bodies: map[string]string{
-			"gpt-4": `{"id":"1","choices":[{"message":{"content":""},"finish_reason":"length"}]}`,
+			"gpt-4": `{"id":"1","choices":[{"message":{"content":""},"finish_reason":"length"}],"usage":{"prompt_tokens":150,"completion_tokens":30,"total_tokens":180}}`,
 		},
 	}
 	usage := &mockUsageRepo{}
@@ -333,7 +333,17 @@ func TestRouteCombo_EmptyCompletionLength_Fallbacks(t *testing.T) {
 	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4", "claude-3"}) {
 		t.Fatalf("called = %v, want [gpt-4 claude-3]", got)
 	}
+	// The blank attempt still records the tokens the upstream consumed.
 	time.Sleep(50 * time.Millisecond)
+	usage.mu.Lock()
+	defer usage.mu.Unlock()
+	failed := usage.entries[0]
+	if failed.PromptTokens != 150 || failed.CompletionTokens != 30 {
+		t.Errorf("failed entry tokens: prompt=%d completion=%d, want 150/30", failed.PromptTokens, failed.CompletionTokens)
+	}
+	if failed.Error == "" {
+		t.Error("failed entry should carry the blank-completion error")
+	}
 }
 
 func TestRouteCombo_AllModelsBlankCompletion_ReturnsUpstreamError(t *testing.T) {

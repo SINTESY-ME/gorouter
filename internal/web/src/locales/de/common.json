@@ -361,7 +361,9 @@
     "err": "Fehler",
     "emptyFiltered": "Keine Datensätze gefunden.",
     "empty": "Noch keine Protokolle.",
-    "pagination": "{{start}} bis {{end}} von {{total}}"
+    "pagination": "{{start}} bis {{end}} von {{total}}",
+    "tokensIn": "Eingabe",
+    "tokensOut": "Ausgabe"
   },
   "playground": {
     "suggestionRecursion": "Erkläre, wie Rekursion in der Programmierung funktioniert",

@@ -361,7 +361,9 @@
     "err": "erro",
     "emptyFiltered": "Nenhum registo encontrado.",
     "empty": "Ainda sem logs.",
-    "pagination": "{{start}} a {{end}} de {{total}}"
+    "pagination": "{{start}} a {{end}} de {{total}}",
+    "tokensIn": "entrada",
+    "tokensOut": "saída"
   },
   "playground": {
     "suggestionRecursion": "Explica como funciona a recursão em programação",

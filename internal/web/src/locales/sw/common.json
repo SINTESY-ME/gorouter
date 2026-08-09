@@ -361,7 +361,9 @@
     "err": "err",
     "emptyFiltered": "Hakuna rekodi zilizopatikana.",
     "empty": "Hakuna kumbukumbu bado.",
-    "pagination": "{{start}} hadi {{end}} kati ya {{total}}"
+    "pagination": "{{start}} hadi {{end}} kati ya {{total}}",
+    "tokensIn": "prompt",
+    "tokensOut": "output"
   },
   "playground": {
     "suggestionRecursion": "Eleza jinsi recursion inavyofanya kazi katika programu",

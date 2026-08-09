@@ -361,7 +361,9 @@
     "err": "err",
     "emptyFiltered": "రికార్డులు కనుగొనబడలేదు.",
     "empty": "ఇంకా లాగ్స్ లేవు.",
-    "pagination": "{{total}} లో {{start}} నుండి {{end}} వరకు"
+    "pagination": "{{total}} లో {{start}} నుండి {{end}} వరకు",
+    "tokensIn": "ఇన్‌పుట్",
+    "tokensOut": "అవుట్‌పుట్"
   },
   "playground": {
     "suggestionRecursion": "ప్రోగ్రామింగ్‌లో రికర్షన్ ఎలా పనిచేస్తుందో వివరించండి",

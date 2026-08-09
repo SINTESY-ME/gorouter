@@ -361,7 +361,9 @@
     "err": "त्रुटी",
     "emptyFiltered": "नोंदी सापडल्या नाहीत.",
     "empty": "अजून लॉग नाहीत.",
-    "pagination": "{{total}} पैकी {{start}} ते {{end}}"
+    "pagination": "{{total}} पैकी {{start}} ते {{end}}",
+    "tokensIn": "इनपुट",
+    "tokensOut": "आउटपुट"
   },
   "playground": {
     "suggestionRecursion": "प्रोग्रामिंगमध्ये रिकर्जन कसे कार्य करते ते स्पष्ट करा",

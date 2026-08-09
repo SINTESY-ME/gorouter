@@ -361,7 +361,9 @@
     "err": "err",
     "emptyFiltered": "ไม่พบบันทึก",
     "empty": "ยังไม่มีบันทึก",
-    "pagination": "{{start}} ถึง {{end}} จาก {{total}}"
+    "pagination": "{{start}} ถึง {{end}} จาก {{total}}",
+    "tokensIn": "อินพุต",
+    "tokensOut": "เอาต์พุต"
   },
   "playground": {
     "suggestionRecursion": "อธิบายว่าการเรียกซ้ำทำงานอย่างไรในการเขียนโปรแกรม",

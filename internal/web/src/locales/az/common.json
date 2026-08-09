@@ -361,7 +361,9 @@
     "err": "xəta",
     "emptyFiltered": "Qeyd tapılmadı.",
     "empty": "Hələ jurnal yoxdur.",
-    "pagination": "{{total}} qeyddən {{start}}–{{end}}"
+    "pagination": "{{total}} qeyddən {{start}}–{{end}}",
+    "tokensIn": "daxil",
+    "tokensOut": "çıxış"
   },
   "playground": {
     "suggestionRecursion": "Proqramlaşdırmada reqursiyanın necə işlədiyini izah et",
