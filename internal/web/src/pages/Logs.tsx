@@ -203,7 +203,13 @@ export default function Logs() {
         )}
       </Table.Cell>
       <Table.Cell><span className="text-xs text-muted">{new Date(item.timestamp).toLocaleString()}</span></Table.Cell>
-      <Table.Cell><span className="text-xs">{item.provider}</span></Table.Cell>
+      <Table.Cell>
+        {item.cacheHit ? (
+          <Chip size="sm" color="primary" variant="soft" className="h-5 text-[10px]">cache</Chip>
+        ) : (
+          <span className="text-xs">{item.provider}</span>
+        )}
+      </Table.Cell>
       <Table.Cell className="tabular-nums" textValue={String(item.promptTokens)}>
         <span className="text-xs text-muted whitespace-nowrap">{formatCompact(item.promptTokens)}</span>
       </Table.Cell>
