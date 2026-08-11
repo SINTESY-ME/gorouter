@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type DragEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Table, Button, Modal, Input, Chip, Select, ListBox, Spinner, TextArea, TextField, Label, AlertDialog,
+  Table, Button, Modal, Input, Chip, Select, ListBox, Spinner, TextArea, TextField, Label, AlertDialog, cn,
 } from "@heroui/react";
 import { ModelComboBox, type ModelComboBoxItem } from "../components/ModelComboBox";
 import { api, type Combo, type ModelEntry, type ComboModelMeta, type Provider } from "../api";
@@ -420,6 +420,8 @@ function ModelSelector({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchValue, setSearchValue] = useState("");
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -507,6 +509,30 @@ function ModelSelector({
     onChange(selected.filter((_, i) => i !== index));
   };
 
+  const handleDragStart = (index: number) => setDragIndex(index);
+  const handleDragOver = (e: DragEvent, index: number) => {
+    e.preventDefault();
+    if (dragIndex === null || dragIndex === index) return;
+    setDragOverIndex(index);
+  };
+  const handleDrop = (index: number) => {
+    if (dragIndex === null || dragIndex === index) {
+      setDragIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+    const next = [...selected];
+    const [moved] = next.splice(dragIndex, 1);
+    next.splice(index, 0, moved);
+    onChange(next);
+    setDragIndex(null);
+    setDragOverIndex(null);
+  };
+  const handleDragEnd = () => {
+    setDragIndex(null);
+    setDragOverIndex(null);
+  };
+
   return (
     <div className="space-y-3">
       <div>
@@ -574,8 +600,23 @@ function ModelSelector({
             const modelEntry = allModels.find((m) => m.id === id);
             const comboEntry = allCombos.find((c) => c.name === id);
             const kind = modelEntry?.kind ?? comboEntry?.kind ?? "llm";
+            const isDragging = dragIndex === i;
+            const isDragOver = dragOverIndex === i && dragIndex !== i;
             return (
-              <div key={id + i} className="flex items-center gap-2 bg-surface-secondary rounded-lg px-3 py-2">
+              <div
+                key={id + i}
+                draggable
+                onDragStart={() => handleDragStart(i)}
+                onDragOver={(e) => handleDragOver(e, i)}
+                onDrop={() => handleDrop(i)}
+                onDragEnd={handleDragEnd}
+                className={cn(
+                  "flex items-center gap-2 bg-surface-secondary rounded-lg px-3 py-2 transition-all cursor-grab active:cursor-grabbing",
+                  isDragging && "opacity-40",
+                  isDragOver && "ring-2 ring-accent border-t-2 border-t-accent"
+                )}
+              >
+                <IconArrow dir="down" className="w-3 h-3 shrink-0 text-muted rotate-[-90deg] opacity-50" />
                 <span className="text-xs text-muted w-5 tabular-nums">{i + 1}.</span>
                 {isCombo && <IconStack className="w-3 h-3 shrink-0 text-muted" />}
                 <code className="text-xs flex-1 truncate">{id}</code>
