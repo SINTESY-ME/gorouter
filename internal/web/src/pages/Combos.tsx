@@ -1,8 +1,16 @@
-import { useEffect, useState, type DragEvent } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Table, Button, Modal, Input, Chip, Select, ListBox, Spinner, TextArea, TextField, Label, AlertDialog, cn,
 } from "@heroui/react";
+import {
+  DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { ModelComboBox, type ModelComboBoxItem } from "../components/ModelComboBox";
 import { api, type Combo, type ModelEntry, type ComboModelMeta, type Provider } from "../api";
 import { IconPlus, IconPencil, IconTrash, IconArrow, IconX, IconStack } from "../icons";
@@ -420,8 +428,11 @@ function ModelSelector({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchValue, setSearchValue] = useState("");
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -509,28 +520,16 @@ function ModelSelector({
     onChange(selected.filter((_, i) => i !== index));
   };
 
-  const handleDragStart = (index: number) => setDragIndex(index);
-  const handleDragOver = (e: DragEvent, index: number) => {
-    e.preventDefault();
-    if (dragIndex === null || dragIndex === index) return;
-    setDragOverIndex(index);
-  };
-  const handleDrop = (index: number) => {
-    if (dragIndex === null || dragIndex === index) {
-      setDragIndex(null);
-      setDragOverIndex(null);
-      return;
-    }
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const from = selected.indexOf(active.id as string);
+    const to = selected.indexOf(over.id as string);
+    if (from < 0 || to < 0) return;
     const next = [...selected];
-    const [moved] = next.splice(dragIndex, 1);
-    next.splice(index, 0, moved);
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
     onChange(next);
-    setDragIndex(null);
-    setDragOverIndex(null);
-  };
-  const handleDragEnd = () => {
-    setDragIndex(null);
-    setDragOverIndex(null);
   };
 
   return (
@@ -595,53 +594,92 @@ function ModelSelector({
       {selected.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-xs text-muted uppercase tracking-wide font-medium">{t("combos.selectorMembers")}</p>
-          {selected.map((id, i) => {
-            const isCombo = allCombos.some((c) => c.name === id);
-            const modelEntry = allModels.find((m) => m.id === id);
-            const comboEntry = allCombos.find((c) => c.name === id);
-            const kind = modelEntry?.kind ?? comboEntry?.kind ?? "llm";
-            const isDragging = dragIndex === i;
-            const isDragOver = dragOverIndex === i && dragIndex !== i;
-            return (
-              <div
-                key={id + i}
-                draggable
-                onDragStart={() => handleDragStart(i)}
-                onDragOver={(e) => handleDragOver(e, i)}
-                onDrop={() => handleDrop(i)}
-                onDragEnd={handleDragEnd}
-                className={cn(
-                  "flex items-center gap-2 bg-surface-secondary rounded-lg px-3 py-2 transition-all cursor-grab active:cursor-grabbing",
-                  isDragging && "opacity-40",
-                  isDragOver && "ring-2 ring-accent border-t-2 border-t-accent"
-                )}
-              >
-                <IconArrow dir="down" className="w-3 h-3 shrink-0 text-muted rotate-[-90deg] opacity-50" />
-                <span className="text-xs text-muted w-5 tabular-nums">{i + 1}.</span>
-                {isCombo && <IconStack className="w-3 h-3 shrink-0 text-muted" />}
-                <code className="text-xs flex-1 truncate">{id}</code>
-                {isCombo && (
-                  <Chip size="sm" variant="soft" color="default" className="text-[10px]">{t("combos.selectorCombo")}</Chip>
-                )}
-                <Chip size="sm" variant="soft" color={KIND_COLORS[kind] ?? "default"} className="text-[10px]">
-                  {kind}
-                </Chip>
-                <div className="flex gap-0.5">
-                  <Button isIconOnly size="sm" variant="ghost" isDisabled={i === 0} onPress={() => move(i, -1)} aria-label={t("combos.selectorUp")}>
-                    <IconArrow dir="up" className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button isIconOnly size="sm" variant="ghost" isDisabled={i === selected.length - 1} onPress={() => move(i, 1)} aria-label={t("combos.selectorDown")}>
-                    <IconArrow dir="down" className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => removeAt(i)} aria-label={t("combos.selectorRemove")}>
-                    <IconX className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={selected} strategy={verticalListSortingStrategy}>
+              {selected.map((id, i) => (
+                <SortableModelItem
+                  key={id}
+                  id={id}
+                  index={i}
+                  isCombo={allCombos.some((c) => c.name === id)}
+                  kind={allModels.find((m) => m.id === id)?.kind ?? allCombos.find((c) => c.name === id)?.kind ?? "llm"}
+                  canMoveUp={i > 0}
+                  canMoveDown={i < selected.length - 1}
+                  onMoveUp={() => move(i, -1)}
+                  onMoveDown={() => move(i, 1)}
+                  onRemove={() => removeAt(i)}
+                  isComboLabel={t("combos.selectorCombo")}
+                  upAria={t("combos.selectorUp")}
+                  downAria={t("combos.selectorDown")}
+                  removeAria={t("combos.selectorRemove")}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
         </div>
       )}
+    </div>
+  );
+}
+
+function SortableModelItem({
+  id, index, isCombo, kind, canMoveUp, canMoveDown, onMoveUp, onMoveDown, onRemove,
+  isComboLabel, upAria, downAria, removeAria,
+}: {
+  id: string;
+  index: number;
+  isCombo: boolean;
+  kind: string;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onRemove: () => void;
+  isComboLabel: string;
+  upAria: string;
+  downAria: string;
+  removeAria: string;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        "flex items-center gap-2 bg-surface-secondary rounded-lg px-3 py-2",
+        isDragging && "opacity-50 z-10 shadow-lg ring-2 ring-accent",
+      )}
+    >
+      <button
+        type="button"
+        className="touch-none cursor-grab active:cursor-grabbing text-muted hover:text-foreground shrink-0"
+        {...attributes}
+        {...listeners}
+        aria-label="Drag to reorder"
+      >
+        <IconArrow dir="down" className="w-3 h-3 rotate-[-90deg] opacity-60" />
+      </button>
+      <span className="text-xs text-muted w-5 tabular-nums">{index + 1}.</span>
+      {isCombo && <IconStack className="w-3 h-3 shrink-0 text-muted" />}
+      <code className="text-xs flex-1 truncate">{id}</code>
+      {isCombo && (
+        <Chip size="sm" variant="soft" color="default" className="text-[10px]">{isComboLabel}</Chip>
+      )}
+      <Chip size="sm" variant="soft" color={KIND_COLORS[kind] ?? "default"} className="text-[10px]">
+        {kind}
+      </Chip>
+      <div className="flex gap-0.5">
+        <Button isIconOnly size="sm" variant="ghost" isDisabled={!canMoveUp} onPress={onMoveUp} aria-label={upAria}>
+          <IconArrow dir="up" className="w-3.5 h-3.5" />
+        </Button>
+        <Button isIconOnly size="sm" variant="ghost" isDisabled={!canMoveDown} onPress={onMoveDown} aria-label={downAria}>
+          <IconArrow dir="down" className="w-3.5 h-3.5" />
+        </Button>
+        <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={onRemove} aria-label={removeAria}>
+          <IconX className="w-3.5 h-3.5" />
+        </Button>
+      </div>
     </div>
   );
 }
