@@ -312,6 +312,22 @@ func parseResponsesInput(raw json.RawMessage) ([]openaiMessage, error) {
 	var out []openaiMessage
 	for _, m := range arr {
 		switch m.Type {
+		case "reasoning":
+			// Codex CLI sends reasoning items in the conversation history
+			// (type:"reasoning", content:[{type:"summary_text",text:...}]).
+			// Convert to an assistant message carrying reasoning_content so
+			// providers that require reasoning context (deepseek/opencode-go)
+			// don't reject the request with "reasoning_content must be passed
+			// back to the API". The reasoning summary text is extracted from
+			// either a string content or an array of summary_text blocks.
+			summary := extractReasoningSummary(m.Content)
+			if summary == "" {
+				continue
+			}
+			out = append(out, openaiMessage{
+				Role:             "assistant",
+				ReasoningContent: summary,
+			})
 		case "function_call":
 			out = append(out, openaiMessage{
 				Role: "assistant",
@@ -347,6 +363,38 @@ func parseResponsesInput(raw json.RawMessage) ([]openaiMessage, error) {
 		}
 	}
 	return out, nil
+}
+
+// extractReasoningSummary pulls the text out of a Responses API reasoning
+// item's content field. The content can be a plain string or an array of
+// blocks like {"type":"summary_text","text":"..."} or {"type":"reasoning_text",
+// "text":"..."}. Returns "" when there is no extractable text (the caller
+// skips the item in that case).
+func extractReasoningSummary(content json.RawMessage) string {
+	if len(content) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(content, &s) == nil {
+		return s
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(content, &blocks) == nil {
+		var b strings.Builder
+		for _, blk := range blocks {
+			if blk.Text != "" {
+				if b.Len() > 0 {
+					b.WriteString("\n")
+				}
+				b.WriteString(blk.Text)
+			}
+		}
+		return b.String()
+	}
+	return ""
 }
 
 func translateOpenAIToResponsesResponseJSON(body []byte) ([]byte, error) {
@@ -628,8 +676,11 @@ func (s *responsesStreamState) handleChunk(data string, w io.Writer) error {
 	if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 		return nil
 	}
-	if !s.created && chunk.ID != "" {
+	if !s.created {
 		s.id = "resp_" + chunk.ID
+		if s.id == "resp_" {
+			s.id = "resp_" + randHex()
+		}
 		s.created = true
 		if err := s.emitCreated(w); err != nil {
 			return err
@@ -732,8 +783,17 @@ func (s *responsesStreamState) finish(w io.Writer) error {
 		return nil
 	}
 	s.finished = true
+	// Some upstreams (litellm, ollama, openadapter, …) omit the "id" field on
+	// chat.completion.chunk events. Codex CLI requires a terminal
+	// response.completed event or it fails with "stream closed before
+	// response.completed", so synthesize an id and emit created/completed even
+	// when no chunk ever carried one.
 	if !s.created {
-		return nil
+		s.id = "resp_" + randHex()
+		s.created = true
+		if err := s.emitCreated(w); err != nil {
+			return err
+		}
 	}
 	if s.active != nil {
 		if err := s.closeActive(w); err != nil {
