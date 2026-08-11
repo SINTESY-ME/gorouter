@@ -1053,6 +1053,22 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 			res.Body.Close()
 			slog.Warn("upstream returned error status", "status", res.StatusCode, "provider", m.Provider, "model", m.Model, "response_body", string(bufErr), "request_payload", string(translated))
 			res.Body = io.NopCloser(bytes.NewReader(bufErr))
+			// Error responses are not SSE streams even when the upstream was
+			// asked to stream — the body is a JSON error. Skip stream/JSON
+			// translation so the raw error reaches the fallback layer intact
+			// (upstreamErrorMessage can parse it, and the client sees the real
+			// error instead of a synthesized response.completed).
+			res.Stream = false
+			respBody = res.Body
+			return &RouterResponse{
+				StatusCode:     res.StatusCode,
+				Headers:        res.Headers,
+				Body:           respBody,
+				Stream:         false,
+				RTKBytesSaved:  rtkBytesSaved,
+				RTKTokensSaved: rtkTokensSaved,
+				RTKCostSaved:   rtkCostSaved,
+			}, nil
 		}
 		// 3) Upstream format -> OpenAI
 		openaiBody := res.Body
