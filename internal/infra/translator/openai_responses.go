@@ -324,8 +324,12 @@ func parseResponsesInput(raw json.RawMessage) ([]openaiMessage, error) {
 			if summary == "" {
 				continue
 			}
+			// content must be present (even empty) or some providers (ollama/glm)
+			// reject with "invalid message content type: <nil>".
+			emptyContent, _ := json.Marshal("")
 			out = append(out, openaiMessage{
 				Role:             "assistant",
+				Content:          emptyContent,
 				ReasoningContent: summary,
 			})
 		case "function_call":
