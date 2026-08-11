@@ -7,13 +7,14 @@ import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import {
   SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ModelComboBox, type ModelComboBoxItem } from "../components/ModelComboBox";
 import { api, type Combo, type ModelEntry, type ComboModelMeta, type Provider } from "../api";
-import { IconPlus, IconPencil, IconTrash, IconArrow, IconX, IconStack } from "../icons";
+import { IconPlus, IconPencil, IconTrash, IconArrow, IconX, IconStack, IconGrip } from "../icons";
 
 const KIND_COLORS: Record<string, "accent" | "success" | "warning" | "default" | "danger"> = {
   llm: "accent", embedding: "success", image: "warning", tts: "default", stt: "danger",
@@ -434,6 +435,8 @@ function ModelSelector({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  const dragModifiers = [restrictToVerticalAxis];
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -594,7 +597,7 @@ function ModelSelector({
       {selected.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-xs text-muted uppercase tracking-wide font-medium">{t("combos.selectorMembers")}</p>
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd} modifiers={dragModifiers}>
             <SortableContext items={selected} strategy={verticalListSortingStrategy}>
               {selected.map((id, i) => (
                 <SortableModelItem
@@ -658,7 +661,7 @@ function SortableModelItem({
         {...listeners}
         aria-label="Drag to reorder"
       >
-        <IconArrow dir="down" className="w-3 h-3 rotate-[-90deg] opacity-60" />
+        <IconGrip className="w-3.5 h-3.5 opacity-60" />
       </button>
       <span className="text-xs text-muted w-5 tabular-nums">{index + 1}.</span>
       {isCombo && <IconStack className="w-3 h-3 shrink-0 text-muted" />}
