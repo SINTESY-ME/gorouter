@@ -711,7 +711,10 @@ func (s *responsesStreamState) handleChunk(data string, w io.Writer) error {
 	}
 	if choice.FinishReason != "" {
 		s.finishReason = choice.FinishReason
-		return s.finish(w)
+		// Don't emit response.completed yet — many upstreams (ollama,
+		// deepseek, …) send the usage chunk AFTER finish_reason. Wait
+		// for [DONE] or EOF so the usage is captured before completed.
+		return nil
 	}
 	d := &choice.Delta
 	if d.Reasoning != "" {

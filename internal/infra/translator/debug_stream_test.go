@@ -76,6 +76,39 @@ func TestOpenAIStreamToResponsesEmitsCompletedEmptyStream(t *testing.T) {
 	}
 }
 
+func TestOpenAIStreamToResponsesUsageAfterFinishReason(t *testing.T) {
+	input := strings.Join([]string{
+		`data: {"id":"chatcmpl-x","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"chatcmpl-x","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+		"",
+		`data: {"id":"chatcmpl-x","object":"chat.completion.chunk","choices":[],"usage":{"prompt_tokens":500,"completion_tokens":50,"total_tokens":550}}`,
+		"",
+		`data: [DONE]`,
+		"",
+	}, "\n")
+
+	pr, pw := io.Pipe()
+	go func() {
+		err := streamOpenAIToResponses(context.Background(), newBufReader(strings.NewReader(input)), pw)
+		_ = pw.CloseWithError(err)
+	}()
+
+	output, _ := io.ReadAll(pr)
+	got := string(output)
+	t.Logf("stream output (usage after finish):\n%s", got)
+
+	if !strings.Contains(got, "response.completed") {
+		t.Errorf("expected response.completed event, got:\n%s", got)
+	}
+	if !strings.Contains(got, `"input_tokens":500`) {
+		t.Errorf("expected input_tokens=500 in response.completed, got:\n%s", got)
+	}
+	if !strings.Contains(got, `"output_tokens":50`) {
+		t.Errorf("expected output_tokens=50 in response.completed, got:\n%s", got)
+	}
+}
+
 func newBufReader(r io.Reader) *bufio.Reader {
 	return bufio.NewReader(r)
 }
