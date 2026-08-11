@@ -467,13 +467,16 @@ export default function Keys() {
                           <Chip key={m} size="sm" variant="soft">
                             <span className="flex items-center gap-1">
                               {m}
-                              <button
-                                className="text-muted hover:text-danger transition-colors"
-                                onClick={() => toggleAllowedModel(m)}
+                              <Button
+                                isIconOnly
+                                size="sm"
+                                variant="ghost"
+                                className="size-4 min-w-0 p-0 text-muted hover:text-danger transition-colors"
+                                onPress={() => toggleAllowedModel(m)}
                                 aria-label={t("keys.removeModelAria", { model: m })}
                               >
                                 <IconX className="w-3 h-3" />
-                              </button>
+                              </Button>
                             </span>
                           </Chip>
                         ))}
