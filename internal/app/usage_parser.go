@@ -90,14 +90,31 @@ func parseUsageFromSSEFull(buf []byte) (prompt, completion, cacheRead, cacheCrea
 				PromptTokensDetails      *struct {
 					CachedTokens int `json:"cached_tokens"`
 				} `json:"prompt_tokens_details"`
+				// Responses API format (input_tokens / output_tokens)
+				InputTokens  int `json:"input_tokens"`
+				OutputTokens int `json:"output_tokens"`
 			} `json:"usage"`
+			// Responses API response.completed nests usage under response.
+			Response *struct {
+				Usage *struct {
+					InputTokens  int `json:"input_tokens"`
+					OutputTokens int `json:"output_tokens"`
+				} `json:"usage"`
+			} `json:"response"`
 		}
-		if err := json.Unmarshal([]byte(data), &ev); err != nil || ev.Usage == nil {
+		if err := json.Unmarshal([]byte(data), &ev); err != nil {
 			continue
 		}
-		if ev.Usage.PromptTokens > 0 || ev.Usage.CompletionTokens > 0 {
-			prompt = ev.Usage.PromptTokens
-			completion = ev.Usage.CompletionTokens
+		// OpenAI chat format (top-level usage)
+		if ev.Usage != nil {
+			if ev.Usage.PromptTokens > 0 || ev.Usage.CompletionTokens > 0 {
+				prompt = ev.Usage.PromptTokens
+				completion = ev.Usage.CompletionTokens
+			}
+			if ev.Usage.InputTokens > 0 || ev.Usage.OutputTokens > 0 {
+				prompt = ev.Usage.InputTokens
+				completion = ev.Usage.OutputTokens
+			}
 			if ev.Usage.CacheReadInputTokens > 0 {
 				cacheRead = ev.Usage.CacheReadInputTokens
 			}
@@ -106,6 +123,13 @@ func parseUsageFromSSEFull(buf []byte) (prompt, completion, cacheRead, cacheCrea
 			}
 			if ev.Usage.PromptTokensDetails != nil && ev.Usage.PromptTokensDetails.CachedTokens > 0 {
 				cacheRead = ev.Usage.PromptTokensDetails.CachedTokens
+			}
+		}
+		// Responses API response.completed (nested under response)
+		if ev.Response != nil && ev.Response.Usage != nil {
+			if ev.Response.Usage.InputTokens > 0 || ev.Response.Usage.OutputTokens > 0 {
+				prompt = ev.Response.Usage.InputTokens
+				completion = ev.Response.Usage.OutputTokens
 			}
 		}
 	}

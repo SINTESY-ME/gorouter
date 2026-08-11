@@ -464,6 +464,10 @@ type chatChunk struct {
 		FinishReason string    `json:"finish_reason"`
 		Delta        chatDelta `json:"delta"`
 	} `json:"choices"`
+	Usage *struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+	} `json:"usage"`
 }
 
 type chatDelta struct {
@@ -673,6 +677,8 @@ type responsesStreamState struct {
 	toolCalls    map[int]*functionCallItem
 	finished     bool
 	finishReason string
+	promptTokens int
+	completionTokens int
 }
 
 func (s *responsesStreamState) handleChunk(data string, w io.Writer) error {
@@ -691,9 +697,18 @@ func (s *responsesStreamState) handleChunk(data string, w io.Writer) error {
 		}
 	}
 	if len(chunk.Choices) == 0 {
+		// Some upstreams send a final chunk with only usage (no choices).
+		if chunk.Usage != nil {
+			s.promptTokens = chunk.Usage.PromptTokens
+			s.completionTokens = chunk.Usage.CompletionTokens
+		}
 		return nil
 	}
 	choice := &chunk.Choices[0]
+	if chunk.Usage != nil {
+		s.promptTokens = chunk.Usage.PromptTokens
+		s.completionTokens = chunk.Usage.CompletionTokens
+	}
 	if choice.FinishReason != "" {
 		s.finishReason = choice.FinishReason
 		return s.finish(w)
@@ -810,6 +825,11 @@ func (s *responsesStreamState) finish(w io.Writer) error {
 			"id":     s.id,
 			"object": "response",
 			"status": "completed",
+			"usage": map[string]any{
+				"input_tokens":  s.promptTokens,
+				"output_tokens": s.completionTokens,
+				"total_tokens":  s.promptTokens + s.completionTokens,
+			},
 		},
 	})
 }
