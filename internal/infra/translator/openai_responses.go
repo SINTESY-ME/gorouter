@@ -67,11 +67,15 @@ func translateResponsesToOpenAIResponseJSON(body []byte) ([]byte, error) {
 		ID     string `json:"id"`
 		Model  string `json:"model"`
 		Output []struct {
-			Type    string `json:"type"`
-			Content []struct {
+			Type      string `json:"type"`
+			Content   []struct {
 				Type string `json:"type"`
 				Text string `json:"text"`
 			} `json:"content"`
+			// function_call fields
+			CallID    string `json:"call_id"`
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
 		} `json:"output"`
 		IncompleteDetails *struct {
 			Reason string `json:"reason"`
@@ -87,14 +91,27 @@ func translateResponsesToOpenAIResponseJSON(body []byte) ([]byte, error) {
 	}
 	var text string
 	hasMessage := false
+	var toolCalls []map[string]any
+	toolIndex := 0
 	for _, item := range in.Output {
-		if item.Type == "message" {
+		switch item.Type {
+		case "message":
 			hasMessage = true
 			for _, c := range item.Content {
 				if c.Type == "output_text" {
 					text += c.Text
 				}
 			}
+		case "function_call":
+			toolCalls = append(toolCalls, map[string]any{
+				"id":   item.CallID,
+				"type": "function",
+				"function": map[string]any{
+					"name":      item.Name,
+					"arguments": item.Arguments,
+				},
+			})
+			toolIndex++
 		}
 	}
 	// Mirror litellm's Responses handling: a response that hit its token
@@ -107,13 +124,20 @@ func translateResponsesToOpenAIResponseJSON(body []byte) ([]byte, error) {
 	if !hasMessage && in.IncompleteDetails != nil && in.IncompleteDetails.Reason != "" {
 		finishReason = "length"
 	}
+	message := map[string]any{"role": "assistant", "content": text}
+	if len(toolCalls) > 0 {
+		message["tool_calls"] = toolCalls
+		if finishReason == "stop" {
+			finishReason = "tool_calls"
+		}
+	}
 	out := map[string]any{
 		"id":     in.ID,
 		"object": "chat.completion",
 		"model":  in.Model,
 		"choices": []map[string]any{{
 			"index":         0,
-			"message":       map[string]any{"role": "assistant", "content": text},
+			"message":       message,
 			"finish_reason": finishReason,
 		}},
 		"usage": map[string]any{
@@ -141,7 +165,18 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 	id := ""
 	model := ""
 	emittedContent := false
+	emittedToolCall := false
+	currentDeltaOrdinal := 0
 	var promptTokens, completionTokens int
+	// toolCalls tracks in-flight function_call items by their upstream
+	// output index so deltas can be streamed incrementally like OpenAI.
+	type tcState struct {
+		callID    string
+		name      string
+		arguments strings.Builder
+	}
+	toolCalls := map[int]*tcState{}
+	var toolOrder []int
 	for {
 		select {
 		case <-ctx.Done():
@@ -162,6 +197,7 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 		var ev struct {
 			Type     string          `json:"type"`
 			Response json.RawMessage `json:"response"`
+			Item     json.RawMessage `json:"item"`
 			Delta    string          `json:"delta"`
 		}
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
@@ -183,12 +219,83 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 			if _, err := w.Write([]byte("data: " + chunk + "\n\n")); err != nil {
 				return err
 			}
+		case "response.output_item.added":
+			// Track function_call items so subsequent argument deltas can
+			// be routed to the right tool call.
+			var item struct {
+				Type       string `json:"type"`
+				Index      int    `json:"index"`
+				OutputIdx  int    `json:"output_index"`
+				CallID     string `json:"call_id"`
+				Name       string `json:"name"`
+				Content    []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"content"`
+			}
+			_ = json.Unmarshal(ev.Item, &item)
+			if item.Type == "function_call" {
+				// output_index is the position in the Responses output
+				// array (may be >0 if a message preceded the tool call);
+				// OpenAI tool indices are ordinal among tools. Record the
+				// mapping and emit the header chunk.
+				ordinal := len(toolOrder)
+				toolOrder = append(toolOrder, item.OutputIdx)
+				toolCalls[item.OutputIdx] = &tcState{callID: item.CallID, name: item.Name}
+				emittedToolCall = true
+				first = false
+				chunk := openAIStreamToolCallHeader(id, model, ordinal, item.CallID, item.Name)
+				if _, err := w.Write([]byte("data: " + chunk + "\n\n")); err != nil {
+					return err
+				}
+			} else if item.Type == "message" {
+				emittedContent = true
+			}
+		case "response.function_call_arguments.delta":
+			var d struct {
+				ItemID     string `json:"item_id"`
+				OutputIdx  int    `json:"output_index"`
+				Args       string `json:"delta"`
+				Arguments  string `json:"arguments"`
+			}
+			_ = json.Unmarshal([]byte(data), &d)
+			delta := d.Args
+			if delta == "" {
+				delta = d.Arguments
+			}
+			if delta == "" {
+				continue
+			}
+			// Deltas arrive in tool order; match by output_index when
+			// present, else the ordinal of arrival.
+			toolIdx := -1
+			if d.OutputIdx >= 0 {
+				for i, oi := range toolOrder {
+					if oi == d.OutputIdx {
+						toolIdx = i
+						break
+					}
+				}
+			}
+			if toolIdx < 0 {
+				toolIdx = currentDeltaOrdinal
+				if toolIdx >= len(toolOrder) {
+					continue
+				}
+			}
+			currentDeltaOrdinal = toolIdx + 1
+			tc := toolCalls[toolOrder[toolIdx]]
+			if tc == nil {
+				continue
+			}
+			tc.arguments.WriteString(delta)
+			chunk := openAIStreamToolCallDelta(id, model, toolIdx, delta)
+			if _, err := w.Write([]byte("data: " + chunk + "\n\n")); err != nil {
+				return err
+			}
+		case "response.function_call_arguments.done":
+			// no-op: final arguments ride on output_item.done/completed
 		case "response.incomplete", "response.completed":
-			// Surface the final state: a stream that finished via
-			// incomplete_details (max_output_tokens exhausted while
-			// reasoning) emits no output_text deltas — tell the client it
-			// ran out of budget (finish_reason "length") instead of
-			// silently ending with an empty reply.
 			var resp struct {
 				IncompleteDetails *struct {
 					Reason string `json:"reason"`
@@ -207,8 +314,10 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 				"total_tokens":      promptTokens + completionTokens,
 			}
 			finish := ""
-			if ev.Type == "response.incomplete" && resp.IncompleteDetails != nil && resp.IncompleteDetails.Reason != "" && !emittedContent {
+			if ev.Type == "response.incomplete" && resp.IncompleteDetails != nil && resp.IncompleteDetails.Reason != "" && !emittedContent && !emittedToolCall {
 				finish = "length"
+			} else if emittedToolCall {
+				finish = "tool_calls"
 			}
 			chunk := openAIStreamChunk(id, model, "", first, usage, finish)
 			if _, err := w.Write([]byte("data: " + chunk + "\n\n")); err != nil {

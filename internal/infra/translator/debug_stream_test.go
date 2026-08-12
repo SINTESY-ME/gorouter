@@ -3,6 +3,7 @@ package translator
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"io"
 	"strings"
 	"testing"
@@ -111,4 +112,89 @@ func TestOpenAIStreamToResponsesUsageAfterFinishReason(t *testing.T) {
 
 func newBufReader(r io.Reader) *bufio.Reader {
 	return bufio.NewReader(r)
+}
+
+// TestResponsesStreamToOpenAIWithToolCall guards the muse-spark regression:
+// a Responses stream carrying function_call items must be translated into
+// OpenAI chunks with tool_calls, otherwise the client sees the reply "stop"
+// exactly where the model asked for a tool.
+func TestResponsesStreamToOpenAIWithToolCall(t *testing.T) {
+	input := strings.Join([]string{
+		`event: response.created`,
+		`data: {"type":"response.created","response":{"id":"resp_1","model":"muse-spark-1.2","status":"in_progress"}}`,
+		"",
+		`event: response.output_item.added`,
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"id":"fc_1","type":"function_call","call_id":"call_42","name":"list_files","arguments":""}}`,
+		"",
+		`event: response.function_call_arguments.delta`,
+		`data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":0,"delta":"{\"path\":\""}`,
+		"",
+		`event: response.function_call_arguments.delta`,
+		`data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":0,"delta":"/home\"}"}`,
+		"",
+		`event: response.completed`,
+		`data: {"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed","output":[{"id":"fc_1","type":"function_call","call_id":"call_42","name":"list_files","arguments":"{\"path\":\"/home\"}"}],"usage":{"input_tokens":100,"output_tokens":20,"total_tokens":120}}}`,
+		"",
+	}, "\n")
+
+	var sb strings.Builder
+	err := streamResponsesToOpenAI(context.Background(), newBufReader(strings.NewReader(input)), &sb)
+	if err != nil {
+		t.Fatalf("streamResponsesToOpenAI: %v", err)
+	}
+	got := sb.String()
+	t.Logf("stream output:\n%s", got)
+
+	if !strings.Contains(got, `"tool_calls"`) {
+		t.Errorf("expected tool_calls in stream, got:\n%s", got)
+	}
+	if !strings.Contains(got, `"name":"list_files"`) {
+		t.Errorf("expected tool name in stream, got:\n%s", got)
+	}
+	if !strings.Contains(got, `"arguments":"{\"path\":\"`) {
+		t.Errorf("expected tool arguments fragments in stream, got:\n%s", got)
+	}
+	if !strings.Contains(got, `"finish_reason":"tool_calls"`) {
+		t.Errorf("expected finish_reason tool_calls, got:\n%s", got)
+	}
+}
+
+// TestResponsesJSONToOpenAIWithToolCall covers the non-streaming path for the
+// same muse-spark regression.
+func TestResponsesJSONToOpenAIWithToolCall(t *testing.T) {
+	body := `{"id":"resp_1","object":"response","model":"muse-spark-1.2","status":"completed","output":[
+		{"id":"fc_1","type":"function_call","call_id":"call_42","name":"list_files","arguments":"{\"path\":\"/home\"}"}
+	],"usage":{"input_tokens":100,"output_tokens":20,"total_tokens":120}}`
+	out, err := translateResponsesToOpenAIResponseJSON([]byte(body))
+	if err != nil {
+		t.Fatalf("translateResponsesToOpenAIResponseJSON: %v", err)
+	}
+	var resp struct {
+		Choices []struct {
+			Message struct {
+				ToolCalls []struct {
+					ID       string `json:"id"`
+					Type     string `json:"type"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Choices) == 0 || len(resp.Choices[0].Message.ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool_call, got: %s", string(out))
+	}
+	tc := resp.Choices[0].Message.ToolCalls[0]
+	if tc.ID != "call_42" || tc.Function.Name != "list_files" || tc.Function.Arguments != `{"path":"/home"}` {
+		t.Fatalf("unexpected tool call: %+v", tc)
+	}
+	if resp.Choices[0].FinishReason != "tool_calls" {
+		t.Fatalf("expected finish_reason tool_calls, got %q", resp.Choices[0].FinishReason)
+	}
 }

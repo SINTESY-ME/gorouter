@@ -286,6 +286,52 @@ func openAIStreamChunk(id, model, content string, includeRole bool, usage map[st
 	return string(b)
 }
 
+// openAIStreamToolCallHeader emits the first chunk of a tool call: the
+// assistant role + tool_calls entry with id/name and empty arguments.
+func openAIStreamToolCallHeader(id, model string, idx int, callID, name string) string {
+	out := map[string]any{
+		"id":      id,
+		"object":  "chat.completion.chunk",
+		"model":   model,
+		"choices": []map[string]any{{
+			"index": 0,
+			"delta": map[string]any{
+				"role":       "assistant",
+				"content":    nil,
+				"tool_calls": []map[string]any{{
+					"index": idx, "id": callID, "type": "function",
+					"function": map[string]any{"name": name, "arguments": ""},
+				}},
+			},
+			"finish_reason": nil,
+		}},
+	}
+	b, _ := json.Marshal(out)
+	return string(b)
+}
+
+// openAIStreamToolCallDelta emits an incremental arguments fragment for an
+// already-declared tool call.
+func openAIStreamToolCallDelta(id, model string, idx int, arguments string) string {
+	out := map[string]any{
+		"id":      id,
+		"object":  "chat.completion.chunk",
+		"model":   model,
+		"choices": []map[string]any{{
+			"index": 0,
+			"delta": map[string]any{
+				"tool_calls": []map[string]any{{
+					"index":    idx,
+					"function": map[string]any{"arguments": arguments},
+				}},
+			},
+			"finish_reason": nil,
+		}},
+	}
+	b, _ := json.Marshal(out)
+	return string(b)
+}
+
 // newOpenAIToAnthropicStreamReader wraps an OpenAI SSE body and emits
 // Anthropic-style events (message_start, content_block_delta, message_stop).
 func newOpenAIToAnthropicStreamReader(ctx context.Context, body io.ReadCloser) (io.ReadCloser, error) {
