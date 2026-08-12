@@ -251,6 +251,43 @@ func TestOpenAIToResponsesRequest(t *testing.T) {
 	}
 }
 
+// TestOpenAIToResponsesRequestCarriesTools guards the muse-spark regression:
+// OpenAI chat tools must be translated to Responses tools, otherwise the
+// upstream never sees them and answers a tool request with plain XML text.
+func TestOpenAIToResponsesRequestCarriesTools(t *testing.T) {
+	body := `{"model":"coding","messages":[{"role":"user","content":"use the tool"}],"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"tool_choice":{"type":"function","function":{"name":"get_weather"}}}`
+	out, err := translateOpenAIToResponsesRequest("muse-spark-1.2", []byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r map[string]any
+	if err := json.Unmarshal(out, &r); err != nil {
+		t.Fatal(err)
+	}
+	tools, ok := r["tools"].([]any)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("expected 1 translated tool, got: %s", string(out))
+	}
+	tool := tools[0].(map[string]any)
+	if tool["name"] != "get_weather" {
+		t.Errorf("tool name: got %v want get_weather", tool["name"])
+	}
+	if tool["type"] != "function" {
+		t.Errorf("tool type: got %v want function", tool["type"])
+	}
+	if tool["description"] != "Get weather for a city" {
+		t.Errorf("tool description: got %v", tool["description"])
+	}
+	params, ok := tool["parameters"].(map[string]any)
+	if !ok || params["type"] != "object" {
+		t.Errorf("tool parameters: got %v", tool["parameters"])
+	}
+	if r["tool_choice"] == nil {
+		t.Errorf("expected tool_choice to be carried, got: %s", string(out))
+	}
+	t.Logf("translated: %s", string(out))
+}
+
 func TestResponsesToOpenAIResponseJSON(t *testing.T) {
 	body := `{"id":"resp_1","model":"gpt-4o","output":[{"type":"message","content":[{"type":"output_text","text":"hello from responses"}]}],"usage":{"input_tokens":3,"output_tokens":7,"total_tokens":10}}`
 	out, err := translateResponsesToOpenAIResponseJSON([]byte(body))

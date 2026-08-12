@@ -59,6 +59,47 @@ func translateOpenAIToResponsesRequest(upstreamModel string, body []byte) ([]byt
 	if r.TopP != nil {
 		out["top_p"] = *r.TopP
 	}
+	// Translate OpenAI chat tools to Responses tools. OpenAI uses
+	// {"type":"function","function":{"name",description","parameters"}};
+	// Responses flattens the function fields to the top level
+	// {"type":"function","name","description","parameters"}.
+	if len(r.Tools) > 0 {
+		var tools []struct {
+			Type    string `json:"type"`
+			Function struct {
+				Name        string          `json:"name"`
+				Description string          `json:"description"`
+				Parameters  json.RawMessage `json:"parameters"`
+			} `json:"function"`
+		}
+		if err := json.Unmarshal(r.Tools, &tools); err == nil {
+			outTools := make([]map[string]any, 0, len(tools))
+			for _, t := range tools {
+				if t.Type != "function" || t.Function.Name == "" {
+					continue
+				}
+				params := t.Function.Parameters
+				if len(params) == 0 || string(params) == "null" {
+					params = json.RawMessage(`{"type":"object","properties":{}}`)
+				}
+				outTools = append(outTools, map[string]any{
+					"type":        "function",
+					"name":        t.Function.Name,
+					"description": t.Function.Description,
+					"parameters":  json.RawMessage(params),
+				})
+			}
+			if len(outTools) > 0 {
+				out["tools"] = outTools
+			}
+		}
+	}
+	if len(r.ToolChoice) > 0 {
+		// OpenAI tool_choice is {"type":"function","function":{"name":...}} or
+		// "auto"/"none"/"required". Responses accepts the same object shape
+		// and the string values, so pass it through.
+		out["tool_choice"] = json.RawMessage(r.ToolChoice)
+	}
 	return json.Marshal(out)
 }
 
