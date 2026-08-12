@@ -138,6 +138,15 @@ func TestSplitToolName(t *testing.T) {
 	}
 }
 
+// TestGetToolsNotEmptySlice guards against the frontend breaking on a null
+// tools array: GetTools must marshal to [] rather than null when empty.
+func TestGetToolsNotEmptySlice(t *testing.T) {
+	m := NewManager(newFakeRepo())
+	if got := m.GetTools(context.Background()); got == nil {
+		t.Fatalf("GetTools returned nil; frontend expects a non-null JSON array")
+	}
+}
+
 func TestGatewaySyncAndJSONRPC(t *testing.T) {
 	url, close := startTestMCPServer(t)
 	defer close()

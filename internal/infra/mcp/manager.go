@@ -264,10 +264,12 @@ func (m *Manager) Status(ctx context.Context) []domain.MCPClientStatus {
 }
 
 // GetTools returns the exposed tools of every enabled, connected client.
+// The result is always a non-nil slice so JSON responses marshal to []
+// instead of null.
 func (m *Manager) GetTools(ctx context.Context) []domain.MCPTool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	var out []domain.MCPTool
+	out := make([]domain.MCPTool, 0)
 	for _, st := range m.clients {
 		st.mu.RLock()
 		if st.state == domain.MCPStateConnected {

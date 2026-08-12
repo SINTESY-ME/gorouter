@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import {
   Table, Button, Modal, Input, Select, ListBox, Chip, Spinner, TextField, Label, TextArea,
   Switch, AlertDialog, toast,
@@ -51,7 +51,7 @@ export default function MCP() {
   const loadData = () => {
     setLoading(true);
     Promise.all([api.mcpClients.list(), api.mcpClients.tools()])
-      .then(([c, ts]) => { setClients(c); setTools(ts); })
+      .then(([c, ts]) => { setClients(c ?? []); setTools(ts ?? []); })
       .catch(() => { setClients([]); setTools([]); })
       .finally(() => setLoading(false));
   };
@@ -156,20 +156,9 @@ export default function MCP() {
     if (toolsCache[c.id]) return;
     try {
       const all = await api.mcpClients.tools();
-      setToolsCache((cache) => ({ ...cache, [c.id]: all.filter((x) => x.name.startsWith(c.name + "__")) }));
+      setToolsCache((cache) => ({ ...cache, [c.id]: (all ?? []).filter((x) => x.name.startsWith(c.name + "__")) }));
     } catch { /* ignore */ }
   };
-
-  const groupedTools = useMemo(() => {
-    const groups: Record<string, MCPToolDef[]> = {};
-    tools.forEach((x) => {
-      const idx = x.name.indexOf("__");
-      const client = idx > 0 ? x.name.slice(0, idx) : "?";
-      if (!groups[client]) groups[client] = [];
-      groups[client].push(x);
-    });
-    return groups;
-  }, [tools]);
 
   return (
     <div className="space-y-4">
