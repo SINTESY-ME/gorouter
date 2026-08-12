@@ -14,9 +14,10 @@ import Performance from "./pages/Performance";
 import Settings from "./pages/Settings";
 import Users from "./pages/Users";
 import Playground from "./pages/Playground";
+import MCP from "./pages/MCP";
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
-import { IconRoute, IconHome, IconServer, IconLayers, IconBox, IconKey, IconActivity, IconGauge, IconChat, IconLogout, IconSettings, IconUsers } from "./icons";
+import { IconRoute, IconHome, IconServer, IconLayers, IconBox, IconKey, IconActivity, IconGauge, IconChat, IconLogout, IconSettings, IconUsers, IconPlug } from "./icons";
 
 interface NavItem {
   to: string;
@@ -32,6 +33,7 @@ const nav: NavItem[] = [
   { to: "/providers", labelKey: "app.nav.providers", icon: IconServer },
   { to: "/combos", labelKey: "app.nav.combos", icon: IconLayers },
   { to: "/models", labelKey: "app.nav.models", icon: IconBox },
+  { to: "/mcp", labelKey: "app.nav.mcp", icon: IconPlug },
   { to: "/keys", labelKey: "app.nav.keys", icon: IconKey },
   { to: "/playground", labelKey: "app.nav.playground", icon: IconChat },
   { to: "/logs", labelKey: "app.nav.logs", icon: IconActivity },
@@ -145,6 +147,7 @@ function DashboardLayout({ onLogout, me }: { onLogout: () => void; me: User | nu
               <Route path="/providers" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Providers /></div></div>} />
               <Route path="/combos" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Combos /></div></div>} />
               <Route path="/models" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Models /></div></div>} />
+              <Route path="/mcp" element={<div className="p-6"><div className="max-w-6xl mx-auto"><MCP /></div></div>} />
               <Route path="/playground" element={<Playground />} />
               <Route path="/keys" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Keys /></div></div>} />
               <Route path="/logs" element={<div className="p-6"><div className="max-w-6xl mx-auto"><Logs /></div></div>} />

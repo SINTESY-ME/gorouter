@@ -22,6 +22,7 @@ import (
 	"github.com/jhon/gorouter/internal/domain"
 	"github.com/jhon/gorouter/internal/infra/db"
 	"github.com/jhon/gorouter/internal/infra/executor"
+	"github.com/jhon/gorouter/internal/infra/mcp"
 	"github.com/jhon/gorouter/internal/infra/metrics"
 	"github.com/jhon/gorouter/internal/infra/redis"
 	"github.com/jhon/gorouter/internal/infra/responsecache"
@@ -249,6 +250,15 @@ func run() error {
 		OnSynced:    router.RefreshPricingCache,
 	}
 
+	// MCP gateway: manages upstream MCP server connections, their discovered
+	// tools, the aggregated /mcp endpoint, and tool injection into chat
+	// requests. Optional — when the DB has no clients it stays idle.
+	mcpRepo := db.NewMCPClientRepo(gdb)
+	mcpManager := mcp.NewManager(mcpRepo)
+	mcpSvc := &app.MCPService{Repo: mcpRepo, Manager: mcpManager}
+	router.MCP = mcpSvc
+	mcpGateway := mcp.NewGateway(mcpManager, "1.0.0")
+
 	// Hook pipeline (PreCall/PostCall/PostCallFailure). Controlled by the
 	// dashboard settings (persisted in SettingRepo); an empty list leaves
 	// Router.Hooks nil so every hook point is skipped at zero cost.
@@ -394,6 +404,11 @@ func run() error {
 		Catalog:              catalogSvc,
 		OAuth:                oauthMgr,
 		BudgetChecker:        budgetSvc,
+		MCP: &httpx.MCP{
+			Svc:     mcpSvc,
+			Manager: mcpManager,
+			Gateway: mcpGateway,
+		},
 	}
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -425,6 +440,12 @@ func run() error {
 		}
 	}()
 
+	// MCP gateway: dial configured upstream clients and start the background
+	// tool sync / reconnect loops. Syncs the aggregated gateway after dial so
+	// the /mcp endpoint is populated immediately.
+	mcpManager.Start(ctx)
+	mcpGateway.Sync(ctx)
+
 	// Pre-load pricing cache from the DB so the first requests have
 	// pricing data before the initial sync completes.
 	router.RefreshPricingCache(context.Background())
@@ -443,6 +464,7 @@ func run() error {
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		slog.Error("graceful shutdown failed", "err", err)
 	}
+	mcpManager.Close()
 	return nil
 }
 

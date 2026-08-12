@@ -208,6 +208,33 @@ export interface SavingsStats {
   semantic_cost_saved?: number;
 }
 
+// MCP gateway types.
+export interface MCPClient {
+  id: string;
+  name: string;
+  connection_type: "http" | "sse" | "stdio";
+  url?: string;
+  headers?: Record<string, string>;
+  stdio_command?: string;
+  stdio_args?: string[];
+  auth_type: "none" | "bearer";
+  tools_to_execute?: string[];
+  enabled: boolean;
+  sync_seconds?: number;
+  created_at?: string;
+  updated_at?: string;
+  state?: string;
+  error?: string;
+  tool_count?: number;
+  last_sync_at?: string;
+}
+export interface MCPToolDef {
+  name: string;
+  description?: string;
+  input_schema?: Record<string, any>;
+  client_id?: string;
+}
+
 
 export const api = {
   auth: {
@@ -346,6 +373,16 @@ export const api = {
   },
   savings: {
     stats: (period = "60d", apiKeyId = "") => request<SavingsStats>(`/api/savings?period=${period}${apiKeyId ? `&api_key_id=${apiKeyId}` : ""}`),
+  },
+  mcpClients: {
+    list: () => request<MCPClient[]>("/api/mcp/clients"),
+    create: (c: Partial<MCPClient>) => request<MCPClient>("/api/mcp/clients", { method: "POST", body: JSON.stringify(c) }),
+    update: (id: string, c: Partial<MCPClient>) => request<MCPClient>(`/api/mcp/clients/${id}`, { method: "PUT", body: JSON.stringify(c) }),
+    remove: (id: string) => request<void>(`/api/mcp/clients/${id}`, { method: "DELETE" }),
+    reconnect: (id: string) => request<{ status: string }>(`/api/mcp/clients/${id}/reconnect`, { method: "POST" }),
+    enable: (id: string) => request<{ status: string }>(`/api/mcp/clients/${id}/enable`, { method: "POST" }),
+    disable: (id: string) => request<{ status: string }>(`/api/mcp/clients/${id}/disable`, { method: "POST" }),
+    tools: () => request<MCPToolDef[]>("/api/mcp/tools"),
   },
   status: () => request<StatusSnapshot>("/api/status"),
 };

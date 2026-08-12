@@ -93,6 +93,9 @@ type Server struct {
 	// BudgetChecker enforces per-key spending caps. Nil disables budget
 	// enforcement (all requests pass through regardless of spend).
 	BudgetChecker *app.BudgetService
+	// MCP is the optional MCP gateway handler bundle. Nil disables all
+	// /api/mcp/* and /mcp routes (handlers no-op).
+	MCP *MCP
 }
 
 // Routes builds the chi router with all endpoints.
@@ -124,8 +127,14 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/images/generations", s.handlePassthrough("images/generations"))
 		r.Post("/audio/speech", s.handlePassthrough("audio/speech"))
 		r.Post("/audio/transcriptions", s.handlePassthrough("audio/transcriptions"))
+		r.Post("/mcp/tool/execute", s.handleMCPToolExecute)
 		r.Get("/*", s.handleNotImplemented)
 	})
+
+	// Aggregated MCP gateway endpoint. Agents (Codex, Claude CLI, …) connect
+	// here as their MCP server and gorouter proxies tools/call to the owning
+	// upstream client. Authenticated with the same client API key as /v1.
+	r.With(s.requireApiKey).Post("/mcp", s.handleMCPGateway)
 
 	r.Route("/api", func(r chi.Router) {
 		// Auth routes are public (not behind requireDashboardToken) so the
@@ -212,6 +221,16 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/savings", s.handleSavings)
 			r.Get("/settings", s.handleGetSettings)
 			r.Put("/settings", s.handleUpdateSettings)
+
+			// MCP gateway dashboard CRUD (no-op when MCP is nil).
+			r.Get("/mcp/clients", s.handleListMCPClients)
+			r.Post("/mcp/clients", s.handleCreateMCPClient)
+			r.Put("/mcp/clients/{id}", s.handleUpdateMCPClient)
+			r.Delete("/mcp/clients/{id}", s.handleDeleteMCPClient)
+			r.Post("/mcp/clients/{id}/reconnect", s.handleReconnectMCPClient)
+			r.Post("/mcp/clients/{id}/enable", s.handleEnableMCPClient)
+			r.Post("/mcp/clients/{id}/disable", s.handleDisableMCPClient)
+			r.Get("/mcp/tools", s.handleMCPTools)
 		})
 	})
 
@@ -344,6 +363,10 @@ type apiKeyCtxKey struct{}
 // to what the user can see. Returns 401 on mismatch.
 func (s *Server) requireDashboardToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.Auth == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
 		configured, _ := s.Auth.IsConfigured(r.Context())
 		if !configured {
 			next.ServeHTTP(w, r)

@@ -24,6 +24,7 @@ export const IconX = (p: { className?: string }) => <Icon icon="gravity-ui:xmark
 export const IconGrip = (p: { className?: string }) => <Icon icon="lucide:grip-vertical" className={p.className} />;
 export const IconSparkles = (p: { className?: string }) => <Icon icon="gravity-ui:sparkles" className={p.className} />;
 export const IconStack = (p: { className?: string }) => <Icon icon="gravity-ui:stack" className={p.className} />;
+export const IconPlug = (p: { className?: string }) => <Icon icon="lucide:plug" className={p.className} />;
 export const IconSearch = (p: { className?: string }) => <Icon icon="gravity-ui:magnifier" className={p.className} />;
 export const IconPower = (p: { className?: string }) => <Icon icon="gravity-ui:power" className={p.className} />;
 export const IconDotsVertical = (p: { className?: string }) => <Icon icon="mdi:dots-vertical" className={p.className} />;

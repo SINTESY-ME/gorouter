@@ -87,6 +87,11 @@ type RouterService struct {
 	// Hooks is the optional hook pipeline (PreCall/PostCall/PostCallFailure).
 	// Nil disables hooks entirely — every hook point is skipped at zero cost.
 	Hooks *HookPipeline
+	// MCP is the optional MCP gateway service. When set, exposed MCP tools
+	// are injected into chat/responses/antihopic requests and the
+	// non-stream agent loop can execute tool calls server-side. Nil
+	// disables all MCP behavior at zero cost on the hot path.
+	MCP *MCPService
 }
 
 // probeCtxKey is used to mark a context as originating from a health probe
@@ -192,6 +197,15 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 		modelStr = hc.Model
 	}
 	ctx = withRequestBody(ctx, body)
+	// MCP tool injection: merge the gateway's exposed tools into the request
+	// body (format-aware) before the cache lookup and routing, so the cache
+	// key reflects the tools the model actually sees. Existing caller-supplied
+	// tools win on name collision.
+	if s.MCP != nil && opts.Endpoint == "" {
+		if injected, err := s.MCP.InjectTools(ctx, opts.InputFormat, body); err == nil {
+			body = injected
+		}
+	}
 	// Per-key model access: reject models the authenticated key isn't allowed
 	// to use before any upstream/cache work.
 	if !s.modelAllowed(ctx, modelStr) {
@@ -280,11 +294,25 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 		}
 	}
 
+	// Route the request. When the MCP agent loop is active (non-stream
+	// OpenAI chat with MCP configured), wrap the single dispatch in the
+	// tool-execution loop so tool calls are resolved server-side.
+	if s.MCP != nil && !stream && opts.InputFormat == domain.FormatOpenAI && opts.Endpoint == "" {
+		res, err := s.routeWithAgentLoop(ctx, modelStr, body, apiKey, opts, requestID)
+		return s.finishRoute(ctx, hc, res, err)
+	}
+	res, err := s.routeChatDispatch(ctx, modelStr, body, stream, apiKey, opts, requestID)
+	return s.finishRoute(ctx, hc, res, err)
+}
+
+// routeChatDispatch routes a chat request to a single model or a combo,
+// returning the raw (un-finished) result. It is the shared dispatch used both
+// by RouteChat and by the MCP agent loop.
+func (s *RouterService) routeChatDispatch(ctx context.Context, modelStr string, body []byte, stream bool, apiKey string, opts RouteOptions, requestID string) (*RouterResponse, error) {
 	modelID, ok := domain.SplitModelID(modelStr)
 	if ok {
 		attempt := 0
-		res, err := s.routeSingle(ctx, modelID, body, stream, apiKey, opts, "", requestID, &attempt)
-		return s.finishRoute(ctx, hc, res, err)
+		return s.routeSingle(ctx, modelID, body, stream, apiKey, opts, "", requestID, &attempt)
 	}
 	combo, err := s.Combos.GetByName(ctx, modelStr)
 	if err == domain.ErrNotFound {
@@ -294,8 +322,7 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 		return nil, err
 	}
 	attempt := 0
-	res, err := s.routeCombo(ctx, combo, body, stream, apiKey, opts, "", 0, nil, requestID, &attempt)
-	return s.finishRoute(ctx, hc, res, err)
+	return s.routeCombo(ctx, combo, body, stream, apiKey, opts, "", 0, nil, requestID, &attempt)
 }
 
 // RoutePassthrough routes a non-chat endpoint (embeddings, images) to a
