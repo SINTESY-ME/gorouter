@@ -172,10 +172,24 @@ func (s *MCPService) Tools(ctx context.Context) []domain.MCPTool {
 // keep precedence (the caller's tools win on name collision). The body is
 // returned unchanged when MCP is disabled or there are no tools.
 func (s *MCPService) InjectTools(ctx context.Context, format domain.Format, body []byte) ([]byte, error) {
+	return s.InjectToolsForClients(ctx, format, body, nil)
+}
+
+// InjectToolsForClients merges the MCP tools of the given client IDs into a
+// chat request body in the given client format. A nil clientIDs means "every
+// enabled client" (used by the dashboard preview and legacy callers); a
+// non-nil slice — even empty — filters to exactly those clients, so combos
+// never receive tools from clients they did not declare.
+func (s *MCPService) InjectToolsForClients(ctx context.Context, format domain.Format, body []byte, clientIDs []string) ([]byte, error) {
 	if s.Manager == nil {
 		return body, nil
 	}
-	tools := s.Manager.GetTools(ctx)
+	var tools []domain.MCPTool
+	if clientIDs != nil {
+		tools = s.Manager.GetToolsByClients(ctx, clientIDs)
+	} else {
+		tools = s.Manager.GetTools(ctx)
+	}
 	if len(tools) == 0 {
 		return body, nil
 	}

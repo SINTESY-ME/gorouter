@@ -517,6 +517,9 @@ type comboDTO struct {
 	Strategy        string                           `json:"strategy"`
 	ModelMeta       map[string]domain.ComboModelMeta `json:"model_meta,omitempty"`
 	ClassifierModel string                           `json:"classifier_model,omitempty"`
+	// MCPClients is a pointer so an explicit [] clears the combo's MCP list
+	// while an omitted field leaves it untouched.
+	MCPClients *[]string `json:"mcp_clients,omitempty"`
 }
 
 func (s *Server) handleListCombos(w http.ResponseWriter, r *http.Request) {
@@ -545,6 +548,9 @@ func (s *Server) handleCreateCombo(w http.ResponseWriter, r *http.Request) {
 		ModelMeta:       req.ModelMeta,
 		ClassifierModel: req.ClassifierModel,
 		CreatedBy:       s.createdByFor(r),
+	}
+	if req.MCPClients != nil {
+		c.MCPClients = *req.MCPClients
 	}
 	if err := s.Combos.Create(r.Context(), c); err != nil {
 		writeError(w, statusForError(err), err.Error())
@@ -575,6 +581,9 @@ func (s *Server) handleUpdateCombo(w http.ResponseWriter, r *http.Request) {
 	existing.ModelMeta = req.ModelMeta
 	if len(req.Models) > 0 {
 		existing.Models = req.Models
+	}
+	if req.MCPClients != nil {
+		existing.MCPClients = *req.MCPClients
 	}
 	if err := s.Combos.Update(r.Context(), existing); err != nil {
 		writeError(w, statusForError(err), err.Error())

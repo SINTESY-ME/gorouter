@@ -126,6 +126,10 @@ type MCPManager interface {
 	// each client's ToolsToExecute allow-list. Names are prefixed
 	// "<client>__<tool>".
 	GetTools(ctx context.Context) []MCPTool
+	// GetToolsByClients returns the exposed tools only for the given client
+	// IDs (an empty list returns no tools). Honors the same allow-list as
+	// GetTools.
+	GetToolsByClients(ctx context.Context, clientIDs []string) []MCPTool
 	// ExecuteTool runs a tool call against the owning client. name is the
 	// prefixed "<client>__<tool>" name; args is the raw JSON arguments
 	// object. Returns the tool result text.

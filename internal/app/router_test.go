@@ -35,6 +35,7 @@ type mockExecutor struct {
 	failFirst   map[string]int    // model -> how many initial calls return 503 before succeeding
 	called      []string          // sequence of UpstreamModel per Execute call
 	calledConns []string          // sequence of Connection.ID per non-probe Execute call
+	sentBodies  []string          // request bodies sent to the upstream (non-probe)
 }
 
 func (m *mockExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) (*domain.ExecuteResult, error) {
@@ -64,6 +65,11 @@ func (m *mockExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) (
 		m.called = append(m.called, model)
 		if req.Connection != nil {
 			m.calledConns = append(m.calledConns, req.Connection.ID)
+		}
+		// Capture the request body for injection assertions.
+		if b, rerr := io.ReadAll(req.Body); rerr == nil {
+			m.sentBodies = append(m.sentBodies, string(b))
+			req.Body = io.NopCloser(bytes.NewReader(b))
 		}
 	}
 	m.mu.Unlock()

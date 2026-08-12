@@ -258,6 +258,8 @@ func run() error {
 	mcpSvc := &app.MCPService{Repo: mcpRepo, Manager: mcpManager}
 	router.MCP = mcpSvc
 	mcpGateway := mcp.NewGateway(mcpManager, "1.0.0")
+	// Combos reference MCP clients by ID; validate on save.
+	combos.MCPClients = mcpRepo
 
 	// Hook pipeline (PreCall/PostCall/PostCallFailure). Controlled by the
 	// dashboard settings (persisted in SettingRepo); an empty list leaves

@@ -197,15 +197,6 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 		modelStr = hc.Model
 	}
 	ctx = withRequestBody(ctx, body)
-	// MCP tool injection: merge the gateway's exposed tools into the request
-	// body (format-aware) before the cache lookup and routing, so the cache
-	// key reflects the tools the model actually sees. Existing caller-supplied
-	// tools win on name collision.
-	if s.MCP != nil && opts.Endpoint == "" {
-		if injected, err := s.MCP.InjectTools(ctx, opts.InputFormat, body); err == nil {
-			body = injected
-		}
-	}
 	// Per-key model access: reject models the authenticated key isn't allowed
 	// to use before any upstream/cache work.
 	if !s.modelAllowed(ctx, modelStr) {
@@ -294,15 +285,30 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 		}
 	}
 
-	// Route the request. When the MCP agent loop is active (non-stream
-	// OpenAI chat with MCP configured), wrap the single dispatch in the
-	// tool-execution loop so tool calls are resolved server-side.
-	if s.MCP != nil && !stream && opts.InputFormat == domain.FormatOpenAI && opts.Endpoint == "" {
+	// Route the request. Direct model requests and combos without MCP
+	// clients never run the agent loop; only combos that declare MCPs and
+	// arrive as non-stream OpenAI chat do (tool calls resolved server-side).
+	combo, comboErr := s.lookupCombo(ctx, modelStr)
+	if s.MCP != nil && !stream && opts.InputFormat == domain.FormatOpenAI && opts.Endpoint == "" && comboErr == nil && combo != nil && len(combo.MCPClients) > 0 {
 		res, err := s.routeWithAgentLoop(ctx, modelStr, body, apiKey, opts, requestID)
 		return s.finishRoute(ctx, hc, res, err)
 	}
 	res, err := s.routeChatDispatch(ctx, modelStr, body, stream, apiKey, opts, requestID)
 	return s.finishRoute(ctx, hc, res, err)
+}
+
+// lookupCombo resolves a model name to a combo, or returns (nil, nil) when
+// the model is a direct provider/model. A missing combo is reported as an
+// error (the caller turns it into a "model not found").
+func (s *RouterService) lookupCombo(ctx context.Context, modelStr string) (*domain.Combo, error) {
+	if _, ok := domain.SplitModelID(modelStr); ok {
+		return nil, nil
+	}
+	combo, err := s.Combos.GetByName(ctx, modelStr)
+	if err != nil && err != domain.ErrNotFound {
+		return nil, err
+	}
+	return combo, nil
 }
 
 // routeChatDispatch routes a chat request to a single model or a combo,
@@ -648,6 +654,15 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 	ct := ""
 	if len(contentType) > 0 {
 		ct = contentType[0]
+	}
+	// MCP tool injection: only combos that declare MCP clients receive the
+	// gateway's tools, and only those clients' tools are merged in. Direct
+	// model requests never hit this path. Nested combos inherit the already
+	// injected body (dedupe by name keeps collisions safe).
+	if s.MCP != nil && endpoint == "" && len(combo.MCPClients) > 0 {
+		if injected, err := s.MCP.InjectToolsForClients(ctx, opts.InputFormat, body, combo.MCPClients); err == nil {
+			body = injected
+		}
 	}
 	models := combo.Models
 	var strat ComboStrategy

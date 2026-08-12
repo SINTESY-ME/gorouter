@@ -104,6 +104,7 @@ export interface Combo {
   id: string; name: string; models: string[]; strategy: string; kind?: string;
   model_meta?: Record<string, ComboModelMeta>;
   classifier_model?: string;
+  mcp_clients?: string[];
   created_at: string; updated_at: string;
 }
 export interface KeyLimit {

@@ -205,6 +205,11 @@ type Combo struct {
 	ModelMeta       map[string]ComboModelMeta `json:"model_meta,omitempty" gorm:"serializer:json;type:text"`
 	ClassifierModel string                    `json:"classifier_model,omitempty" gorm:"column:classifier_model"`
 	Kind            ModelKind                 `json:"kind,omitempty" gorm:"default:llm"`
+	// MCPClients lists the MCP gateway client IDs whose tools are injected
+	// into requests routed through this combo. Empty means no MCP tools.
+	// Tools are only ever injected for combo requests — direct model
+	// requests are never touched.
+	MCPClients []string `json:"mcp_clients,omitempty" gorm:"serializer:json;type:text"`
 	// CreatedBy is the dashboard user ID that owns this combo. Empty means
 	// admin-owned.
 	CreatedBy string    `json:"-" gorm:"column:created_by;index"`

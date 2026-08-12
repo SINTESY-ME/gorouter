@@ -13,7 +13,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ModelComboBox, type ModelComboBoxItem } from "../components/ModelComboBox";
-import { api, type Combo, type ModelEntry, type ComboModelMeta, type Provider } from "../api";
+import { api, type Combo, type ModelEntry, type ComboModelMeta, type Provider, type MCPClient } from "../api";
 import { IconPlus, IconPencil, IconTrash, IconArrow, IconX, IconStack, IconGrip } from "../icons";
 
 const KIND_COLORS: Record<string, "accent" | "success" | "warning" | "default" | "danger"> = {
@@ -35,6 +35,7 @@ interface ComboForm {
   strategy: string;
   classifier_model: string;
   model_meta: Record<string, ComboModelMeta>;
+  mcp_clients: string[];
 }
 
 const empty: ComboForm = {
@@ -43,6 +44,7 @@ const empty: ComboForm = {
   strategy: "ordered_fallback",
   classifier_model: "",
   model_meta: {},
+  mcp_clients: [],
 };
 
 export default function Combos() {
@@ -55,6 +57,7 @@ export default function Combos() {
   const [saving, setSaving] = useState(false);
   const [triedSubmit, setTriedSubmit] = useState(false);
   const [allCatalogModels, setAllCatalogModels] = useState<ModelEntry[]>([]);
+  const [mcpClients, setMcpClients] = useState<MCPClient[]>([]);
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   const load = () => {
@@ -62,6 +65,10 @@ export default function Combos() {
     api.combos.list().then(setItems).catch(() => setItems([])).finally(() => setLoading(false));
   };
   useEffect(load, []);
+
+  useEffect(() => {
+    api.mcpClients.list().then(setMcpClients).catch(() => setMcpClients([]));
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -78,7 +85,7 @@ export default function Combos() {
   }, []);
 
   const openNew = () => {
-    setForm({ ...empty, models: [], model_meta: {} });
+    setForm({ ...empty, models: [], model_meta: {}, mcp_clients: [] });
     setEditId(null);
     setTriedSubmit(false);
     setOpen(true);
@@ -91,6 +98,7 @@ export default function Combos() {
       strategy: c.strategy,
       classifier_model: c.classifier_model ?? "",
       model_meta: c.model_meta ? { ...c.model_meta } : {},
+      mcp_clients: c.mcp_clients ? [...c.mcp_clients] : [],
     });
     setEditId(c.id);
     setTriedSubmit(false);
@@ -113,6 +121,7 @@ export default function Combos() {
         strategy: form.strategy,
         classifier_model: form.strategy === "intelligence" ? form.classifier_model : "",
         model_meta: form.strategy === "intelligence" ? form.model_meta : {},
+        mcp_clients: form.mcp_clients,
       };
       if (editId) await api.combos.update(editId, payload as any);
       else await api.combos.create(payload as any);
@@ -195,6 +204,18 @@ export default function Combos() {
                           <span className="text-[11px] text-muted font-mono">
                             {t("combos.classifier", { model: c.classifier_model })}
                           </span>
+                        )}
+                        {c.mcp_clients && c.mcp_clients.length > 0 && (
+                          <div className="flex flex-wrap gap-1 pt-0.5">
+                            {c.mcp_clients.map((id) => {
+                              const name = mcpClients.find((x) => x.id === id)?.name ?? id;
+                              return (
+                                <Chip key={id} size="sm" variant="flat" color="accent" className="text-[10px]">
+                                  {name}
+                                </Chip>
+                              );
+                            })}
+                          </div>
                         )}
                       </div>
                     </Table.Cell>
@@ -379,6 +400,61 @@ export default function Combos() {
                     })}
                   </div>
                 )}
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <Label>{t("combos.mcps")}</Label>
+                    <span className="text-xs text-muted text-right">{t("combos.mcpsHelper")}</span>
+                  </div>
+                  <Select
+                    aria-label={t("combos.mcpsAria")}
+                    selectedKeys={new Set(form.mcp_clients)}
+                    onSelectionChange={(keys) => {
+                      const selected = Array.from(keys as Set<string>);
+                      setForm({ ...form, mcp_clients: selected });
+                    }}
+                  >
+                    <Select.Trigger className="bg-surface-secondary">
+                      <Select.Value>
+                        {form.mcp_clients.length
+                          ? form.mcp_clients.map((id) => mcpClients.find((c) => c.id === id)?.name ?? id).join(", ")
+                          : t("combos.mcpsPlaceholder")}
+                      </Select.Value>
+                      <Select.Indicator />
+                    </Select.Trigger>
+                    <Select.Popover>
+                      <ListBox selectionMode="multiple">
+                        {mcpClients.length === 0 && (
+                          <ListBox.Item id="__empty__" isDisabled>
+                            {t("combos.mcpsEmpty")}
+                          </ListBox.Item>
+                        )}
+                        {mcpClients.map((c) => (
+                          <ListBox.Item key={c.id} id={c.id} textValue={c.name}>
+                            <div className="flex items-center justify-between w-full gap-2">
+                              <span className="text-sm font-medium">{c.name}</span>
+                              <Chip size="sm" variant="soft" color={c.enabled ? "success" : "default"} className="text-[10px]">
+                                {c.enabled ? t("combos.mcpsEnabled") : t("combos.mcpsDisabled")}
+                              </Chip>
+                            </div>
+                          </ListBox.Item>
+                        ))}
+                      </ListBox>
+                    </Select.Popover>
+                  </Select>
+                  {form.mcp_clients.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {form.mcp_clients.map((id) => {
+                        const c = mcpClients.find((x) => x.id === id);
+                        return (
+                          <Chip key={id} size="sm" variant="flat" color="accent"
+                            onClose={() => setForm({ ...form, mcp_clients: form.mcp_clients.filter((x) => x !== id) })}>
+                            {c?.name ?? id}
+                          </Chip>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </Modal.Body>
               <Modal.Footer>
                 <Button variant="secondary" onPress={() => setOpen(false)}>{t("combos.cancel")}</Button>

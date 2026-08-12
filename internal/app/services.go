@@ -55,6 +55,8 @@ func (s *ConnectionService) Reorder(ctx context.Context, ids []string) error {
 type ComboService struct {
 	Repo   domain.ComboRepo
 	Models domain.ModelRepo // for Kind validation
+	// MCPClients validates mcp_clients references when set.
+	MCPClients domain.MCPClientRepo
 }
 
 func (s *ComboService) List(ctx context.Context) ([]domain.Combo, error) {
@@ -80,6 +82,9 @@ func (s *ComboService) Create(ctx context.Context, c *domain.Combo) error {
 	if err := s.validateCombo(c); err != nil {
 		return err
 	}
+	if err := s.validateMCPClients(ctx, c); err != nil {
+		return err
+	}
 	if err := s.detectCycle(ctx, c.Name, c.Models); err != nil {
 		return err
 	}
@@ -93,6 +98,9 @@ func (s *ComboService) Create(ctx context.Context, c *domain.Combo) error {
 
 func (s *ComboService) Update(ctx context.Context, c *domain.Combo) error {
 	if err := s.validateCombo(c); err != nil {
+		return err
+	}
+	if err := s.validateMCPClients(ctx, c); err != nil {
 		return err
 	}
 	if err := s.detectCycle(ctx, c.Name, c.Models); err != nil {
@@ -175,6 +183,35 @@ func (s *ComboService) validateCombo(c *domain.Combo) error {
 			}
 		}
 	}
+	return nil
+}
+
+// validateMCPClients ensures every mcp_clients reference resolves to an
+// existing MCP client, so combos never silently reference a dead ID. The
+// check is skipped when the repo is not wired (tests, legacy setups).
+func (s *ComboService) validateMCPClients(ctx context.Context, c *domain.Combo) error {
+	if s.MCPClients == nil || len(c.MCPClients) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, id := range c.MCPClients {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		if _, err := s.MCPClients.Get(ctx, id); err != nil {
+			return fmtValidation(fmt.Sprintf("mcp client %q does not exist", id))
+		}
+	}
+	// Deduplicate while preserving order.
+	clean := make([]string, 0, len(seen))
+	for _, id := range c.MCPClients {
+		if seen[id] {
+			clean = append(clean, id)
+			seen[id] = false
+		}
+	}
+	c.MCPClients = clean
 	return nil
 }
 

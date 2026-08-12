@@ -453,7 +453,14 @@
     "selectorCombo": "combo",
     "selectorUp": "subir",
     "selectorDown": "descer",
-    "selectorRemove": "remover"
+    "selectorRemove": "remover",
+    "mcps": "MCP servers",
+    "mcpsHelper": "Tools from these MCP servers are injected into this combo's requests.",
+    "mcpsAria": "MCP servers for this combo",
+    "mcpsPlaceholder": "Select MCP servers...",
+    "mcpsEmpty": "No MCP servers configured yet. Add them in the MCP Gateway page.",
+    "mcpsEnabled": "enabled",
+    "mcpsDisabled": "disabled"
   },
   "performance": {
     "title": "Performance",

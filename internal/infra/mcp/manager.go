@@ -282,6 +282,31 @@ func (m *Manager) GetTools(ctx context.Context) []domain.MCPTool {
 	return out
 }
 
+// GetToolsByClients returns the exposed tools only for the given client IDs.
+// A client whose ID is not in the list is skipped entirely.
+func (m *Manager) GetToolsByClients(ctx context.Context, clientIDs []string) []domain.MCPTool {
+	if len(clientIDs) == 0 {
+		return make([]domain.MCPTool, 0)
+	}
+	want := make(map[string]bool, len(clientIDs))
+	for _, id := range clientIDs {
+		want[id] = true
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]domain.MCPTool, 0)
+	for _, st := range m.clients {
+		st.mu.RLock()
+		if st.state == domain.MCPStateConnected && want[st.cfg.ID] {
+			for _, t := range st.tools {
+				out = append(out, t)
+			}
+		}
+		st.mu.RUnlock()
+	}
+	return out
+}
+
 // ExecuteTool runs a prefixed "<client>__<tool>" call against its owner.
 func (m *Manager) ExecuteTool(ctx context.Context, name string, args string) (string, error) {
 	clientName, _ := splitToolName(name)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/jhon/gorouter/internal/domain"
@@ -34,6 +35,22 @@ func (m *mockMCPManager) Status(ctx context.Context) []domain.MCPClientStatus {
 	return nil
 }
 func (m *mockMCPManager) GetTools(ctx context.Context) []domain.MCPTool { return m.tools }
+func (m *mockMCPManager) GetToolsByClients(ctx context.Context, clientIDs []string) []domain.MCPTool {
+	if len(clientIDs) == 0 {
+		return nil
+	}
+	want := map[string]bool{}
+	for _, id := range clientIDs {
+		want[id] = true
+	}
+	var out []domain.MCPTool
+	for _, t := range m.tools {
+		if t.ClientID != "" && want[t.ClientID] {
+			out = append(out, t)
+		}
+	}
+	return out
+}
 func (m *mockMCPManager) ExecuteTool(ctx context.Context, name, args string) (string, error) {
 	if m.err != nil {
 		return "", m.err
@@ -184,6 +201,38 @@ func TestInjectToolsNoMCP(t *testing.T) {
 	}
 }
 
+func TestInjectToolsForClientsFilters(t *testing.T) {
+	mgr := &mockMCPManager{tools: []domain.MCPTool{
+		testMCPTool("github__create_issue", "create issue"),
+		testMCPTool("files__read", "read file"),
+	}}
+	mgr.tools[0].ClientID = "mcp-a"
+	mgr.tools[1].ClientID = "mcp-b"
+	svc := &MCPService{Manager: mgr}
+
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
+	// Only mcp-a's tool should be injected.
+	out, err := svc.InjectToolsForClients(context.Background(), domain.FormatOpenAI, body, []string{"mcp-a"})
+	if err != nil {
+		t.Fatalf("InjectToolsForClients: %v", err)
+	}
+	if !bytes.Contains(out, []byte("github__create_issue")) {
+		t.Fatalf("expected mcp-a tool injected, got %s", out)
+	}
+	if bytes.Contains(out, []byte("files__read")) {
+		t.Fatalf("mcp-b tool must NOT be injected for mcp-a only, got %s", out)
+	}
+
+	// Empty (non-nil) client list = inject nothing.
+	out2, err := svc.InjectToolsForClients(context.Background(), domain.FormatOpenAI, body, []string{})
+	if err != nil {
+		t.Fatalf("InjectToolsForClients empty: %v", err)
+	}
+	if string(out2) != string(body) {
+		t.Fatalf("expected unchanged body for empty client list, got %s", out2)
+	}
+}
+
 func TestExecuteToolChatFormat(t *testing.T) {
 	svc := &MCPService{Manager: &mockMCPManager{results: map[string]string{"github__create_issue": "issue #42 created"}}}
 	out, err := svc.ExecuteTool(context.Background(), "chat", "github__create_issue", `{"title":"x"}`)
@@ -244,23 +293,35 @@ func TestBuildAgentTurn(t *testing.T) {
 	}
 }
 
-// TestRouteWithAgentLoop exercises the full loop through the router: the
-// executor returns a tool-call response on every dispatch (the mock is
-// static), so the loop must keep dispatching until maxAgentDepth and return
-// the last tool-call response. The assertion is that MCP execution happened
-// across multiple dispatches (exec.calls > 1) and the response still carries
-// tool_calls (the client would take over).
+// TestRouteWithAgentLoop exercises the full loop through the router: a combo
+// that declares an MCP client gets the server-side agent loop. The executor
+// returns a tool-call response on every dispatch (the mock is static), so the
+// loop must keep dispatching until maxAgentDepth and return the last tool-call
+// response. The assertion is that MCP execution happened across multiple
+// dispatches (exec.calls > 1) and the response still carries tool_calls (the
+// client would take over).
 func TestRouteWithAgentLoop(t *testing.T) {
 	connRepo := twoProviderConnRepo()
 	exec := &mockExecutor{bodies: map[string]string{
 		"gpt-4o": `{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"github__create_issue","arguments":"{}"}}]}}]}`,
 	}, status: http.StatusOK}
 	usage := &mockUsageRepo{}
-	srv := NewRouterService(&mockComboRepo{}, connRepo, exec, &mockTranslator{}, usage)
-	srv.MCP = &MCPService{Manager: &mockMCPManager{results: map[string]string{"github__create_issue": "issue created"}}}
+	comboRepo := &mockComboRepo{combos: map[string]*domain.Combo{
+		"c1": {
+			ID:   "c1",
+			Name: "agent-combo",
+			// The mock manager exposes tools with ClientID "mcp1"; the combo
+			// must reference that ID for the agent loop to engage.
+			Models:      []string{"openai/gpt-4o"},
+			MCPClients: []string{"mcp1"},
+		},
+	}}
+	srv := NewRouterService(comboRepo, connRepo, exec, &mockTranslator{}, usage)
+	srv.MCP = &MCPService{Manager: &mockMCPManager{tools: []domain.MCPTool{testMCPTool("github__create_issue", "create issue")}}}
+	srv.MCP.Manager.(*mockMCPManager).tools[0].ClientID = "mcp1"
 
-	body := []byte(`{"model":"openai/gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
-	res, err := srv.RouteChat(context.Background(), body, "openai/gpt-4o", false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
+	body := []byte(`{"model":"agent-combo","messages":[{"role":"user","content":"hi"}]}`)
+	res, err := srv.RouteChat(context.Background(), body, "agent-combo", false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
 	if err != nil {
 		t.Fatalf("RouteChat: %v", err)
 	}
@@ -271,5 +332,114 @@ func TestRouteWithAgentLoop(t *testing.T) {
 	}
 	if exec.calls < 2 {
 		t.Fatalf("expected multiple dispatches in agent loop, got %d", exec.calls)
+	}
+}
+
+// TestNoAgentLoopForDirectModel guards the new combo-only rule: a direct
+// provider/model request must not enter the agent loop even with MCP wired.
+func TestNoAgentLoopForDirectModel(t *testing.T) {
+	connRepo := twoProviderConnRepo()
+	exec := &mockExecutor{bodies: map[string]string{
+		"gpt-4o": `{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"github__create_issue","arguments":"{}"}}]}}]}`,
+	}, status: http.StatusOK}
+	usage := &mockUsageRepo{}
+	srv := NewRouterService(&mockComboRepo{}, connRepo, exec, &mockTranslator{}, usage)
+	srv.MCP = &MCPService{Manager: &mockMCPManager{tools: []domain.MCPTool{testMCPTool("github__create_issue", "create issue")}}}
+
+	body := []byte(`{"model":"openai/gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
+	res, err := srv.RouteChat(context.Background(), body, "openai/gpt-4o", false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
+	if err != nil {
+		t.Fatalf("RouteChat: %v", err)
+	}
+	defer res.Body.Close()
+	if exec.calls != 1 {
+		t.Fatalf("expected exactly 1 dispatch for a direct model, got %d", exec.calls)
+	}
+	// No MCP tools should be injected into a direct model request.
+	if strings.Contains(exec.sentBodies[0], "github__create_issue") {
+		t.Fatalf("direct model must not receive MCP tools, got %s", exec.sentBodies[0])
+	}
+}
+
+// TestComboServiceValidatesMCPClients verifies combos reject unknown MCP
+// client IDs at save time.
+func TestComboServiceValidatesMCPClients(t *testing.T) {
+	repo := newMockMCPClientRepo()
+	svc := &ComboService{Repo: &mockComboRepo{}, Models: nil, MCPClients: repo}
+
+	c := &domain.Combo{Name: "c", Models: []string{"openai/gpt-4o"}, MCPClients: []string{"nope"}}
+	if err := svc.Create(context.Background(), c); err == nil {
+		t.Fatalf("expected error for unknown mcp client id")
+	}
+
+	// Existing client passes.
+	existing := &domain.MCPClient{ID: "mcp1", Name: "github", ConnectionType: domain.MCPTypeHTTP, URL: "http://x", AuthType: domain.MCPAuthNone, ToolsToExecute: []string{"*"}}
+	if err := repo.Create(context.Background(), existing); err != nil {
+		t.Fatalf("seed repo: %v", err)
+	}
+	c2 := &domain.Combo{Name: "c2", Models: []string{"openai/gpt-4o"}, MCPClients: []string{"mcp1"}}
+	if err := svc.Create(context.Background(), c2); err != nil {
+		t.Fatalf("expected valid combo to pass, got %v", err)
+	}
+}
+
+func TestComboServiceDedupesMCPClients(t *testing.T) {
+	repo := newMockMCPClientRepo()
+	svc := &ComboService{Repo: &mockComboRepo{}, MCPClients: repo}
+	if err := repo.Create(context.Background(), &domain.MCPClient{ID: "mcp1", Name: "github", ConnectionType: domain.MCPTypeHTTP, URL: "http://x", AuthType: domain.MCPAuthNone, ToolsToExecute: []string{"*"}}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	c := &domain.Combo{Name: "c", Models: []string{"openai/gpt-4o"}, MCPClients: []string{"mcp1", "mcp1", "mcp1"}}
+	if err := svc.Create(context.Background(), c); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if len(c.MCPClients) != 1 {
+		t.Fatalf("expected deduped mcp_clients, got %+v", c.MCPClients)
+	}
+}
+
+// TestComboInjectsOnlyDeclaredMCPs verifies tool injection happens only for
+// combos that declare MCP clients, and only those clients' tools.
+func TestComboInjectsOnlyDeclaredMCPs(t *testing.T) {
+	connRepo := twoProviderConnRepo()
+	exec := &mockExecutor{bodies: map[string]string{
+		"gpt-4o": `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`,
+	}, status: http.StatusOK}
+	usage := &mockUsageRepo{}
+	mgr := &mockMCPManager{tools: []domain.MCPTool{
+		testMCPTool("github__create_issue", "create issue"),
+		testMCPTool("files__read", "read file"),
+	}}
+	mgr.tools[0].ClientID = "mcp-a"
+	mgr.tools[1].ClientID = "mcp-b"
+
+	comboRepo := &mockComboRepo{combos: map[string]*domain.Combo{
+		"with-mcp": {ID: "1", Name: "with-mcp", Models: []string{"openai/gpt-4o"}, MCPClients: []string{"mcp-a"}},
+		"no-mcp":   {ID: "2", Name: "no-mcp", Models: []string{"openai/gpt-4o"}},
+	}}
+	srv := NewRouterService(comboRepo, connRepo, exec, &mockTranslator{}, usage)
+	srv.MCP = &MCPService{Manager: mgr}
+
+	// Combo with mcp-a: only github__create_issue injected.
+	body := []byte(`{"model":"with-mcp","messages":[{"role":"user","content":"hi"}]}`)
+	if _, err := srv.RouteChat(context.Background(), body, "with-mcp", false, "", RouteOptions{InputFormat: domain.FormatOpenAI}); err != nil {
+		t.Fatalf("combo with mcp: %v", err)
+	}
+	sent := exec.sentBodies[0]
+	if !strings.Contains(sent, "github__create_issue") {
+		t.Fatalf("combo with mcp-a must inject its tool, got %s", sent)
+	}
+	if strings.Contains(sent, "files__read") {
+		t.Fatalf("combo with mcp-a must NOT inject mcp-b tool, got %s", sent)
+	}
+
+	// Combo without MCPs: no tools.
+	body2 := []byte(`{"model":"no-mcp","messages":[{"role":"user","content":"hi"}]}`)
+	if _, err := srv.RouteChat(context.Background(), body2, "no-mcp", false, "", RouteOptions{InputFormat: domain.FormatOpenAI}); err != nil {
+		t.Fatalf("combo without mcp: %v", err)
+	}
+	sent2 := exec.sentBodies[len(exec.sentBodies)-1]
+	if strings.Contains(sent2, "__") && strings.Contains(sent2, "tools") {
+		t.Fatalf("combo without MCPs must not inject tools, got %s", sent2)
 	}
 }
