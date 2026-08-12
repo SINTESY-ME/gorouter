@@ -332,6 +332,26 @@ func openAIStreamToolCallDelta(id, model string, idx int, arguments string) stri
 	return string(b)
 }
 
+// openAIStreamReasoningChunk emits an incremental reasoning_content fragment
+// (the OpenAI convention for models that expose chain-of-thought, e.g.
+// DeepSeek). Used when a Responses upstream sends reasoning summary deltas.
+func openAIStreamReasoningChunk(id, model, reasoning string) string {
+	out := map[string]any{
+		"id":      id,
+		"object":  "chat.completion.chunk",
+		"model":   model,
+		"choices": []map[string]any{{
+			"index": 0,
+			"delta": map[string]any{
+				"reasoning_content": reasoning,
+			},
+			"finish_reason": nil,
+		}},
+	}
+	b, _ := json.Marshal(out)
+	return string(b)
+}
+
 // newOpenAIToAnthropicStreamReader wraps an OpenAI SSE body and emits
 // Anthropic-style events (message_start, content_block_delta, message_stop).
 func newOpenAIToAnthropicStreamReader(ctx context.Context, body io.ReadCloser) (io.ReadCloser, error) {

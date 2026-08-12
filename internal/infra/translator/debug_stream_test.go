@@ -110,6 +110,67 @@ func TestOpenAIStreamToResponsesUsageAfterFinishReason(t *testing.T) {
 	}
 }
 
+// TestResponsesStreamToOpenAIWithReasoning verifies a Responses stream's
+// reasoning_summary deltas are surfaced as OpenAI reasoning_content chunks
+// (the muse-spark thinking-flow regression).
+func TestResponsesStreamToOpenAIWithReasoning(t *testing.T) {
+	input := strings.Join([]string{
+		`data: {"type":"response.created","response":{"id":"resp_1","model":"muse-spark-1.2","status":"in_progress"}}`,
+		"",
+		`data: {"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"delta":"Let me think about this"}`,
+		"",
+		`data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":1,"delta":"Answer."}`,
+		"",
+		`data: {"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed","usage":{"input_tokens":100,"output_tokens":10,"total_tokens":110}}}`,
+		"",
+	}, "\n")
+
+	var sb strings.Builder
+	err := streamResponsesToOpenAI(context.Background(), newBufReader(strings.NewReader(input)), &sb)
+	if err != nil {
+		t.Fatalf("streamResponsesToOpenAI: %v", err)
+	}
+	got := sb.String()
+	t.Logf("stream output:\n%s", got)
+
+	if !strings.Contains(got, `"reasoning_content":"Let me think about this"`) {
+		t.Errorf("expected reasoning_content delta, got:\n%s", got)
+	}
+	if !strings.Contains(got, `"content":"Answer."`) {
+		t.Errorf("expected answer content, got:\n%s", got)
+	}
+}
+
+// TestResponsesJSONToOpenAIWithReasoning covers the non-streaming path for the
+// same muse-spark reasoning regression.
+func TestResponsesJSONToOpenAIWithReasoning(t *testing.T) {
+	body := `{"id":"resp_1","object":"response","model":"muse-spark-1.2","status":"completed","output":[
+		{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"Thinking step one"},{"type":"summary_text","text":"step two"}]},
+		{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"output_text","text":"Final answer"}]}
+	],"usage":{"input_tokens":100,"output_tokens":10,"total_tokens":110}}`
+	out, err := translateResponsesToOpenAIResponseJSON([]byte(body))
+	if err != nil {
+		t.Fatalf("translateResponsesToOpenAIResponseJSON: %v", err)
+	}
+	var resp struct {
+		Choices []struct {
+			Message struct {
+				Content          string `json:"content"`
+				ReasoningContent string `json:"reasoning_content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Choices[0].Message.ReasoningContent != "Thinking step one step two" {
+		t.Fatalf("expected reasoning_content, got %q in %s", resp.Choices[0].Message.ReasoningContent, string(out))
+	}
+	if resp.Choices[0].Message.Content != "Final answer" {
+		t.Fatalf("expected content, got %q", resp.Choices[0].Message.Content)
+	}
+}
+
 func newBufReader(r io.Reader) *bufio.Reader {
 	return bufio.NewReader(r)
 }

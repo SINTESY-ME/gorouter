@@ -67,11 +67,17 @@ func translateResponsesToOpenAIResponseJSON(body []byte) ([]byte, error) {
 		ID     string `json:"id"`
 		Model  string `json:"model"`
 		Output []struct {
-			Type      string `json:"type"`
-			Content   []struct {
+			Type    string `json:"type"`
+			Content []struct {
 				Type string `json:"type"`
 				Text string `json:"text"`
 			} `json:"content"`
+			// reasoning items carry a summary array like
+			// [{"type":"summary_text","text":"..."}]
+			Summary []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"summary"`
 			// function_call fields
 			CallID    string `json:"call_id"`
 			Name      string `json:"name"`
@@ -90,6 +96,7 @@ func translateResponsesToOpenAIResponseJSON(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("responses->openai response: parse: %w", err)
 	}
 	var text string
+	var reasoning string
 	hasMessage := false
 	var toolCalls []map[string]any
 	toolIndex := 0
@@ -100,6 +107,17 @@ func translateResponsesToOpenAIResponseJSON(body []byte) ([]byte, error) {
 			for _, c := range item.Content {
 				if c.Type == "output_text" {
 					text += c.Text
+				}
+			}
+		case "reasoning":
+			// Chain-of-thought summary from Responses-format models
+			// (muse-spark, deepseek…). Exposed as reasoning_content.
+			for _, s := range item.Summary {
+				if s.Type == "summary_text" || s.Type == "reasoning_text" {
+					if reasoning != "" {
+						reasoning += " "
+					}
+					reasoning += s.Text
 				}
 			}
 		case "function_call":
@@ -125,6 +143,9 @@ func translateResponsesToOpenAIResponseJSON(body []byte) ([]byte, error) {
 		finishReason = "length"
 	}
 	message := map[string]any{"role": "assistant", "content": text}
+	if reasoning != "" {
+		message["reasoning_content"] = reasoning
+	}
 	if len(toolCalls) > 0 {
 		message["tool_calls"] = toolCalls
 		if finishReason == "stop" {
@@ -219,6 +240,24 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 			if _, err := w.Write([]byte("data: " + chunk + "\n\n")); err != nil {
 				return err
 			}
+		case "response.reasoning_summary_text.delta":
+			// Expose the model's chain-of-thought via the OpenAI
+			// reasoning_content convention (DeepSeek-style), which the
+			// client can render or discard. This is what muse-spark and
+			// other Responses-format reasoning models need to surface
+			// their thinking flow.
+			if ev.Delta == "" {
+				continue
+			}
+			if first {
+				first = false
+			}
+			chunk := openAIStreamReasoningChunk(id, model, ev.Delta)
+			if _, err := w.Write([]byte("data: " + chunk + "\n\n")); err != nil {
+				return err
+			}
+		case "response.reasoning_summary_text.done":
+			// no-op: the summary text is streamed via delta events above.
 		case "response.output_item.added":
 			// Track function_call items so subsequent argument deltas can
 			// be routed to the right tool call.
