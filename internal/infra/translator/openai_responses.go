@@ -59,6 +59,12 @@ func translateOpenAIToResponsesRequest(upstreamModel string, body []byte) ([]byt
 	if r.TopP != nil {
 		out["top_p"] = *r.TopP
 	}
+	// ai-providers-internal / Codex Responses API requires store=false
+	// explicitly. LangChain ChatOpenAI sends store: false when configured,
+	// but the field was previously dropped during OpenAI->Responses
+	// translation (openaiRequest had no Store field). Always force false
+	// so the upstream never sees a missing or true store.
+	out["store"] = false
 	// Translate OpenAI chat tools to Responses tools. OpenAI uses
 	// {"type":"function","function":{"name",description","parameters"}};
 	// Responses flattens the function fields to the top level

@@ -175,6 +175,13 @@ func prepareOpenAIBody(body []byte, upstreamModel string, stream bool) []byte {
 			changed = true
 		}
 	}
+	// ai-providers-internal (Codex/Responses) requires store=false explicitly.
+	// LangChain sends it, but ensure it survives OpenAI->OpenAI re-encoding
+	// even if the client omitted it or sent true.
+	if cur, exists := m["store"]; !exists || cur != false {
+		m["store"] = false
+		changed = true
+	}
 	if msgs, ok := m["messages"].([]any); ok {
 		for _, raw := range msgs {
 			msg, ok := raw.(map[string]any)

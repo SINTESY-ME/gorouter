@@ -36,6 +36,7 @@ type openaiRequest struct {
 	Stop        json.RawMessage `json:"stop,omitempty"`
 	Stream      bool            `json:"stream"`
 	User        string          `json:"user,omitempty"`
+	Store       *bool           `json:"store,omitempty"`
 }
 
 type openaiMessage struct {
