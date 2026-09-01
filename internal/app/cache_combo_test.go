@@ -80,6 +80,7 @@ func TestRouteCombo_CacheHit_PrewarmedModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	buf, _ := io.ReadAll(res.Body)
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 
 	if !res.Cached {
@@ -110,6 +111,7 @@ func TestRouteCombo_CacheStore_KeyedByRealModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	time.Sleep(50 * time.Millisecond) // allow async store to complete
 
@@ -120,6 +122,7 @@ func TestRouteCombo_CacheStore_KeyedByRealModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, _ = io.Copy(io.Discard, res2.Body)
 	res2.Body.Close()
 
 	if !res2.Cached {
@@ -151,6 +154,7 @@ func TestRouteCombo_CacheHit_OrderedFallback_OnlyCurrentModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	buf, _ := io.ReadAll(res.Body)
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 
 	if !res.Cached {
@@ -191,6 +195,7 @@ func TestRouteCombo_CacheHit_RoundRobin_AllModels(t *testing.T) {
 		t.Fatal(err)
 	}
 	buf, _ := io.ReadAll(res.Body)
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 
 	if !res.Cached {
@@ -226,6 +231,7 @@ func TestRouteCombo_CacheHit_UnhealthyModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	buf, _ := io.ReadAll(res.Body)
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 
 	if !res.Cached {
@@ -262,6 +268,7 @@ func TestRouteCombo_CacheHit_Weighted_SameWeight(t *testing.T) {
 		t.Fatal(err)
 	}
 	buf, _ := io.ReadAll(res.Body)
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 
 	if !res.Cached {
@@ -308,6 +315,7 @@ func TestRouteCombo_CacheMiss_Weighted_DifferentWeight(t *testing.T) {
 		if res.Cached {
 			hitCount++
 		}
+		_, _ = io.Copy(io.Discard, res.Body)
 		res.Body.Close()
 	}
 
@@ -353,6 +361,7 @@ func TestRouteCombo_CacheHit_CrossCombo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	time.Sleep(50 * time.Millisecond)
 
@@ -363,6 +372,7 @@ func TestRouteCombo_CacheHit_CrossCombo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, _ = io.Copy(io.Discard, res2.Body)
 	res2.Body.Close()
 
 	if !res2.Cached {
@@ -385,6 +395,7 @@ func TestRouteCombo_CacheHit_DirectModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	time.Sleep(50 * time.Millisecond)
 
@@ -394,6 +405,7 @@ func TestRouteCombo_CacheHit_DirectModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, _ = io.Copy(io.Discard, res2.Body)
 	res2.Body.Close()
 
 	if !res2.Cached {
@@ -416,6 +428,7 @@ func TestRouteCombo_CacheMiss_DifferentBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	time.Sleep(50 * time.Millisecond)
 
@@ -425,6 +438,7 @@ func TestRouteCombo_CacheMiss_DifferentBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, _ = io.Copy(io.Discard, res2.Body)
 	res2.Body.Close()
 
 	if res2.Cached {
@@ -450,6 +464,7 @@ func TestRouteCombo_CacheDisabled_NoLookup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 
 	if res.Cached {

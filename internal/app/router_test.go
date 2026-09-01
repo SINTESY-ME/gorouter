@@ -275,6 +275,7 @@ func TestRouteSingle_NonStreaming_UsageRecorded(t *testing.T) {
 	}
 	// Read and close the body to trigger usage recording
 	buf, _ := io.ReadAll(res.Body)
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 
 	if !bytes.Contains(buf, []byte("hello")) {
@@ -331,6 +332,7 @@ func TestRouteCombo_EmptyCompletionLength_Fallbacks(t *testing.T) {
 		t.Fatalf("status: got %d want 200", res.StatusCode)
 	}
 	buf, _ := io.ReadAll(res.Body)
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	if string(buf) != `{"id":"1","choices":[{"message":{"content":"ok"}}]}` {
 		t.Errorf("body = %s, want second model content", buf)
@@ -423,6 +425,7 @@ func TestRouteCombo_OrderedFallback(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("status: got %d want 200", res.StatusCode)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	time.Sleep(50 * time.Millisecond)
 }
@@ -465,6 +468,7 @@ func TestRoutePassthrough_Embeddings_UsageRecorded(t *testing.T) {
 		t.Error("passthrough should not be streaming")
 	}
 	buf, _ := io.ReadAll(res.Body)
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	if !bytes.Contains(buf, []byte("embedding")) {
 		t.Error("body should contain 'embedding'")
@@ -511,6 +515,7 @@ func TestRoutePassthrough_Images(t *testing.T) {
 		t.Fatalf("status: got %d want 200", res.StatusCode)
 	}
 	buf, _ := io.ReadAll(res.Body)
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	if !bytes.Contains(buf, []byte("img.png")) {
 		t.Error("body should contain image url")
@@ -557,6 +562,7 @@ func TestRoutePassthrough_AudioSpeech(t *testing.T) {
 		t.Error("audio should not be streaming")
 	}
 	buf, _ := io.ReadAll(res.Body)
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	if string(buf) != "binary-audio-data" {
 		t.Errorf("body: got %q want binary-audio-data", string(buf))
@@ -612,6 +618,7 @@ func TestRoutePassthrough_AudioTranscriptions_Multipart(t *testing.T) {
 		t.Fatalf("status: got %d want 200", res.StatusCode)
 	}
 	buf, _ := io.ReadAll(res.Body)
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	if !bytes.Contains(buf, []byte("hello world")) {
 		t.Error("body should contain transcribed text")
@@ -748,6 +755,7 @@ func TestRouteCombo_OrderedFallback_SkipUnhealthyAndProbe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("req2: unexpected error: %v", err)
 	}
+	_, _ = io.Copy(io.Discard, res2.Body)
 	res2.Body.Close()
 	// Inspect only the calls made by req2 (and any probe that has already
 	// fired). Because we removed gpt-4 from failModels, A would succeed if it
@@ -777,6 +785,7 @@ func TestRouteCombo_OrderedFallback_SkipUnhealthyAndProbe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("req3: unexpected error: %v", err)
 	}
+	_, _ = io.Copy(io.Discard, res3.Body)
 	res3.Body.Close()
 	calls3 := calledSnapshot(exec)
 	if calls3[len(calls3)-1] != "gpt-4" {
@@ -821,6 +830,7 @@ func TestRouteCombo_OrderedFallback_LastResort(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("status: got %d want 200", res.StatusCode)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	// Give probes a moment to settle.
 	time.Sleep(150 * time.Millisecond)
@@ -862,6 +872,7 @@ func TestRouteCombo_RoundRobin_SkipUnhealthy(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("status: got %d want 200", res.StatusCode)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 
 	// Snapshot synchronous calls before the probe runs.
@@ -984,6 +995,7 @@ func TestRouteCombo_TwoPhase_HealthySucceeds_SkipsUnhealthy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 
 	// A's healthy key fails (404, retried 3× since healthy), B's healthy key
@@ -1026,6 +1038,7 @@ func TestRouteCombo_Transient503_RetriesThenSucceeds(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("status: got %d want 200", res.StatusCode)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4", "gpt-4", "gpt-4"}) {
 		t.Fatalf("called = %v, want [gpt-4 gpt-4 gpt-4]", got)
@@ -1066,6 +1079,7 @@ func TestRouteCombo_Transient503_RetriesExhausted_FallsBack(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("status: got %d want 200", res.StatusCode)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	// 3 attempts on gpt-4 (1 + 2 retries), then fallback to claude-3.
 	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4", "gpt-4", "gpt-4", "claude-3"}) {
@@ -1107,6 +1121,7 @@ func TestRouteCombo_404RetriesWhenHealthyThenFallsBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	// 404 is not a deterministic client error (only 400/422/415 are), so a
 	// healthy connection retries it 3× before falling through to claude-3.
@@ -1143,6 +1158,7 @@ func TestRouteSingle_RetriesWhenHealthy_AnyError(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("status: got %d want 200", res.StatusCode)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	// c1 was healthy at request start → its 401 is retried (3 attempts)
 	// despite not being a "transient" status, before c2 succeeds.
@@ -1342,6 +1358,7 @@ func TestRouteCombo_VelocityStrategy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 
 	syncCalls := calledSnapshot(exec)
@@ -1381,6 +1398,7 @@ func TestRouteCombo_IntelligenceStrategy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 
 	calls := calledSnapshot(exec)
@@ -1398,6 +1416,7 @@ func TestRouteCombo_IntelligenceStrategy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	_, _ = io.Copy(io.Discard, res2.Body)
 	res2.Body.Close()
 
 	calls2 := calledSnapshot(exec)
@@ -1491,6 +1510,7 @@ func TestRouteCombo_VelocityStrategy_TriggersProbe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 
 	// Wait for background probes to complete.
@@ -1552,6 +1572,7 @@ func TestRouteCombo_NestedCombo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 
 	calls := calledSnapshot(exec)
@@ -1600,6 +1621,7 @@ func TestRouteCombo_NestedCombo_DepthLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 }
 
@@ -1694,6 +1716,7 @@ func TestRouteSingle_Transient503_RetriesThenSucceeds(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("status: got %d want 200", res.StatusCode)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4", "gpt-4", "gpt-4"}) {
 		t.Fatalf("called = %v, want [gpt-4 gpt-4 gpt-4]", got)
@@ -1722,6 +1745,7 @@ func TestRouteSingle_Client400_NoRetry(t *testing.T) {
 	if res.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status: got %d want 400", res.StatusCode)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	// Exactly one upstream call: no transient retry, no fallback to a
 	// second connection.
@@ -1762,6 +1786,7 @@ func TestRouteCombo_Client400_NoFallback(t *testing.T) {
 	if res.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status: got %d want 400", res.StatusCode)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4"}) {
 		t.Fatalf("called = %v, want [gpt-4] (no fallback on 400)", got)
@@ -1793,6 +1818,7 @@ func TestRouteSingle_SkipsRateLimitedConnection(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("status: got %d want 200", res.StatusCode)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	if got := calledConnsSnapshot(exec); !equalSeq(t, got, []string{"c-healthy"}) {
 		t.Fatalf("called conns = %v, want [c-healthy]", got)
@@ -1849,6 +1875,7 @@ func TestRouteSingle_ExpiredRateLimit_ConnectionUsed(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("status: got %d want 200", res.StatusCode)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	if got := calledConnsSnapshot(exec); !equalSeq(t, got, []string{"c1"}) {
 		t.Fatalf("called conns = %v, want [c1]", got)
@@ -1905,6 +1932,7 @@ func TestRouteSingle_PreCallModifiesModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4o"}) {
 		t.Fatalf("called = %v; want [gpt-4o] (model rewritten by pre-call hook)", got)
@@ -1965,6 +1993,7 @@ func TestRouteSingle_NoHooks_IsNilSafe(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("status: got %d want 200", res.StatusCode)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 }
 
@@ -1988,6 +2017,7 @@ func TestRouteChat_SkipsCacheForLongHistory(t *testing.T) {
 		if err != nil {
 			t.Fatalf("request %d: unexpected error: %v", i, err)
 		}
+		_, _ = io.Copy(io.Discard, res.Body)
 		res.Body.Close()
 	}
 	if got := calledSnapshot(exec); len(got) != 2 {
@@ -2015,6 +2045,7 @@ func TestRouteChat_CacheHitWithinHistory(t *testing.T) {
 		if err != nil {
 			t.Fatalf("request %d: unexpected error: %v", i, err)
 		}
+		_, _ = io.Copy(io.Discard, res.Body)
 		res.Body.Close()
 	}
 	if got := calledSnapshot(exec); len(got) != 1 {
@@ -2032,6 +2063,7 @@ func TestRouteSingle_Attempts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	if res.Attempts != 1 {
 		t.Fatalf("Attempts = %d, want 1 (first try)", res.Attempts)
@@ -2059,6 +2091,7 @@ func TestRouteCombo_FallbackAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	if res.Attempts != 2 {
 		t.Fatalf("Attempts = %d, want 2 (gpt-4 connection + claude-3 fallback)", res.Attempts)
@@ -2085,6 +2118,7 @@ func TestRouteCombo_SkipsContextTooSmall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"claude-3"}) {
 		t.Fatalf("called = %v, want [claude-3] (gpt-4 skipped for context window)", got)
@@ -2105,6 +2139,7 @@ func TestRouteCombo_ContextUnknown_FailOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4"}) {
 		t.Fatalf("called = %v, want [gpt-4] (no context data → no filter)", got)
@@ -2150,6 +2185,7 @@ func TestRouteChat_KeyModelAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4o"}) {
 		t.Fatalf("called = %v, want [gpt-4o]", got)

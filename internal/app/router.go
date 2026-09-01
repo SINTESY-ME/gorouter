@@ -1004,6 +1004,22 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 }
 
 func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *domain.Connection, body []byte, stream bool, opts RouteOptions, contentType string) (*RouterResponse, error) {
+	// A combo may reach this function with a different concrete model on each
+	// fallback attempt. Adapt reasoning at that boundary so each candidate gets
+	// its own closest supported effort (max -> xhigh -> high -> omitted).
+	if opts.Endpoint == "" && (bytes.Contains(body, []byte(`"reasoning_effort"`)) || bytes.Contains(body, []byte(`"reasoning"`))) {
+		caps := inferReasoningCapabilities(m.Provider + "/" + m.Model)
+		if s.Pricing != nil {
+			if cached, ok := s.Pricing.Reasoning(m); ok {
+				caps = cached
+			}
+		}
+		var err error
+		body, err = normalizeReasoningBodyForModel(body, caps)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if s.Tokens != nil && conn != nil && conn.RefreshToken != "" {
 		if err := s.Tokens.EnsureAccess(ctx, conn); err != nil {
 			slog.Warn("oauth refresh failed", "provider", conn.ProviderID, "err", err)
@@ -1275,7 +1291,7 @@ func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterRespon
 		start: start,
 		onClose: func(buf []byte, ttftMs int64) {
 			s.recordUsage(ctx, m, conn, apiKey, endpoint, res.StatusCode, res.Stream, buf, comboChain, start, ttftMs, res.RTKBytesSaved, res.RTKTokensSaved, res.RTKCostSaved, requestID, attempt)
-			if cacheEligible && res.StatusCode < 400 {
+			if cacheEligible && res.StatusCode < 400 && !isCacheDisabled(ctx) && !responseHasNoContent(buf, res.Stream) {
 				actualModel := m.Provider + "/" + m.Model
 				reqBody, _ := requestBodyFromCtx(ctx)
 				key := s.Cache.ComputeKey(reqBody, actualModel, inputFmt)
@@ -1535,6 +1551,87 @@ type readTailCloser struct {
 
 func (b *readTailCloser) Read(p []byte) (int, error) { return b.r.Read(p) }
 func (b *readTailCloser) Close() error               { return b.c.Close() }
+
+// responseHasNoContent reports whether the buffered response carries no usable
+// content. Streaming responses are considered empty when the SSE buffer
+// contains no content/tool deltas; non-streaming when the JSON has no message
+// content and no tool calls. Empty upstream responses (e.g. Ollama Cloud
+// returning 200 with a zero-token stream) must NOT poison the response cache:
+// a cached empty answer replays to every identical retry, turning a transient
+// upstream hiccup into a hard failure for the client's retry policy.
+func responseHasNoContent(buf []byte, isStream bool) bool {
+	if len(bytes.TrimSpace(buf)) == 0 {
+		return true
+	}
+	if isStream {
+		return !sseHasContentDeltas(buf)
+	}
+	var out struct {
+		Choices []struct {
+			Message struct {
+				Content   string `json:"content"`
+				ToolCalls any    `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(buf, &out); err != nil {
+		return false // not a parseable completion — cache as before
+	}
+	for _, c := range out.Choices {
+		if c.Message.ToolCalls != nil {
+			return false
+		}
+		if strings.TrimSpace(c.Message.Content) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// sseHasContentDeltas scans buffered SSE events and reports whether at least
+// one delta carries non-empty content or a tool call. Tolerates both OpenAI
+// chunk format (choices[].delta) and Anthropic/Gemini-style event types that
+// embed content in different fields; anything unrecognized counts as content
+// so unknown formats are never mistaken for empty.
+func sseHasContentDeltas(buf []byte) bool {
+	scanner := bufio.NewScanner(bytes.NewReader(buf))
+	scanner.Buffer(make([]byte, 0, 64*1024), 512*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			continue
+		}
+		var ev struct {
+			Choices []struct {
+				Delta struct {
+					Content   string          `json:"content"`
+					Reasoning string          `json:"reasoning_content"`
+					ToolCalls json.RawMessage `json:"tool_calls"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(data), &ev); err != nil {
+			// Unparseable event (provider error payload, partial line…).
+			// Treat as no content: the worst case is a cache miss (one extra
+			// upstream call), never a poisoned cache entry.
+			continue
+		}
+		for _, c := range ev.Choices {
+			if strings.TrimSpace(c.Delta.Content) != "" ||
+				strings.TrimSpace(c.Delta.Reasoning) != "" ||
+				len(c.Delta.ToolCalls) > 0 {
+				return true
+			}
+		}
+		// Events with neither choices nor known content fields (e.g. usage
+		// ping chunks) count as empty; keep scanning.
+	}
+	return false
+}
 
 // firstErr returns the first non-nil error in errs, or nil.
 func firstErr(errs ...error) error {
