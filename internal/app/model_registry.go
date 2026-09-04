@@ -25,12 +25,12 @@ import (
 // provider-specific price lookups). ResolvePricing tries provider+model
 // first, then falls back to model-only.
 type ModelRegistry struct {
-	mu             sync.RWMutex
-	entries        map[string]registryEntry // byModel (normalized name)
+	mu              sync.RWMutex
+	entries         map[string]registryEntry // byModel (normalized name)
 	byProviderModel map[string]registryEntry // "litellmProvider/normalizedModel"
-	loadedAt       time.Time
-	ttl            time.Duration
-	client         *http.Client
+	loadedAt        time.Time
+	ttl             time.Duration
+	client          *http.Client
 }
 
 type registryEntry struct {
@@ -39,6 +39,7 @@ type registryEntry struct {
 	SupportsVision    bool
 	SupportsToolCall  bool
 	SupportsReasoning bool
+	Reasoning         domain.ReasoningCapabilities
 	Pricing           domain.ModelPricing
 }
 
@@ -66,6 +67,46 @@ func (r *ModelRegistry) ResolveKind(modelID string) (domain.ModelKind, int, bool
 	}
 	k := heuristicKind(modelID)
 	return k, 0, false, false, false
+}
+
+// ResolveReasoningCapabilities returns the best-known LiteLLM-compatible
+// effort capabilities for a model. A known entry with all flags false is
+// intentionally different from an unknown model.
+func (r *ModelRegistry) ResolveReasoningCapabilities(modelID string) (domain.ReasoningCapabilities, bool) {
+	if !r.ensureLoaded() {
+		return domain.ReasoningCapabilities{}, false
+	}
+	r.mu.RLock()
+	e, ok := r.entries[normalizeModelName(modelID)]
+	r.mu.RUnlock()
+	if !ok {
+		return domain.ReasoningCapabilities{}, false
+	}
+	e.Reasoning.Known = true
+	return e.Reasoning, true
+}
+
+// ResolveReasoningCapabilitiesForProvider prefers the provider-specific
+// registry entry because the same model name can expose different native
+// reasoning support through different upstreams.
+func (r *ModelRegistry) ResolveReasoningCapabilitiesForProvider(provider, modelID string) (domain.ReasoningCapabilities, bool) {
+	if !r.ensureLoaded() {
+		return domain.ReasoningCapabilities{}, false
+	}
+	normModel := normalizeModelName(modelID)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if lp := mapGorouterToLitellmProvider(provider); lp != "" {
+		if e, ok := r.byProviderModel[lp+"/"+normModel]; ok {
+			e.Reasoning.Known = true
+			return e.Reasoning, true
+		}
+	}
+	if e, ok := r.entries[normModel]; ok {
+		e.Reasoning.Known = true
+		return e.Reasoning, true
+	}
+	return domain.ReasoningCapabilities{}, false
 }
 
 // ResolvePricing returns the ModelPricing for the given (gorouterProvider, modelID)
@@ -170,6 +211,7 @@ func (r *ModelRegistry) loadLiteLLM(ctx context.Context, entries map[string]regi
 		e.SupportsVision, _ = v["supports_vision"].(bool)
 		e.SupportsToolCall, _ = v["supports_function_calling"].(bool)
 		e.SupportsReasoning, _ = v["supports_reasoning"].(bool)
+		e.Reasoning = reasoningCapabilitiesFromMap(v)
 		e.Pricing = parseLiteLLMPricing(v)
 		e.Pricing.Source = "litellm"
 		e.Pricing.LastSyncedAt = time.Now()
@@ -231,6 +273,10 @@ func (r *ModelRegistry) loadModelsDev(ctx context.Context, entries map[string]re
 			}
 			e.SupportsToolCall, _ = m["tool_call"].(bool)
 			e.SupportsReasoning, _ = m["reasoning"].(bool)
+			e.Reasoning = reasoningCapabilitiesFromMap(m)
+			if e.SupportsReasoning {
+				e.Reasoning.SupportsReasoning = true
+			}
 			if limit, ok := m["limit"].(map[string]any); ok {
 				e.Context = int(floatVal(limit["context"]))
 			}
@@ -328,7 +374,11 @@ func (r *ModelRegistry) loadOpenRouter(ctx context.Context, entries map[string]r
 		e := registryEntry{Kind: kind}
 		e.SupportsVision = supportsVision
 		e.SupportsToolCall = hasParam(m, "tools")
-		e.SupportsReasoning = hasParam(m, "reasoning")
+		e.SupportsReasoning = hasParam(m, "reasoning") || hasParam(m, "reasoning_effort")
+		e.Reasoning = domain.ReasoningCapabilities{
+			Known:             true,
+			SupportsReasoning: e.SupportsReasoning,
+		}
 		// Parse pricing (per-token, but values are strings)
 		if pricing, ok := m["pricing"].(map[string]any); ok {
 			e.Pricing = parseOpenRouterPricing(pricing)
@@ -490,11 +540,11 @@ func mapGorouterToLitellmProvider(gorouterID string) string {
 // provider ID. Most are the same; google covers both vertex and gemini.
 func mapOpenRouterProvider(orProvider string) string {
 	m := map[string]string{
-		"google":          "vertex",
+		"google":           "vertex",
 		"google-ai-studio": "gemini",
-		"meta-llama":      "meta",
-		"amazon":          "bedrock",
-		"mistralai":       "mistral",
+		"meta-llama":       "meta",
+		"amazon":           "bedrock",
+		"mistralai":        "mistral",
 	}
 	if v, ok := m[strings.ToLower(orProvider)]; ok {
 		return v
@@ -518,11 +568,11 @@ func parseLiteLLMPricing(v map[string]any) domain.ModelPricing {
 		OutputCostPerTokenAbove200k: floatVal(v["output_cost_per_token_above_200k_tokens"]),
 		OutputCostPerImage:          floatVal(v["output_cost_per_image"]),
 		InputCostPerPixel:           floatVal(v["input_cost_per_pixel"]),
-		InputCostPerSecond:           floatVal(v["input_cost_per_second"]),
-		OutputCostPerSecond:          floatVal(v["output_cost_per_second"]),
-		InputCostPerCharacter:        floatVal(v["input_cost_per_character"]),
-		OutputCostPerCharacter:       floatVal(v["output_cost_per_character"]),
-		InputCostPerQuery:            floatVal(v["input_cost_per_query"]),
+		InputCostPerSecond:          floatVal(v["input_cost_per_second"]),
+		OutputCostPerSecond:         floatVal(v["output_cost_per_second"]),
+		InputCostPerCharacter:       floatVal(v["input_cost_per_character"]),
+		OutputCostPerCharacter:      floatVal(v["output_cost_per_character"]),
+		InputCostPerQuery:           floatVal(v["input_cost_per_query"]),
 	}
 }
 
@@ -589,7 +639,10 @@ func upsertEntry(m map[string]registryEntry, key string, e registryEntry) {
 		m[key] = e
 		return
 	}
-	// Keep existing if it has pricing data and the new one doesn't.
+	// Preserve positive capability facts discovered by another registry. A
+	// later source can replace pricing without erasing LiteLLM's effort flags.
+	e.Reasoning = mergeReasoningCapabilities(existing.Reasoning, e.Reasoning)
+	e.SupportsReasoning = existing.SupportsReasoning || e.SupportsReasoning || e.Reasoning.SupportsReasoning
 	if HasPricingData(existing.Pricing) && !HasPricingData(e.Pricing) {
 		return
 	}

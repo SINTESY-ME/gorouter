@@ -31,8 +31,8 @@ func (c *Codex) client() *http.Client {
 	return &http.Client{Timeout: 30 * time.Second}
 }
 
-func (c *Codex) ID() string              { return "codex" }
-func (c *Codex) UsesPKCE() bool          { return true }
+func (c *Codex) ID() string                 { return "codex" }
+func (c *Codex) UsesPKCE() bool             { return true }
 func (c *Codex) DefaultRedirectURI() string { return codexRedirectURI }
 
 func (c *Codex) AuthURL(redirectURI, state, codeChallenge string) string {
@@ -43,7 +43,7 @@ func (c *Codex) AuthURL(redirectURI, state, codeChallenge string) string {
 	q.Set("response_type", "code")
 	q.Set("client_id", codexClientID)
 	q.Set("redirect_uri", redirectURI)
-	q.Set("scope", "openid profile email offline_access")
+	q.Set("scope", "openid profile email offline_access api.connectors.read api.connectors.invoke")
 	q.Set("code_challenge", codeChallenge)
 	q.Set("code_challenge_method", "S256")
 	q.Set("id_token_add_organizations", "true")
@@ -131,18 +131,59 @@ func parseCodexTokenJSON(raw []byte, prevRefresh string) (*Tokens, error) {
 	if tok.RefreshToken == "" {
 		tok.RefreshToken = prevRefresh
 	}
-	if tr.IDToken != "" {
-		if email, account, plan := parseCodexIDToken(tr.IDToken); true {
-			tok.Email = email
-			tok.AccountID = account
-			tok.PlanType = plan
+	// The access token is the authoritative identity for the Codex backend.
+	// Some responses omit the same claims from id_token, so parsing only the
+	// latter produces a token that authenticates but is rejected as unscoped.
+	if email, account, plan := parseCodexTokenClaims(tok.AccessToken); email != "" || account != "" || plan != "" {
+		tok.Email, tok.AccountID, tok.PlanType = email, account, plan
+	}
+	if (tok.Email == "" || tok.AccountID == "" || tok.PlanType == "") && tr.IDToken != "" {
+		if email, account, plan := parseCodexTokenClaims(tr.IDToken); true {
+			if tok.Email == "" {
+				tok.Email = email
+			}
+			if tok.AccountID == "" {
+				tok.AccountID = account
+			}
+			if tok.PlanType == "" {
+				tok.PlanType = plan
+			}
 		}
 	}
 	return tok, nil
 }
 
-func parseCodexIDToken(idToken string) (email, accountID, plan string) {
-	parts := strings.Split(idToken, ".")
+// CodexIdentity contains non-secret identity claims used to scope ChatGPT Codex requests.
+type CodexIdentity struct {
+	Email     string
+	AccountID string
+	PlanType  string
+}
+
+// ParseCodexAccessToken extracts identity from the access token, falling back to
+// id_token only for claims not present in the access token.
+func ParseCodexAccessToken(accessToken, idToken string) (CodexIdentity, error) {
+	if strings.TrimSpace(accessToken) == "" {
+		return CodexIdentity{}, fmt.Errorf("codex: empty access token")
+	}
+	email, account, plan := parseCodexTokenClaims(accessToken)
+	if idToken != "" {
+		idEmail, idAccount, idPlan := parseCodexTokenClaims(idToken)
+		if email == "" {
+			email = idEmail
+		}
+		if account == "" {
+			account = idAccount
+		}
+		if plan == "" {
+			plan = idPlan
+		}
+	}
+	return CodexIdentity{Email: email, AccountID: account, PlanType: plan}, nil
+}
+
+func parseCodexTokenClaims(token string) (email, accountID, plan string) {
+	parts := strings.Split(token, ".")
 	if len(parts) < 2 {
 		return
 	}
@@ -159,7 +200,12 @@ func parseCodexIDToken(idToken string) (email, accountID, plan string) {
 		return
 	}
 	if e, ok := claims["email"].(string); ok {
-		email = e
+		email = strings.ToLower(strings.TrimSpace(e))
+	}
+	if profile, ok := claims["https://api.openai.com/profile"].(map[string]any); ok {
+		if e, ok := profile["email"].(string); ok && email == "" {
+			email = strings.ToLower(strings.TrimSpace(e))
+		}
 	}
 	if auth, ok := claims["https://api.openai.com/auth"].(map[string]any); ok {
 		if a, ok := auth["chatgpt_account_id"].(string); ok {

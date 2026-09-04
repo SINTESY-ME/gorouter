@@ -8,6 +8,7 @@ import (
 	"github.com/jhon/gorouter/internal/domain"
 	"github.com/jhon/gorouter/internal/providers"
 )
+
 // ModelSyncService synchronizes the model catalog by fetching /v1/models
 // from each active provider connection, enriching the results with data from
 // the ModelRegistry (external public APIs), and upserting entries into the
@@ -91,20 +92,33 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 	batch := make([]*domain.ModelEntry, 0, len(fetched))
 	for _, m := range fetched {
 		kind, contextLen, vision, toolCall, reasoning := s.resolveKind(m)
+		reasoningCaps := inferReasoningCapabilities(m.ID)
+		if s.Registry != nil {
+			if registered, ok := s.Registry.ResolveReasoningCapabilitiesForProvider(conn.ProviderID, m.ID); ok {
+				reasoningCaps = registered
+			}
+		}
+		if reasoning {
+			reasoningCaps.SupportsReasoning = true
+		}
 		entry := &domain.ModelEntry{
-			ID:                conn.ProviderID + "/" + m.ID,
-			ProviderID:        conn.ProviderID,
-			ModelID:           m.ID,
-			Name:              m.ID,
-			Kind:              kind,
-			Source:            "sync",
-			IsActive:          true,
-			Context:           contextLen,
-			SupportsVision:    vision,
-			SupportsToolCall:  toolCall,
-			SupportsReasoning: reasoning,
-			LastSyncedAt:      now,
-			UpdatedAt:         now,
+			ID:                             conn.ProviderID + "/" + m.ID,
+			ProviderID:                     conn.ProviderID,
+			ModelID:                        m.ID,
+			Name:                           m.ID,
+			Kind:                           kind,
+			Source:                         "sync",
+			IsActive:                       true,
+			Context:                        contextLen,
+			SupportsVision:                 vision,
+			SupportsToolCall:               toolCall,
+			SupportsReasoning:              reasoningCaps.SupportsReasoning || reasoning,
+			SupportsMinimalReasoningEffort: reasoningCaps.SupportsMinimalReasoningEffort,
+			SupportsLowReasoningEffort:     reasoningCaps.SupportsLowReasoningEffort,
+			SupportsXHighReasoningEffort:   reasoningCaps.SupportsXHighReasoningEffort,
+			SupportsMaxReasoningEffort:     reasoningCaps.SupportsMaxReasoningEffort,
+			LastSyncedAt:                   now,
+			UpdatedAt:                      now,
 		}
 		// Resolve pricing: preserve manual overrides; otherwise ask the
 		// registry; if neither has data, keep the existing DB pricing.
@@ -166,13 +180,13 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 }
 
 // resolveKind determines the ModelKind for a fetched model. Priority:
-// 1. Provider's own metadata (model_type/endpoint_format in the /v1/models JSON)
-//    — the provider is the source of truth for which endpoint to call.
-// 2. External registries (LiteLLM, models.dev, OpenRouter via ModelRegistry)
-//    — used when the provider doesn't expose metadata, and to enrich
-//    capability flags (vision, tool calls, reasoning, context) even when
-//    the provider does give a Kind.
-// 3. Name heuristic
+//  1. Provider's own metadata (model_type/endpoint_format in the /v1/models JSON)
+//     — the provider is the source of truth for which endpoint to call.
+//  2. External registries (LiteLLM, models.dev, OpenRouter via ModelRegistry)
+//     — used when the provider doesn't expose metadata, and to enrich
+//     capability flags (vision, tool calls, reasoning, context) even when
+//     the provider does give a Kind.
+//  3. Name heuristic
 func (s *ModelSyncService) resolveKind(m domain.ModelInfo) (domain.ModelKind, int, bool, bool, bool) {
 	providerKind := m.Kind
 	if s.Registry != nil {

@@ -51,6 +51,42 @@ func ShouldFallback(status int, err error) bool {
 	}
 }
 
+// ShouldFallbackWithMessage is ShouldFallback plus response-body awareness: a
+// 400 whose message signals credit exhaustion on this key/account falls
+// through to the next connection/model instead of failing the request.
+// Some upstreams (e.g. CommandCode) report an empty balance as
+// 400 "You have insufficient credits..." instead of 402, and a pure
+// status-based check would wrongly treat it as a deterministic client error.
+func ShouldFallbackWithMessage(status int, message string) bool {
+	if ShouldFallback(status, nil) {
+		return true
+	}
+	return status == http.StatusBadRequest && isCreditExhausted(message)
+}
+
+// creditExhaustedMarkers matches upstream "out of credit" failures reported
+// with a non-402 status. Kept narrow: a 400 carrying one of these messages
+// is account-level, never a malformed request.
+var creditExhaustedMarkers = []string{
+	"insufficient credit",
+	"insufficient balance",
+	"out of credit",
+	"purchase more credit",
+	"top up",
+}
+
+// isCreditExhausted reports whether an upstream error message signals an
+// empty account balance even though the HTTP status is not 402.
+func isCreditExhausted(message string) bool {
+	m := strings.ToLower(message)
+	for _, marker := range creditExhaustedMarkers {
+		if strings.Contains(m, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // ParseRetryAfter extracts a retry delay from a Retry-After header value.
 // Supports both delta-seconds and HTTP-date forms. Returns 0 if absent or
 // unparseable.

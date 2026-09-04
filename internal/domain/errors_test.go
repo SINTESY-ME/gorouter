@@ -39,6 +39,30 @@ func TestShouldFallback(t *testing.T) {
 	}
 }
 
+func TestShouldFallbackWithMessage(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  int
+		message string
+		want    bool
+	}{
+		{name: "400 insufficient credits falls through", status: 400, message: "You have insufficient credits to make this request. Please purchase more credits to continue using the service.", want: true},
+		{name: "400 insufficient balance falls through", status: 400, message: "Insufficient balance", want: true},
+		{name: "400 genuine bad request does not fall through", status: 400, message: "unexpected field 'foo'", want: false},
+		{name: "400 empty message does not fall through", status: 400, message: "", want: false},
+		{name: "422 with credit text does not fall through", status: 422, message: "insufficient credits", want: false},
+		{name: "500 still falls through", status: 500, message: "internal error", want: true},
+		{name: "402 still falls through", status: 402, message: "", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ShouldFallbackWithMessage(tt.status, tt.message); got != tt.want {
+				t.Errorf("ShouldFallbackWithMessage(%d, %q) = %v, want %v", tt.status, tt.message, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestShouldFallbackCoversTransientStatuses(t *testing.T) {
 	// Every status that isTransientStatus treats as retryable must also
 	// trigger fallback, so the retry path and the fallback path agree.

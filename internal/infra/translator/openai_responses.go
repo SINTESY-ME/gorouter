@@ -50,8 +50,8 @@ func translateOpenAIToResponsesRequest(upstreamModel string, body []byte) ([]byt
 		})
 	}
 	out["input"] = input
-	if r.MaxTokens != nil {
-		out["max_output_tokens"] = *r.MaxTokens
+	if maxTokens := r.maxTokensPtr(); maxTokens != nil {
+		out["max_output_tokens"] = *maxTokens
 	}
 	if r.Temperature != nil {
 		out["temperature"] = *r.Temperature
@@ -65,13 +65,39 @@ func translateOpenAIToResponsesRequest(upstreamModel string, body []byte) ([]byt
 	// translation (openaiRequest had no Store field). Always force false
 	// so the upstream never sees a missing or true store.
 	out["store"] = false
+	if len(r.Reasoning) > 0 {
+		var reasoning map[string]any
+		if err := json.Unmarshal(r.Reasoning, &reasoning); err != nil {
+			return nil, fmt.Errorf("openai->responses: parse reasoning: %w", err)
+		}
+		if effort, ok := reasoning["effort"].(string); ok {
+			normalized, _, err := validateReasoningEffort(effort)
+			if err != nil {
+				return nil, fmt.Errorf("openai->responses: %w", err)
+			}
+			reasoning["effort"] = normalized
+		}
+		out["reasoning"] = reasoning
+	} else if len(r.ReasoningEffort) > 0 {
+		effort, explicit, err := parseReasoningEffort(r.ReasoningEffort)
+		if err != nil {
+			return nil, fmt.Errorf("openai->responses: %w", err)
+		}
+		if explicit {
+			reasoning, err := reasoningForResponses(effort)
+			if err != nil {
+				return nil, fmt.Errorf("openai->responses: %w", err)
+			}
+			out["reasoning"] = reasoning
+		}
+	}
 	// Translate OpenAI chat tools to Responses tools. OpenAI uses
 	// {"type":"function","function":{"name",description","parameters"}};
 	// Responses flattens the function fields to the top level
 	// {"type":"function","name","description","parameters"}.
 	if len(r.Tools) > 0 {
 		var tools []struct {
-			Type    string `json:"type"`
+			Type     string `json:"type"`
 			Function struct {
 				Name        string          `json:"name"`
 				Description string          `json:"description"`
@@ -309,12 +335,12 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 			// Track function_call items so subsequent argument deltas can
 			// be routed to the right tool call.
 			var item struct {
-				Type       string `json:"type"`
-				Index      int    `json:"index"`
-				OutputIdx  int    `json:"output_index"`
-				CallID     string `json:"call_id"`
-				Name       string `json:"name"`
-				Content    []struct {
+				Type      string `json:"type"`
+				Index     int    `json:"index"`
+				OutputIdx int    `json:"output_index"`
+				CallID    string `json:"call_id"`
+				Name      string `json:"name"`
+				Content   []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
 				} `json:"content"`
@@ -339,10 +365,10 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 			}
 		case "response.function_call_arguments.delta":
 			var d struct {
-				ItemID     string `json:"item_id"`
-				OutputIdx  int    `json:"output_index"`
-				Args       string `json:"delta"`
-				Arguments  string `json:"arguments"`
+				ItemID    string `json:"item_id"`
+				OutputIdx int    `json:"output_index"`
+				Args      string `json:"delta"`
+				Arguments string `json:"arguments"`
 			}
 			_ = json.Unmarshal([]byte(data), &d)
 			delta := d.Args
@@ -424,6 +450,7 @@ func translateResponsesToOpenAIRequest(upstreamModel string, body []byte) ([]byt
 		Stream          bool            `json:"stream"`
 		Tools           json.RawMessage `json:"tools"`
 		ToolChoice      json.RawMessage `json:"tool_choice"`
+		Reasoning       json.RawMessage `json:"reasoning"`
 	}
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("responses->openai: parse: %w", err)
@@ -446,6 +473,21 @@ func translateResponsesToOpenAIRequest(upstreamModel string, body []byte) ([]byt
 		return nil, err
 	}
 	out.Messages = append(out.Messages, messages...)
+	if len(in.Reasoning) > 0 {
+		var reasoning struct {
+			Effort string `json:"effort"`
+		}
+		if err := json.Unmarshal(in.Reasoning, &reasoning); err != nil {
+			return nil, fmt.Errorf("responses->openai: parse reasoning: %w", err)
+		}
+		if reasoning.Effort != "" {
+			effort, _, err := validateReasoningEffort(reasoning.Effort)
+			if err != nil {
+				return nil, fmt.Errorf("responses->openai: %w", err)
+			}
+			out.ReasoningEffort, _ = json.Marshal(effort)
+		}
+	}
 	return json.Marshal(out)
 }
 
@@ -864,15 +906,15 @@ func (f *functionCallItem) close(w io.Writer, idx int) error {
 // Responses API stream. It tracks the current output index, the list of
 // opened items (in order), and the item currently receiving deltas.
 type responsesStreamState struct {
-	id           string
-	created      bool
-	outputIdx    int
-	items        []outputItem
-	active       outputItem
-	toolCalls    map[int]*functionCallItem
-	finished     bool
-	finishReason string
-	promptTokens int
+	id               string
+	created          bool
+	outputIdx        int
+	items            []outputItem
+	active           outputItem
+	toolCalls        map[int]*functionCallItem
+	finished         bool
+	finishReason     string
+	promptTokens     int
 	completionTokens int
 }
 

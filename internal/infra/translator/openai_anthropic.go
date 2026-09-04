@@ -26,25 +26,36 @@ func register(from, to domain.Format, p pair) {
 // Tool calls and modalities are intentionally out of scope for v1.
 
 type openaiRequest struct {
-	Model       string          `json:"model"`
-	Messages    []openaiMessage `json:"messages"`
-	Tools       json.RawMessage `json:"tools,omitempty"`
-	ToolChoice  json.RawMessage `json:"tool_choice,omitempty"`
-	MaxTokens   *int            `json:"max_tokens,omitempty"`
-	Temperature *float64        `json:"temperature,omitempty"`
-	TopP        *float64        `json:"top_p,omitempty"`
-	Stop        json.RawMessage `json:"stop,omitempty"`
-	Stream      bool            `json:"stream"`
-	User        string          `json:"user,omitempty"`
-	Store       *bool           `json:"store,omitempty"`
+	Model               string          `json:"model"`
+	Messages            []openaiMessage `json:"messages"`
+	Tools               json.RawMessage `json:"tools,omitempty"`
+	ToolChoice          json.RawMessage `json:"tool_choice,omitempty"`
+	MaxTokens           *int            `json:"max_tokens,omitempty"`
+	MaxCompletionTokens *int            `json:"max_completion_tokens,omitempty"`
+	Temperature         *float64        `json:"temperature,omitempty"`
+	TopP                *float64        `json:"top_p,omitempty"`
+	Stop                json.RawMessage `json:"stop,omitempty"`
+	Stream              bool            `json:"stream"`
+	User                string          `json:"user,omitempty"`
+	Store               *bool           `json:"store,omitempty"`
+	ReasoningEffort     json.RawMessage `json:"reasoning_effort,omitempty"`
+	Reasoning           json.RawMessage `json:"reasoning,omitempty"`
+	Thinking            json.RawMessage `json:"thinking,omitempty"`
+}
+
+func (r openaiRequest) maxTokensPtr() *int {
+	if r.MaxCompletionTokens != nil {
+		return r.MaxCompletionTokens
+	}
+	return r.MaxTokens
 }
 
 type openaiMessage struct {
-	Role            string          `json:"role"`
-	Content         json.RawMessage `json:"content,omitempty"` // string or array of parts
-	ReasoningContent string         `json:"reasoning_content,omitempty"`
-	ToolCalls       []openaiToolCall `json:"tool_calls,omitempty"`
-	ToolCallID      string          `json:"tool_call_id,omitempty"`
+	Role             string           `json:"role"`
+	Content          json.RawMessage  `json:"content,omitempty"` // string or array of parts
+	ReasoningContent string           `json:"reasoning_content,omitempty"`
+	ToolCalls        []openaiToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string           `json:"tool_call_id,omitempty"`
 }
 
 type openaiToolCall struct {
@@ -61,14 +72,16 @@ type openaiFunction struct {
 }
 
 type anthropicRequest struct {
-	Model     string          `json:"model"`
-	System    json.RawMessage `json:"system,omitempty"`
-	Messages  []anthropicMessage `json:"messages"`
-	MaxTokens int             `json:"max_tokens"`
-	Temperature *float64       `json:"temperature,omitempty"`
-	TopP      *float64        `json:"top_p,omitempty"`
-	Stop      []string        `json:"stop_sequences,omitempty"`
-	Stream    bool            `json:"stream"`
+	Model        string             `json:"model"`
+	System       json.RawMessage    `json:"system,omitempty"`
+	Messages     []anthropicMessage `json:"messages"`
+	MaxTokens    int                `json:"max_tokens"`
+	Temperature  *float64           `json:"temperature,omitempty"`
+	TopP         *float64           `json:"top_p,omitempty"`
+	Stop         []string           `json:"stop_sequences,omitempty"`
+	Stream       bool               `json:"stream"`
+	Thinking     map[string]any     `json:"thinking,omitempty"`
+	OutputConfig map[string]any     `json:"output_config,omitempty"`
 }
 
 type anthropicMessage struct {
@@ -78,8 +91,8 @@ type anthropicMessage struct {
 
 func init() {
 	register(domain.FormatOpenAI, domain.FormatAnthropic, pair{
-		translateRequest: translateOpenAIToAnthropicRequest,
-		translateResponseJSON: translateAnthropicToOpenAIResponseJSON,
+		translateRequest:        translateOpenAIToAnthropicRequest,
+		translateResponseJSON:   translateAnthropicToOpenAIResponseJSON,
 		translateResponseStream: anthropicStreamToOpenAI,
 	})
 	register(domain.FormatAnthropic, domain.FormatOpenAI, pair{
@@ -87,8 +100,8 @@ func init() {
 		// request only; the response path is not on the hot path for this
 		// direction (Anthropic-client to OpenAI-upstream is rare) and is
 		// stubbed.
-		translateRequest: translateAnthropicToOpenAIRequest,
-		translateResponseJSON: translateOpenAIToAnthropicResponseJSON,
+		translateRequest:        translateAnthropicToOpenAIRequest,
+		translateResponseJSON:   translateOpenAIToAnthropicResponseJSON,
 		translateResponseStream: openAIStreamToAnthropic,
 	})
 }
@@ -99,14 +112,62 @@ func translateOpenAIToAnthropicRequest(upstreamModel string, body []byte) ([]byt
 		return nil, fmt.Errorf("openai->anthropic: parse: %w", err)
 	}
 	out := anthropicRequest{Model: upstreamModel, Stream: r.Stream}
-	if r.MaxTokens != nil {
-		out.MaxTokens = *r.MaxTokens
+	if maxTokens := r.maxTokensPtr(); maxTokens != nil {
+		out.MaxTokens = *maxTokens
 	} else {
 		out.MaxTokens = defaultMaxOutputTokens(upstreamModel)
 	}
 	out.Temperature = r.Temperature
 	out.TopP = r.TopP
 	out.Stop = parseStop(r.Stop)
+	if len(r.Thinking) > 0 {
+		var thinking map[string]any
+		if err := json.Unmarshal(r.Thinking, &thinking); err != nil {
+			return nil, fmt.Errorf("openai->anthropic: parse thinking: %w", err)
+		}
+		out.Thinking = thinking
+		if budget, ok := thinking["budget_tokens"].(float64); ok && budget > 0 && out.MaxTokens > 0 {
+			if out.MaxTokens <= reasoningLowBudget {
+				out.Thinking = nil
+			} else if budget >= float64(out.MaxTokens) {
+				thinking["budget_tokens"] = out.MaxTokens - 1
+			}
+		}
+	} else if len(r.ReasoningEffort) > 0 {
+		effort, explicit, err := parseReasoningEffort(r.ReasoningEffort)
+		if err != nil {
+			return nil, fmt.Errorf("openai->anthropic: %w", err)
+		}
+		if explicit {
+			thinking, outputConfig, maxTokens, err := reasoningForAnthropicModel(upstreamModel, effort, out.MaxTokens)
+			if err != nil {
+				return nil, fmt.Errorf("openai->anthropic: %w", err)
+			}
+			out.Thinking = thinking
+			out.OutputConfig = outputConfig
+			out.MaxTokens = maxTokens
+		}
+	} else if len(r.Reasoning) > 0 {
+		var reasoning struct {
+			Effort string `json:"effort"`
+		}
+		if err := json.Unmarshal(r.Reasoning, &reasoning); err != nil {
+			return nil, fmt.Errorf("openai->anthropic: parse reasoning: %w", err)
+		}
+		if reasoning.Effort != "" {
+			effort, _, err := validateReasoningEffort(reasoning.Effort)
+			if err != nil {
+				return nil, fmt.Errorf("openai->anthropic: %w", err)
+			}
+			thinking, outputConfig, maxTokens, err := reasoningForAnthropicModel(upstreamModel, effort, out.MaxTokens)
+			if err != nil {
+				return nil, fmt.Errorf("openai->anthropic: %w", err)
+			}
+			out.Thinking = thinking
+			out.OutputConfig = outputConfig
+			out.MaxTokens = maxTokens
+		}
+	}
 	for _, m := range r.Messages {
 		if m.Role == "system" {
 			out.System = m.Content
@@ -189,7 +250,7 @@ func asStringContent(raw json.RawMessage) string {
 // Usage from SSE stream events may be missing; we keep a 0 default.
 type sseUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens  int `json:"completion_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
 }
 

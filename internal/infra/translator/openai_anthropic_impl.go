@@ -71,8 +71,9 @@ func translateAnthropicToOpenAIResponseJSONImpl(body []byte) ([]byte, error) {
 		Model   string `json:"model"`
 		Role    string `json:"role"`
 		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			Thinking string `json:"thinking"`
 		} `json:"content"`
 		StopReason string `json:"stop_reason"`
 		Usage      struct {
@@ -84,10 +85,18 @@ func translateAnthropicToOpenAIResponseJSONImpl(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("anthropic->openai response: parse: %w", err)
 	}
 	var text strings.Builder
+	var reasoning strings.Builder
 	for _, c := range in.Content {
-		if c.Type == "text" {
+		switch c.Type {
+		case "text":
 			text.WriteString(c.Text)
+		case "thinking":
+			reasoning.WriteString(c.Thinking)
 		}
+	}
+	message := map[string]any{"role": "assistant", "content": text.String()}
+	if reasoning.Len() > 0 {
+		message["reasoning_content"] = reasoning.String()
 	}
 	out := map[string]any{
 		"id":     in.ID,
@@ -95,7 +104,7 @@ func translateAnthropicToOpenAIResponseJSONImpl(body []byte) ([]byte, error) {
 		"model":  in.Model,
 		"choices": []map[string]any{{
 			"index":         0,
-			"message":       map[string]any{"role": "assistant", "content": text.String()},
+			"message":       message,
 			"finish_reason": anthropicStopToOpenAI(in.StopReason),
 		}},
 		"usage": map[string]any{
@@ -227,10 +236,21 @@ func streamAnthropicToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer,
 			promptTokens = msg.Usage.InputTokens
 		case "content_block_delta":
 			var d struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
+				Type     string `json:"type"`
+				Text     string `json:"text"`
+				Thinking string `json:"thinking"`
 			}
 			_ = json.Unmarshal(ev["delta"], &d)
+			if d.Type == "thinking_delta" {
+				if d.Thinking == "" {
+					continue
+				}
+				chunk := openAIStreamReasoningChunk(*id, *model, d.Thinking)
+				if _, err := w.Write([]byte("data: " + chunk + "\n\n")); err != nil {
+					return err
+				}
+				continue
+			}
 			if d.Type != "text_delta" {
 				continue
 			}
@@ -290,14 +310,14 @@ func openAIStreamChunk(id, model, content string, includeRole bool, usage map[st
 // assistant role + tool_calls entry with id/name and empty arguments.
 func openAIStreamToolCallHeader(id, model string, idx int, callID, name string) string {
 	out := map[string]any{
-		"id":      id,
-		"object":  "chat.completion.chunk",
-		"model":   model,
+		"id":     id,
+		"object": "chat.completion.chunk",
+		"model":  model,
 		"choices": []map[string]any{{
 			"index": 0,
 			"delta": map[string]any{
-				"role":       "assistant",
-				"content":    nil,
+				"role":    "assistant",
+				"content": nil,
 				"tool_calls": []map[string]any{{
 					"index": idx, "id": callID, "type": "function",
 					"function": map[string]any{"name": name, "arguments": ""},
@@ -314,9 +334,9 @@ func openAIStreamToolCallHeader(id, model string, idx int, callID, name string) 
 // already-declared tool call.
 func openAIStreamToolCallDelta(id, model string, idx int, arguments string) string {
 	out := map[string]any{
-		"id":      id,
-		"object":  "chat.completion.chunk",
-		"model":   model,
+		"id":     id,
+		"object": "chat.completion.chunk",
+		"model":  model,
 		"choices": []map[string]any{{
 			"index": 0,
 			"delta": map[string]any{
@@ -337,9 +357,9 @@ func openAIStreamToolCallDelta(id, model string, idx int, arguments string) stri
 // DeepSeek). Used when a Responses upstream sends reasoning summary deltas.
 func openAIStreamReasoningChunk(id, model, reasoning string) string {
 	out := map[string]any{
-		"id":      id,
-		"object":  "chat.completion.chunk",
-		"model":   model,
+		"id":     id,
+		"object": "chat.completion.chunk",
+		"model":  model,
 		"choices": []map[string]any{{
 			"index": 0,
 			"delta": map[string]any{

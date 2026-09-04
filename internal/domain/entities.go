@@ -131,26 +131,42 @@ type ModelInfo struct {
 	Kind    ModelKind `json:"kind,omitempty"`
 }
 
+// ReasoningCapabilities mirrors LiteLLM's per-model reasoning metadata. A
+// combo uses these flags to degrade a requested effort independently for each
+// fallback candidate.
+type ReasoningCapabilities struct {
+	Known                          bool `json:"-"`
+	SupportsReasoning              bool `json:"supports_reasoning,omitempty"`
+	SupportsMinimalReasoningEffort bool `json:"supports_minimal_reasoning_effort,omitempty"`
+	SupportsLowReasoningEffort     bool `json:"supports_low_reasoning_effort,omitempty"`
+	SupportsXHighReasoningEffort   bool `json:"supports_xhigh_reasoning_effort,omitempty"`
+	SupportsMaxReasoningEffort     bool `json:"supports_max_reasoning_effort,omitempty"`
+}
+
 // ModelEntry is a persisted model in the catalog. It is populated by sync
 // (fetching /v1/models from the provider), by manual addition, or enriched
 // with data from external model registries (LiteLLM, models.dev, OpenRouter,
 // HuggingFace).
 type ModelEntry struct {
-	ID                string       `json:"id" gorm:"primaryKey"` // "{providerID}/{modelID}"
-	ProviderID        string       `json:"provider_id" gorm:"index;column:provider_id"`
-	ModelID           string       `json:"model_id" gorm:"column:model_id"` // without prefix
-	Name              string       `json:"name,omitempty"`
-	Kind              ModelKind    `json:"kind" gorm:"default:llm;index"`
-	Source            string       `json:"source" gorm:"default:sync"` // "sync" | "manual"
-	IsActive          bool         `json:"is_active" gorm:"column:is_active;default:true;index"`
-	Context           int          `json:"context,omitempty"`
-	SupportsVision    bool         `json:"supports_vision,omitempty"`
-	SupportsToolCall  bool         `json:"supports_tool_call,omitempty"`
-	SupportsReasoning bool         `json:"supports_reasoning,omitempty"`
-	Pricing           ModelPricing `json:"pricing,omitempty" gorm:"serializer:json;type:text"`
-	LastSyncedAt      time.Time    `json:"last_synced_at,omitempty" gorm:"index"`
-	CreatedAt         time.Time    `json:"created_at"`
-	UpdatedAt         time.Time    `json:"updated_at"`
+	ID                             string       `json:"id" gorm:"primaryKey"` // "{providerID}/{modelID}"
+	ProviderID                     string       `json:"provider_id" gorm:"index;column:provider_id"`
+	ModelID                        string       `json:"model_id" gorm:"column:model_id"` // without prefix
+	Name                           string       `json:"name,omitempty"`
+	Kind                           ModelKind    `json:"kind" gorm:"default:llm;index"`
+	Source                         string       `json:"source" gorm:"default:sync"` // "sync" | "manual"
+	IsActive                       bool         `json:"is_active" gorm:"column:is_active;default:true;index"`
+	Context                        int          `json:"context,omitempty"`
+	SupportsVision                 bool         `json:"supports_vision,omitempty"`
+	SupportsToolCall               bool         `json:"supports_tool_call,omitempty"`
+	SupportsReasoning              bool         `json:"supports_reasoning,omitempty"`
+	SupportsMinimalReasoningEffort bool         `json:"supports_minimal_reasoning_effort,omitempty" gorm:"column:supports_minimal_reasoning_effort"`
+	SupportsLowReasoningEffort     bool         `json:"supports_low_reasoning_effort,omitempty" gorm:"column:supports_low_reasoning_effort"`
+	SupportsXHighReasoningEffort   bool         `json:"supports_xhigh_reasoning_effort,omitempty" gorm:"column:supports_xhigh_reasoning_effort"`
+	SupportsMaxReasoningEffort     bool         `json:"supports_max_reasoning_effort,omitempty" gorm:"column:supports_max_reasoning_effort"`
+	Pricing                        ModelPricing `json:"pricing,omitempty" gorm:"serializer:json;type:text"`
+	LastSyncedAt                   time.Time    `json:"last_synced_at,omitempty" gorm:"index"`
+	CreatedAt                      time.Time    `json:"created_at"`
+	UpdatedAt                      time.Time    `json:"updated_at"`
 }
 
 // ModelPricing holds per-model price data used for cost calculation. All

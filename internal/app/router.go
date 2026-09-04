@@ -453,7 +453,7 @@ func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body 
 					message = fmt.Sprintf("upstream %d", res.StatusCode)
 				}
 				s.recordFailedUsage(m, conn, apiKey, endpoint, res.StatusCode, message, connStart, nil, requestID, *attempt, 0, 0)
-				if !domain.ShouldFallback(res.StatusCode, nil) {
+				if !domain.ShouldFallbackWithMessage(res.StatusCode, message) {
 					return res, nil
 				}
 				*attempt++
@@ -734,7 +734,7 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 				lastErr = keepLastError(lastErr, err)
 				continue
 			}
-			if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
+			if res.StatusCode >= 400 && domain.ShouldFallbackWithMessage(res.StatusCode, upstreamErrorMessage(res)) {
 				slog.Warn("combo fallback: nested combo returned error status, trying next", "parent_combo", combo.Name, "failed_combo", modelStr, "status", res.StatusCode)
 				s.recordFailedUsage(domain.ModelID{}, nil, apiKey, endpoint, res.StatusCode, fmt.Sprintf("upstream %d", res.StatusCode), nestedStart, nestedChain, requestID, *attempt, 0, 0)
 				*attempt++
@@ -778,7 +778,7 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 			lastErr = keepLastError(lastErr, err)
 			continue
 		}
-		if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
+		if res.StatusCode >= 400 && domain.ShouldFallbackWithMessage(res.StatusCode, upstreamErrorMessage(res)) {
 			slog.Warn("combo fallback: model returned error status, trying next", "combo", combo.Name, "failed_model", modelStr, "status", res.StatusCode)
 			lastErr = fmt.Errorf("upstream %d", res.StatusCode)
 			if res.Body != nil {
@@ -809,7 +809,7 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 			lastErr = keepLastError(lastErr, err)
 			continue
 		}
-		if res.StatusCode >= 400 && domain.ShouldFallback(res.StatusCode, nil) {
+		if res.StatusCode >= 400 && domain.ShouldFallbackWithMessage(res.StatusCode, upstreamErrorMessage(res)) {
 			lastErr = fmt.Errorf("upstream %d", res.StatusCode)
 			if res.Body != nil {
 				res.Body.Close()
@@ -947,7 +947,7 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 			if message == "" {
 				message = fmt.Sprintf("upstream %d", res.StatusCode)
 			}
-			if !domain.ShouldFallback(res.StatusCode, nil) {
+			if !domain.ShouldFallbackWithMessage(res.StatusCode, message) {
 				s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, res.StatusCode, message, connStart, comboChain, requestID, *attempt, 0, 0)
 				return res, nil
 			}

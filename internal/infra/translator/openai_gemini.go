@@ -140,7 +140,7 @@ func translateOpenAIToGeminiRequest(upstreamModel string, body []byte) ([]byte, 
 			}
 			parts = append(parts, map[string]any{
 				"functionResponse": map[string]any{
-					"name": funcName,
+					"name":     funcName,
 					"response": map[string]any{"name": funcName, "content": contentMap},
 				},
 			})
@@ -192,8 +192,8 @@ func translateOpenAIToGeminiRequest(upstreamModel string, body []byte) ([]byte, 
 		}
 	}
 	genCfg := map[string]any{}
-	if r.MaxTokens != nil {
-		genCfg["maxOutputTokens"] = *r.MaxTokens
+	if maxTokens := r.maxTokensPtr(); maxTokens != nil {
+		genCfg["maxOutputTokens"] = *maxTokens
 	}
 	if r.Temperature != nil {
 		genCfg["temperature"] = *r.Temperature
@@ -203,6 +203,35 @@ func translateOpenAIToGeminiRequest(upstreamModel string, body []byte) ([]byte, 
 	}
 	if stops := parseStop(r.Stop); len(stops) > 0 {
 		genCfg["stopSequences"] = stops
+	}
+	if len(r.ReasoningEffort) > 0 {
+		effort, explicit, err := parseReasoningEffort(r.ReasoningEffort)
+		if err != nil {
+			return nil, fmt.Errorf("openai->gemini: %w", err)
+		}
+		if explicit {
+			genCfg["thinkingConfig"] = reasoningForGemini(upstreamModel, effort)
+		}
+	} else if len(r.Thinking) > 0 {
+		var thinking map[string]any
+		if err := json.Unmarshal(r.Thinking, &thinking); err != nil {
+			return nil, fmt.Errorf("openai->gemini: parse thinking: %w", err)
+		}
+		genCfg["thinkingConfig"] = thinking
+	} else if len(r.Reasoning) > 0 {
+		var reasoning struct {
+			Effort string `json:"effort"`
+		}
+		if err := json.Unmarshal(r.Reasoning, &reasoning); err != nil {
+			return nil, fmt.Errorf("openai->gemini: parse reasoning: %w", err)
+		}
+		if reasoning.Effort != "" {
+			effort, _, err := validateReasoningEffort(reasoning.Effort)
+			if err != nil {
+				return nil, fmt.Errorf("openai->gemini: %w", err)
+			}
+			genCfg["thinkingConfig"] = reasoningForGemini(upstreamModel, effort)
+		}
 	}
 	out["generationConfig"] = genCfg
 	return json.Marshal(out)
@@ -214,6 +243,7 @@ func translateGeminiToOpenAIResponseJSON(body []byte) ([]byte, error) {
 			Content struct {
 				Parts []struct {
 					Text             string         `json:"text"`
+					Thought          bool           `json:"thought"`
 					ThoughtSignature string         `json:"thoughtSignature"`
 					FunctionCall     map[string]any `json:"functionCall"`
 				} `json:"parts"`
@@ -231,11 +261,16 @@ func translateGeminiToOpenAIResponseJSON(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("gemini->openai response: parse: %w", err)
 	}
 	var text strings.Builder
+	var reasoning strings.Builder
 	finishReason := "stop"
 	var toolCalls []map[string]any
 	if len(in.Candidates) > 0 {
 		c := in.Candidates[0]
 		for _, p := range c.Content.Parts {
+			if p.Thought {
+				reasoning.WriteString(p.Text)
+				continue
+			}
 			if p.FunctionCall != nil {
 				argsStr, _ := json.Marshal(p.FunctionCall["args"])
 				funcName, _ := p.FunctionCall["name"].(string)
@@ -265,6 +300,9 @@ func translateGeminiToOpenAIResponseJSON(body []byte) ([]byte, error) {
 		finishReason = geminiFinishToOpenAI(c.FinishReason)
 	}
 	message := map[string]any{"role": "assistant", "content": text.String()}
+	if reasoning.Len() > 0 {
+		message["reasoning_content"] = reasoning.String()
+	}
 	if len(toolCalls) > 0 {
 		message["tool_calls"] = toolCalls
 		finishReason = "tool_calls"
@@ -325,10 +363,11 @@ func streamGeminiToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer) er
 		var ev struct {
 			ResponseID   string `json:"responseId"`
 			ModelVersion string `json:"modelVersion"`
-			Candidates []struct {
+			Candidates   []struct {
 				Content struct {
 					Parts []struct {
 						Text             string         `json:"text"`
+						Thought          bool           `json:"thought"`
 						ThoughtSignature string         `json:"thoughtSignature"`
 						FunctionCall     map[string]any `json:"functionCall"`
 					} `json:"parts"`
@@ -337,7 +376,7 @@ func streamGeminiToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer) er
 				FinishReason string `json:"finishReason"`
 			} `json:"candidates"`
 			UsageMetadata *struct {
-				PromptTokenCount      int `json:"promptTokenCount"`
+				PromptTokenCount     int `json:"promptTokenCount"`
 				CandidatesTokenCount int `json:"candidatesTokenCount"`
 			} `json:"usageMetadata"`
 		}
@@ -360,8 +399,13 @@ func streamGeminiToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer) er
 		}
 		if len(ev.Candidates) > 0 {
 			var text string
+			var reasoning string
 			var toolCalls []map[string]any
 			for _, p := range ev.Candidates[0].Content.Parts {
+				if p.Thought {
+					reasoning += p.Text
+					continue
+				}
 				text += p.Text
 				if p.FunctionCall != nil {
 					argsStr, _ := json.Marshal(p.FunctionCall["args"])
@@ -388,15 +432,15 @@ func streamGeminiToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer) er
 					toolCalls = append(toolCalls, tc)
 				}
 			}
-			
-			if text != "" || len(toolCalls) > 0 {
+
+			if text != "" || reasoning != "" || len(toolCalls) > 0 {
 				// Convert to array of tool_calls with index
 				var sseToolCalls []map[string]any
 				for i, tc := range toolCalls {
 					tc["index"] = i
 					sseToolCalls = append(sseToolCalls, tc)
 				}
-				
+
 				// Need a custom chunk generator for tools
 				delta := map[string]any{}
 				if first {
@@ -406,10 +450,13 @@ func streamGeminiToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer) er
 				if text != "" {
 					delta["content"] = text
 				}
+				if reasoning != "" {
+					delta["reasoning_content"] = reasoning
+				}
 				if len(sseToolCalls) > 0 {
 					delta["tool_calls"] = sseToolCalls
 				}
-				
+
 				chunkMap := map[string]any{
 					"object": "chat.completion.chunk",
 					"id":     id,
@@ -430,7 +477,7 @@ func streamGeminiToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer) er
 				if len(toolCalls) > 0 {
 					finishStr = "tool_calls"
 				}
-				
+
 				chunkMap := map[string]any{
 					"object": "chat.completion.chunk",
 					"id":     id,
@@ -441,7 +488,7 @@ func streamGeminiToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer) er
 						"finish_reason": finishStr,
 					}},
 				}
-				
+
 				if ev.UsageMetadata != nil {
 					chunkMap["usage"] = map[string]any{
 						"prompt_tokens":     promptTokens,
@@ -449,7 +496,7 @@ func streamGeminiToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer) er
 						"total_tokens":      promptTokens + completionTokens,
 					}
 				}
-				
+
 				b, _ := json.Marshal(chunkMap)
 				if _, err := w.Write([]byte("data: " + string(b) + "\n\n")); err != nil {
 					return err
@@ -473,7 +520,7 @@ func translateGeminiToOpenAIRequest(upstreamModel string, body []byte) ([]byte, 
 			} `json:"parts"`
 		} `json:"systemInstruction"`
 		GenerationConfig struct {
-			MaxOutputTokens *int      `json:"maxOutputTokens"`
+			MaxOutputTokens *int     `json:"maxOutputTokens"`
 			Temperature     *float64 `json:"temperature"`
 			TopP            *float64 `json:"topP"`
 			StopSequences   []string `json:"stopSequences"`

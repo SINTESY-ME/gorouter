@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,6 +23,8 @@ func init() {
 // CodexExecutor talks to ChatGPT Codex backend (Responses API).
 type CodexExecutor struct {
 	Client *http.Client
+	// BaseURL is injectable for tests; production uses the ChatGPT Codex endpoint.
+	BaseURL string
 }
 
 func NewCodexExecutor() *CodexExecutor {
@@ -29,7 +32,10 @@ func NewCodexExecutor() *CodexExecutor {
 }
 
 func (e *CodexExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) (*domain.ExecuteResult, error) {
-	url := "https://chatgpt.com/backend-api/codex/responses"
+	url := e.BaseURL
+	if url == "" {
+		url = "https://chatgpt.com/backend-api/codex/responses"
+	}
 	body := req.Body
 	if body == nil {
 		body = io.NopCloser(strings.NewReader("{}"))
@@ -41,13 +47,18 @@ func (e *CodexExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+req.Connection.APIKey)
 	httpReq.Header.Set("originator", "codex_cli_rs")
-	httpReq.Header.Set("User-Agent", "codex_cli_rs/0.136.0")
+	httpReq.Header.Set("User-Agent", "codex_cli_rs/0.144.1")
+	httpReq.Header.Set("OpenAI-Beta", "responses=experimental")
+	httpReq.Header.Set("version", "0.144.1")
 	if req.Stream {
 		httpReq.Header.Set("Accept", "text/event-stream")
 	}
 	meta := oauth.ParseMeta(req.Connection.Meta)
 	if id := meta["account_id"]; id != "" {
 		httpReq.Header.Set("chatgpt-account-id", id)
+	}
+	if residency := codexResidency(req.Connection.APIKey); residency != "" {
+		httpReq.Header.Set("x-openai-internal-codex-residency", residency)
 	}
 	resp, err := e.Client.Do(httpReq)
 	if err != nil {
@@ -61,6 +72,28 @@ func (e *CodexExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) 
 		Body:       resp.Body,
 		Stream:     stream,
 	}, nil
+}
+
+func codexResidency(accessToken string) string {
+	parts := strings.Split(accessToken, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	b, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims map[string]any
+	if json.Unmarshal(b, &claims) != nil {
+		return ""
+	}
+	auth, _ := claims["https://api.openai.com/auth"].(map[string]any)
+	for _, key := range []string{"chatgpt_data_residency", "chatgpt_compute_residency"} {
+		if value, ok := auth[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 // GeminiCLIExecutor talks to Google Cloud Code Assist.

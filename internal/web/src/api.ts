@@ -283,6 +283,8 @@ export const api = {
       ),
     complete: (provider: string, body: { state: string; code: string; name?: string }) =>
       request<Connection>(`/api/oauth/${provider}/complete`, { method: "POST", body: JSON.stringify(body) }),
+    completeDevice: (provider: string, body: { access_token: string; refresh_token?: string; id_token?: string; expires_in?: number; name?: string }) =>
+      request<Connection>(`/api/oauth/${provider}/complete-device`, { method: "POST", body: JSON.stringify(body) }),
   },
   models: {
     list: () => request<ModelInfo[]>("/api/models"),

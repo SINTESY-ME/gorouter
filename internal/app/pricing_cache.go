@@ -13,10 +13,11 @@ import (
 // hot path does no DB lookup. Keyed by lowercase "provider/model". Refreshed
 // at startup and after each model sync.
 type PricingCache struct {
-	Models   domain.ModelRepo
-	mu       sync.RWMutex
-	cache    map[string]domain.ModelPricing
-	contexts map[string]int
+	Models    domain.ModelRepo
+	mu        sync.RWMutex
+	cache     map[string]domain.ModelPricing
+	contexts  map[string]int
+	reasoning map[string]domain.ReasoningCapabilities
 }
 
 func NewPricingCache(models domain.ModelRepo) *PricingCache {
@@ -47,6 +48,18 @@ func (p *PricingCache) Context(m domain.ModelID) (int, bool) {
 	return ctx, ok
 }
 
+// Reasoning returns the cached capability metadata for a model. The bool is
+// false when the model has not been synced yet.
+func (p *PricingCache) Reasoning(m domain.ModelID) (domain.ReasoningCapabilities, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.reasoning == nil {
+		return domain.ReasoningCapabilities{}, false
+	}
+	caps, ok := p.reasoning[strings.ToLower(m.Provider+"/"+m.Model)]
+	return caps, ok
+}
+
 // Refresh reloads all model entries from the database. Models without
 // pricing data are skipped (context data is always kept).
 func (p *PricingCache) Refresh(ctx context.Context) {
@@ -60,8 +73,10 @@ func (p *PricingCache) Refresh(ctx context.Context) {
 	}
 	pricing := make(map[string]domain.ModelPricing, len(entries))
 	contexts := make(map[string]int, len(entries))
+	reasoning := make(map[string]domain.ReasoningCapabilities, len(entries))
 	for _, e := range entries {
 		key := strings.ToLower(e.ID)
+		reasoning[key] = reasoningCapabilitiesFromModelEntry(e)
 		if HasPricingData(e.Pricing) {
 			pricing[key] = e.Pricing
 		}
@@ -72,6 +87,7 @@ func (p *PricingCache) Refresh(ctx context.Context) {
 	p.mu.Lock()
 	p.cache = pricing
 	p.contexts = contexts
+	p.reasoning = reasoning
 	p.mu.Unlock()
 	slog.Info("pricing cache refreshed", "models", len(pricing))
 }

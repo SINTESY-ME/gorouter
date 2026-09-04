@@ -6,6 +6,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { api, type Provider, type Connection, type ModelEntry, type ProviderDef } from "../api";
 import { IconPlus, IconSearch, IconPencil, IconTrash, IconChevron, IconEye, IconEyeOff } from "../icons";
+import { runCodexDeviceFlow } from "../oauth/codexDeviceFlow";
 
 const FORMATS = ["auto", "openai", "anthropic", "gemini", "responses"];
 const AUTHS = ["bearer", "x-api-key", "none"];
@@ -43,6 +44,7 @@ export default function Providers() {
   const [oauthCode, setOauthCode] = useState("");
   const [oauthProviderId, setOauthProviderId] = useState("");
   const [oauthAuthURL, setOauthAuthURL] = useState("");
+  const [oauthDeviceCode, setOauthDeviceCode] = useState("");
 
   const POPULAR = ["openai", "anthropic", "openrouter", "gemini", "groq", "deepseek", "mistral", "together", "ollama", "opencode", "deepinfra", "openadapter"];
 
@@ -86,6 +88,31 @@ export default function Providers() {
   };
 
   const pickTemplate = async (def: ProviderDef) => {
+    if (def.id === "codex" && oauthProviders.includes(def.id)) {
+      setOauthProviderId(def.id);
+      setOauthAuthURL("https://auth.openai.com/codex/device");
+      setOauthDeviceCode("");
+      setOauthCode("");
+      setError("");
+      setProviderStep("oauth");
+      // Open immediately from the click handler so popup blockers do not hide
+      // the official device verification page while the API call is pending.
+      window.open("https://auth.openai.com/codex/device", "_blank", "noopener,noreferrer");
+      setSaving(true);
+      try {
+        const tokens = await runCodexDeviceFlow({
+          onUserCode: ({ userCode }) => setOauthDeviceCode(userCode),
+        });
+        await api.oauth.completeDevice("codex", tokens);
+        setProviderOpen(false);
+        loadData();
+      } catch (e: any) {
+        setError(e?.message ?? t("providers.oauthCompleteFailed"));
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     if ((def.category === "oauth" || def.category === "free") && oauthProviders.includes(def.id)) {
       setOauthProviderId(def.id);
       setError("");
@@ -512,22 +539,35 @@ export default function Providers() {
 
                 {providerStep === "oauth" && (
                   <>
-                    <Button size="sm" variant="ghost" className="self-start" onPress={() => setProviderStep("pick")}>{t("providers.back")}</Button>
-                    <div className="bg-accent/10 rounded-lg p-3 text-sm space-y-1">
+                    <Button size="sm" variant="ghost" className="self-start" onPress={() => setProviderStep("pick")} isDisabled={saving}>{t("providers.back")}</Button>
+                    <div className="bg-accent/10 rounded-lg p-3 text-sm space-y-2">
                       <p className="font-medium">{t("providers.connecting", { provider: oauthProviderId })}</p>
-                      <p className="text-foreground/80">
-                        {t("providers.oauthInstructions")}
-                      </p>
+                      {oauthProviderId === "codex" ? (
+                        <>
+                          <p className="text-foreground/80">{t("providers.codexDeviceInstructions")}</p>
+                          {oauthDeviceCode ? (
+                            <div className="rounded-md bg-surface px-3 py-2 text-center font-mono text-xl tracking-widest select-all">{oauthDeviceCode}</div>
+                          ) : (
+                            <p className="text-muted">{t("providers.codexDeviceStarting")}</p>
+                          )}
+                          <a href={oauthAuthURL} target="_blank" rel="noreferrer" className="text-sm text-accent underline break-all">{oauthAuthURL}</a>
+                          {saving && <p className="text-xs text-muted">{t("providers.codexDeviceWaiting")}</p>}
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-foreground/80">{t("providers.oauthInstructions")}</p>
+                          {oauthAuthURL && (
+                            <a href={oauthAuthURL} target="_blank" rel="noreferrer" className="text-sm text-accent underline break-all">
+                              {t("providers.openLoginAgain")}
+                            </a>
+                          )}
+                          <TextField value={oauthCode} onChange={setOauthCode}>
+                            <Label>{t("providers.callbackOrCode")}</Label>
+                            <Input />
+                          </TextField>
+                        </>
+                      )}
                     </div>
-                    {oauthAuthURL && (
-                      <a href={oauthAuthURL} target="_blank" rel="noreferrer" className="text-sm text-accent underline break-all">
-                        {t("providers.openLoginAgain")}
-                      </a>
-                    )}
-                    <TextField value={oauthCode} onChange={setOauthCode}>
-                      <Label>{t("providers.callbackOrCode")}</Label>
-                      <Input />
-                    </TextField>
                   </>
                 )}
 
@@ -578,7 +618,7 @@ export default function Providers() {
                   {(providerEditId || providerStep === "form") && (
                     <Button variant="primary" onPress={submitProvider} isDisabled={saving}>{t("providers.saveProvider")}</Button>
                   )}
-                  {providerStep === "oauth" && (
+                  {providerStep === "oauth" && oauthProviderId !== "codex" && (
                     <Button variant="primary" onPress={completeOAuth} isDisabled={saving || !oauthCode.trim()}>{t("providers.connect")}</Button>
                   )}
                 </Modal.Footer>

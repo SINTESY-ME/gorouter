@@ -127,15 +127,15 @@ func (s *Server) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 		format = domain.FormatGemini
 	}
 	conn := &domain.Connection{
-		ID:             uuid.NewString(),
-		ProviderID:     providerID,
-		Name:           name,
-		APIKey:         tok.AccessToken,
-		IsActive:       true,
-		RefreshToken:   tok.RefreshToken,
-		Meta:           oauth.MetaJSON(tok),
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		ID:           uuid.NewString(),
+		ProviderID:   providerID,
+		Name:         name,
+		APIKey:       tok.AccessToken,
+		IsActive:     true,
+		RefreshToken: tok.RefreshToken,
+		Meta:         oauth.MetaJSON(tok),
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
 	}
 	if tok.ExpiresIn > 0 {
 		conn.TokenExpiresAt = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
@@ -166,6 +166,95 @@ func (s *Server) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 		out.APIKey = out.APIKey[:4] + "…" + out.APIKey[len(out.APIKey)-4:]
 	}
 	writeJSON(w, http.StatusCreated, out)
+}
+
+// handleOAuthDeviceComplete persists tokens obtained by the browser-based Codex
+// device flow. The browser talks to auth.openai.com directly because remote
+// datacenter egress can be blocked; this endpoint only receives the final token
+// response over the authenticated dashboard session.
+func (s *Server) handleOAuthDeviceComplete(w http.ResponseWriter, r *http.Request) {
+	providerID := chi.URLParam(r, "provider")
+	if providerID != "codex" {
+		writeError(w, http.StatusBadRequest, "device flow is only supported for codex")
+		return
+	}
+	var body struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		IDToken      string `json:"id_token"`
+		ExpiresIn    int    `json:"expires_in"`
+		Name         string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.AccessToken) == "" {
+		writeError(w, http.StatusBadRequest, "access_token is required")
+		return
+	}
+	tok := &oauth.Tokens{
+		AccessToken: body.AccessToken, RefreshToken: body.RefreshToken,
+		IDToken: body.IDToken, ExpiresIn: body.ExpiresIn,
+	}
+	// Reuse the same claim parser used by the normal OAuth exchange. This keeps
+	// account/workspace identity in sync even when id_token omits it.
+	if parsed, err := oauth.ParseCodexAccessToken(tok.AccessToken, tok.IDToken); err == nil {
+		tok.Email, tok.AccountID, tok.PlanType = parsed.Email, parsed.AccountID, parsed.PlanType
+	}
+	conn, err := s.persistOAuthConnection(r, providerID, tok, body.Name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	out := *conn
+	if len(out.APIKey) > 8 {
+		out.APIKey = out.APIKey[:4] + "…" + out.APIKey[len(out.APIKey)-4:]
+	}
+	writeJSON(w, http.StatusCreated, out)
+}
+
+func (s *Server) persistOAuthConnection(r *http.Request, providerID string, tok *oauth.Tokens, name string) (*domain.Connection, error) {
+	if name == "" {
+		name = providerID
+		if tok.Email != "" {
+			name = providerID + " (" + tok.Email + ")"
+		}
+	}
+	baseURL, format, auth := "", domain.FormatOpenAI, domain.AuthBearer
+	if s.Catalog != nil {
+		if def := s.Catalog.Lookup(providerID); def != nil {
+			baseURL = def.Transport.BaseURL
+			format = domain.Format(def.Transport.Format)
+			auth = domain.AuthScheme(def.Transport.Auth)
+		}
+	}
+	if providerID == "codex" {
+		baseURL = "https://chatgpt.com/backend-api/codex"
+		format = domain.FormatResponses
+	}
+	if providerID == "gemini-cli" || providerID == "antigravity" {
+		baseURL = "https://cloudcode-pa.googleapis.com"
+		format = domain.FormatGemini
+	}
+	conn := &domain.Connection{
+		ID: uuid.NewString(), ProviderID: providerID, Name: name,
+		APIKey: tok.AccessToken, IsActive: true, RefreshToken: tok.RefreshToken,
+		Meta: oauth.MetaJSON(tok), CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if tok.ExpiresIn > 0 {
+		conn.TokenExpiresAt = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
+	}
+	if s.ProviderConfigs != nil {
+		cfg, err := s.ProviderConfigs.GetByProviderID(r.Context(), providerID)
+		if err == domain.ErrNotFound {
+			cfg = &domain.ProviderConfig{ID: providerID, Name: providerID, BaseURL: baseURL, Format: format, Auth: auth}
+			_ = s.ProviderConfigs.Create(r.Context(), cfg)
+		}
+		if cfg != nil {
+			s.probeAndResolve(r.Context(), conn, cfg, true)
+		}
+	}
+	if err := s.Providers.Create(r.Context(), conn); err != nil {
+		return nil, err
+	}
+	return conn, nil
 }
 
 // handleOAuthCallback is a browser landing page for redirect flows.
@@ -215,14 +304,14 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 			}
 			conn := &domain.Connection{
 				ID: uuid.NewString(), ProviderID: providerID, Name: name,
-				APIKey: tok.AccessToken, 
+				APIKey:   tok.AccessToken,
 				IsActive: true, RefreshToken: tok.RefreshToken, Meta: oauth.MetaJSON(tok),
 				CreatedAt: time.Now(), UpdatedAt: time.Now(),
 			}
 			if tok.ExpiresIn > 0 {
 				conn.TokenExpiresAt = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
 			}
-			
+
 			if s.ProviderConfigs != nil {
 				cfg, err := s.ProviderConfigs.GetByProviderID(r.Context(), providerID)
 				if err == domain.ErrNotFound {

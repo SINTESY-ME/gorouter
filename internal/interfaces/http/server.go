@@ -179,6 +179,7 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/oauth/providers", s.handleOAuthProviders)
 			r.Post("/oauth/{provider}/start", s.handleOAuthStart)
 			r.Post("/oauth/{provider}/complete", s.handleOAuthComplete)
+			r.Post("/oauth/{provider}/complete-device", s.handleOAuthDeviceComplete)
 			// Callback is public (browser redirect) — registered outside auth group below
 
 			r.Get("/models", s.handleListModelsDashboard)
