@@ -1101,6 +1101,18 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 			Stream:        stream,
 			Timeout:       upstreamTimeoutFromCtx(ctx),
 		}
+		// OpenCode-hosted providers reject requests without their routing
+		// headers with a deterministic 400 — attach them here so every
+		// combo candidate on opencode-go/opencode-zen is a valid request.
+		if needsOpencodeHeaders(m.Provider) {
+			opencodeHeaders := map[string]string{}
+			if err := applyOpencodeHeaders(opencodeHeaders, m.Provider, time.Now()); err != nil {
+				// Fail-open: a header-generation error must not block the call.
+				slog.Warn("opencode header generation failed", "provider", m.Provider, "err", err)
+			} else if len(opencodeHeaders) > 0 {
+				execReq.Headers = opencodeHeaders
+			}
+		}
 		slog.Debug("executing upstream request", "provider", m.Provider, "model", m.Model)
 		res, err := s.Executor.Execute(ctx, execReq)
 		if err != nil {
@@ -1203,6 +1215,18 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 	}
 	if contentType != "" {
 		execReq.Headers = map[string]string{"Content-Type": contentType}
+	}
+	// OpenCode-hosted providers reject requests without their routing
+	// headers (deterministic 400). Attach them without clobbering
+	// Content-Type when it was already set.
+	if needsOpencodeHeaders(m.Provider) {
+		if execReq.Headers == nil {
+			execReq.Headers = map[string]string{}
+		}
+		if err := applyOpencodeHeaders(execReq.Headers, m.Provider, time.Now()); err != nil {
+			// Fail-open: a header-generation error must not block the call.
+			slog.Warn("opencode header generation failed", "provider", m.Provider, "err", err)
+		}
 	}
 	res, err := s.Executor.Execute(ctx, execReq)
 	if err != nil {
