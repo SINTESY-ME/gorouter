@@ -246,8 +246,11 @@ func TestOpenAIToResponsesRequest(t *testing.T) {
 	if item["role"] != "user" {
 		t.Errorf("role: got %v want user", item["role"])
 	}
-	if r["max_output_tokens"].(float64) != 50 {
-		t.Errorf("max_output_tokens: got %v want 50", r["max_output_tokens"])
+	if _, ok := r["max_output_tokens"]; ok {
+		// The ChatGPT Codex Responses backend rejects max_output_tokens with a
+		// deterministic 400 ("Unsupported parameter"), which stops the combo
+		// cascade — the parameter must be omitted on the Responses wire.
+		t.Errorf("max_output_tokens must be omitted on the Responses wire, got %v", r["max_output_tokens"])
 	}
 }
 

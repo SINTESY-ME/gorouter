@@ -50,9 +50,17 @@ func translateOpenAIToResponsesRequest(upstreamModel string, body []byte) ([]byt
 		})
 	}
 	out["input"] = input
-	if maxTokens := r.maxTokensPtr(); maxTokens != nil {
-		out["max_output_tokens"] = *maxTokens
-	}
+	// max_output_tokens is intentionally NOT forwarded on the Responses wire
+	// format. The ChatGPT Codex Responses backend (ai-providers-internal)
+	// rejects the parameter with 400 "Unsupported parameter:
+	// max_output_tokens" — a deterministic client error that STOPS the combo
+	// cascade (ShouldFallback(400)=false), so healthy candidates behind the
+	// codex route are never tried when the primary degrades. Codex-CLI
+	// sessions never send a token ceiling; 89 upstream 400s with this exact
+	// signature (2026-08-21 → 2026-09-14) confirm it.
+	//
+	// Precedent: out["store"] = false below (commit 15820a0) — same upstream,
+	// same deterministic-400 family ("Store must be set to false").
 	if r.Temperature != nil {
 		out["temperature"] = *r.Temperature
 	}
