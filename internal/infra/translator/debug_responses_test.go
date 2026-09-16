@@ -19,6 +19,71 @@ func TestDebugResponsesToOpenAI(t *testing.T) {
 	}
 }
 
+// TestResponsesToolOutputArrayPartsFlattened reproduces the production 400:
+// Codex CLI sends function_call_output.output as an array of content parts,
+// and ollama/glm rejects the array-shaped tool content with
+// "invalid message format" (deterministic 400 that kills the combo cascade).
+func TestResponsesToolOutputArrayPartsFlattened(t *testing.T) {
+	tr := New()
+	body := `{"model":"coding","input":[
+		{"type":"message","role":"user","content":"run ls"},
+		{"type":"function_call","call_id":"call_1","name":"exec","arguments":"{\"cmd\":\"ls\"}"},
+		{"type":"function_call_output","call_id":"call_1","output":[{"type":"input_text","text":"Script completed"},{"type":"input_text","text":"total 18444"}]}
+	],"stream":false}`
+	out, err := tr.TranslateRequest(domain.FormatResponses, domain.FormatOpenAI, "glm-5.3-flash", []byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var req openaiRequest
+	if err := json.Unmarshal(out, &req); err != nil {
+		t.Fatal(err)
+	}
+	if len(req.Messages) != 3 {
+		t.Fatalf("expected 3 messages, got %d: %+v", len(req.Messages), req.Messages)
+	}
+	tool := req.Messages[2]
+	if tool.Role != "tool" {
+		t.Fatalf("expected role tool, got %q", tool.Role)
+	}
+	var content string
+	if err := json.Unmarshal(tool.Content, &content); err != nil {
+		t.Fatalf("tool content must be a JSON string, got: %s", string(tool.Content))
+	}
+	if content != "Script completed\ntotal 18444" {
+		t.Fatalf("flattened content mismatch: %q", content)
+	}
+}
+
+// TestResponsesToolOutputStructuredJSONPreserved keeps structured outputs
+// readable instead of silently dropping them.
+func TestResponsesToolOutputStructuredJSONPreserved(t *testing.T) {
+	tr := New()
+	body := `{"model":"coding","input":[
+		{"type":"message","role":"user","content":"run"},
+		{"type":"function_call","call_id":"call_2","name":"exec","arguments":"{}"},
+		{"type":"function_call_output","call_id":"call_2","output":{"exit_code":0,"stdout":"ok"}}
+	],"stream":false}`
+	out, err := tr.TranslateRequest(domain.FormatResponses, domain.FormatOpenAI, "glm-5.3-flash", []byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var req openaiRequest
+	if err := json.Unmarshal(out, &req); err != nil {
+		t.Fatal(err)
+	}
+	tool := req.Messages[len(req.Messages)-1]
+	if tool.Role != "tool" {
+		t.Fatalf("expected tool message, got %q", tool.Role)
+	}
+	var content string
+	if err := json.Unmarshal(tool.Content, &content); err != nil {
+		t.Fatalf("tool content must be a JSON string, got: %s", string(tool.Content))
+	}
+	if content != `{"exit_code":0,"stdout":"ok"}` {
+		t.Fatalf("structured output mismatch: %q", content)
+	}
+}
+
 func TestResponsesReasoningItemBecomesReasoningContent(t *testing.T) {
 	tr := New()
 	body := `{"model":"coding","input":[

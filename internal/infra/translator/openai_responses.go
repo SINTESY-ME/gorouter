@@ -590,9 +590,15 @@ func parseResponsesInput(raw json.RawMessage) ([]openaiMessage, error) {
 				}},
 			})
 		case "function_call_output":
+			// Codex CLI sends the tool output as an array of content parts
+			// ([{"type":"input_text","text":"..."}]) or a raw JSON value.
+			// Strict OpenAI-compatible upstreams (ollama/glm, and any
+			// provider validating content as string) reject array content
+			// on role:"tool" with "invalid message format", killing the
+			// combo cascade — so normalize to a plain string here.
 			out = append(out, openaiMessage{
 				Role:       "tool",
-				Content:    m.Output,
+				Content:    json.RawMessage(jsonQuoteString(normalizeToolOutput(m.Output))),
 				ToolCallID: m.CallID,
 			})
 		default:
@@ -612,6 +618,49 @@ func parseResponsesInput(raw json.RawMessage) ([]openaiMessage, error) {
 		}
 	}
 	return out, nil
+}
+
+// normalizeToolOutput flattens a Responses function_call_output "output"
+// field into a string suitable for the OpenAI tool message content. Handles:
+// a JSON string, an array of content parts ({"type":"input_text"/"text",
+// "text":...} — the shape Codex CLI sends), any other JSON value (serialized
+// verbatim), and empty input (empty string).
+func normalizeToolOutput(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &blocks) == nil {
+		var b strings.Builder
+		for _, blk := range blocks {
+			if blk.Text == "" {
+				continue
+			}
+			if b.Len() > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(blk.Text)
+		}
+		if b.Len() > 0 {
+			return b.String()
+		}
+	}
+	// Any other JSON value: pass it through serialized (tool outputs may be
+	// structured payloads the model knows how to read).
+	return string(raw)
+}
+
+// jsonQuoteString returns s as a JSON string literal (quoted + escaped).
+func jsonQuoteString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }
 
 // extractReasoningSummary pulls the text out of a Responses API reasoning
