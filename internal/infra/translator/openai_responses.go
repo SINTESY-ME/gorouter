@@ -748,7 +748,6 @@ func translateOpenAIToResponsesResponseJSON(body []byte) ([]byte, error) {
 		output = append(output, map[string]any{
 			"id":        "fc_" + in.ID + "_" + strconv.Itoa(i),
 			"type":      "function_call",
-			"status":    "completed",
 			"call_id":   id,
 			"name":      name,
 			"arguments": args,
