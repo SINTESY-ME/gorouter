@@ -701,7 +701,8 @@ func translateOpenAIToResponsesResponseJSON(body []byte) ([]byte, error) {
 		Model   string `json:"model"`
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content   string         `json:"content"`
+				ToolCalls []chatToolCall `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
 		Usage struct {
@@ -713,21 +714,52 @@ func translateOpenAIToResponsesResponseJSON(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("openai->responses response: parse: %w", err)
 	}
 	text := ""
+	var toolCalls []chatToolCall
 	if len(in.Choices) > 0 {
 		text = in.Choices[0].Message.Content
+		toolCalls = in.Choices[0].Message.ToolCalls
 	}
-	out := map[string]any{
-		"id":     in.ID,
-		"object": "response",
-		"model":  in.Model,
-		"output": []map[string]any{{
+	output := []map[string]any{}
+	if text != "" {
+		output = append(output, map[string]any{
 			"type": "message",
 			"role": "assistant",
 			"content": []map[string]any{{
 				"type": "output_text",
 				"text": text,
 			}},
-		}},
+		})
+	}
+	// A non-streamed upstream can answer with tool calls only. Dropping them
+	// here would hand Codex an empty turn and it would stop at the tool call.
+	for i, tc := range toolCalls {
+		id := tc.ID
+		if id == "" {
+			id = "call_" + strconv.Itoa(i)
+		}
+		name := tc.Function.Name
+		if name == "" {
+			continue
+		}
+		args := tc.Function.Arguments
+		if args == "" {
+			args = "{}"
+		}
+		output = append(output, map[string]any{
+			"id":        "fc_" + in.ID + "_" + strconv.Itoa(i),
+			"type":      "function_call",
+			"status":    "completed",
+			"call_id":   id,
+			"name":      name,
+			"arguments": args,
+		})
+	}
+	out := map[string]any{
+		"id":     in.ID,
+		"object": "response",
+		"model":  in.Model,
+		"status": "completed",
+		"output": output,
 		"usage": map[string]any{
 			"input_tokens":  in.Usage.PromptTokens,
 			"output_tokens": in.Usage.CompletionTokens,
@@ -788,13 +820,14 @@ type chatFunction struct {
 type outputItem interface {
 	id() string
 	open(w io.Writer, idx int) error
-	writeDelta(w io.Writer, idx int, delta string) error
-	close(w io.Writer, idx int) error
+	writeDelta(w io.Writer, delta string) error
+	close(w io.Writer) error
 }
 
 // reasoningItem emits the reasoning summary lifecycle.
 type reasoningItem struct {
 	itemID string
+	idx    int
 	buf    strings.Builder
 }
 
@@ -805,6 +838,7 @@ func newReasoningItem(respID string) *reasoningItem {
 func (r *reasoningItem) id() string { return r.itemID }
 
 func (r *reasoningItem) open(w io.Writer, idx int) error {
+	r.idx = idx
 	return writeSSE(w, "response.output_item.added", map[string]any{
 		"type":         "response.output_item.added",
 		"output_index": idx,
@@ -812,21 +846,21 @@ func (r *reasoningItem) open(w io.Writer, idx int) error {
 	})
 }
 
-func (r *reasoningItem) writeDelta(w io.Writer, idx int, delta string) error {
+func (r *reasoningItem) writeDelta(w io.Writer, delta string) error {
 	r.buf.WriteString(delta)
 	return writeSSE(w, "response.reasoning_summary_text.delta", map[string]any{
 		"type":          "response.reasoning_summary_text.delta",
 		"item_id":       r.itemID,
-		"output_index":  idx,
+		"output_index":  r.idx,
 		"summary_index": 0,
 		"delta":         delta,
 	})
 }
 
-func (r *reasoningItem) close(w io.Writer, idx int) error {
+func (r *reasoningItem) close(w io.Writer) error {
 	return writeSSE(w, "response.output_item.done", map[string]any{
 		"type":         "response.output_item.done",
-		"output_index": idx,
+		"output_index": r.idx,
 		"item": map[string]any{
 			"id":      r.itemID,
 			"type":    "reasoning",
@@ -838,6 +872,7 @@ func (r *reasoningItem) close(w io.Writer, idx int) error {
 // messageItem emits the assistant message + content_part lifecycle.
 type messageItem struct {
 	itemID string
+	idx    int
 	buf    strings.Builder
 }
 
@@ -848,6 +883,7 @@ func newMessageItem(respID string) *messageItem {
 func (m *messageItem) id() string { return m.itemID }
 
 func (m *messageItem) open(w io.Writer, idx int) error {
+	m.idx = idx
 	if err := writeSSE(w, "response.output_item.added", map[string]any{
 		"type":         "response.output_item.added",
 		"output_index": idx,
@@ -864,35 +900,35 @@ func (m *messageItem) open(w io.Writer, idx int) error {
 	})
 }
 
-func (m *messageItem) writeDelta(w io.Writer, idx int, delta string) error {
+func (m *messageItem) writeDelta(w io.Writer, delta string) error {
 	m.buf.WriteString(delta)
 	return writeSSE(w, "response.output_text.delta", map[string]any{
 		"type":          "response.output_text.delta",
 		"item_id":       m.itemID,
-		"output_index":  idx,
+		"output_index":  m.idx,
 		"content_index": 0,
 		"delta":         delta,
 	})
 }
 
-func (m *messageItem) close(w io.Writer, idx int) error {
+func (m *messageItem) close(w io.Writer) error {
 	text := m.buf.String()
 	if err := writeSSE(w, "response.output_text.done", map[string]any{
 		"type": "response.output_text.done", "item_id": m.itemID,
-		"output_index": idx, "content_index": 0, "text": text,
+		"output_index": m.idx, "content_index": 0, "text": text,
 	}); err != nil {
 		return err
 	}
 	if err := writeSSE(w, "response.content_part.done", map[string]any{
 		"type": "response.content_part.done", "item_id": m.itemID,
-		"output_index": idx, "content_index": 0,
+		"output_index": m.idx, "content_index": 0,
 		"part": map[string]any{"type": "output_text", "text": text},
 	}); err != nil {
 		return err
 	}
 	return writeSSE(w, "response.output_item.done", map[string]any{
 		"type":         "response.output_item.done",
-		"output_index": idx,
+		"output_index": m.idx,
 		"item": map[string]any{
 			"id": m.itemID, "type": "message", "role": "assistant",
 			"content": []map[string]any{{"type": "output_text", "text": text}},
@@ -905,6 +941,7 @@ type functionCallItem struct {
 	itemID    string
 	callID    string
 	name      string
+	idx       int
 	arguments strings.Builder
 }
 
@@ -919,6 +956,7 @@ func newFunctionCallItem(respID string, tc chatToolCall) *functionCallItem {
 func (f *functionCallItem) id() string { return f.itemID }
 
 func (f *functionCallItem) open(w io.Writer, idx int) error {
+	f.idx = idx
 	return writeSSE(w, "response.output_item.added", map[string]any{
 		"type":         "response.output_item.added",
 		"output_index": idx,
@@ -929,29 +967,32 @@ func (f *functionCallItem) open(w io.Writer, idx int) error {
 	})
 }
 
-func (f *functionCallItem) writeDelta(w io.Writer, idx int, delta string) error {
+func (f *functionCallItem) writeDelta(w io.Writer, delta string) error {
 	f.arguments.WriteString(delta)
 	return writeSSE(w, "response.function_call_arguments.delta", map[string]any{
 		"type":         "response.function_call_arguments.delta",
 		"item_id":      f.itemID,
-		"output_index": idx,
+		"output_index": f.idx,
 		"delta":        delta,
 	})
 }
 
-func (f *functionCallItem) close(w io.Writer, idx int) error {
+// close emits the terminal events for this tool call. Codex builds the
+// executable tool call from this item (it ignores the argument deltas), so the
+// arguments written here must be the complete JSON string.
+func (f *functionCallItem) close(w io.Writer) error {
 	args := f.arguments.String()
 	if err := writeSSE(w, "response.function_call_arguments.done", map[string]any{
 		"type":         "response.function_call_arguments.done",
 		"item_id":      f.itemID,
-		"output_index": idx,
+		"output_index": f.idx,
 		"arguments":    args,
 	}); err != nil {
 		return err
 	}
 	return writeSSE(w, "response.output_item.done", map[string]any{
 		"type":         "response.output_item.done",
-		"output_index": idx,
+		"output_index": f.idx,
 		"item": map[string]any{
 			"id": f.itemID, "type": "function_call",
 			"call_id": f.callID, "name": f.name, "arguments": args,
@@ -969,6 +1010,7 @@ type responsesStreamState struct {
 	items            []outputItem
 	active           outputItem
 	toolCalls        map[int]*functionCallItem
+	openToolCalls    []*functionCallItem
 	finished         bool
 	finishReason     string
 	promptTokens     int
@@ -1015,7 +1057,7 @@ func (s *responsesStreamState) handleChunk(data string, w io.Writer) error {
 		if err := s.ensureActive(newReasoningItem(s.id), w); err != nil {
 			return err
 		}
-		if err := s.active.writeDelta(w, s.outputIdx, d.Reasoning); err != nil {
+		if err := s.active.writeDelta(w, d.Reasoning); err != nil {
 			return err
 		}
 	}
@@ -1023,7 +1065,7 @@ func (s *responsesStreamState) handleChunk(data string, w io.Writer) error {
 		if err := s.ensureActive(newMessageItem(s.id), w); err != nil {
 			return err
 		}
-		if err := s.active.writeDelta(w, s.outputIdx, d.Content); err != nil {
+		if err := s.active.writeDelta(w, d.Content); err != nil {
 			return err
 		}
 	}
@@ -1032,6 +1074,18 @@ func (s *responsesStreamState) handleChunk(data string, w io.Writer) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// openItem emits the item's opening events and assigns it the next output
+// index. Each item remembers its own index so that events emitted later for an
+// item already superseded by another one still carry the matching index.
+func (s *responsesStreamState) openItem(item outputItem, w io.Writer) error {
+	if err := item.open(w, s.outputIdx); err != nil {
+		return err
+	}
+	s.outputIdx++
+	s.items = append(s.items, item)
 	return nil
 }
 
@@ -1047,8 +1101,7 @@ func (s *responsesStreamState) ensureActive(item outputItem, w io.Writer) error 
 		}
 	}
 	s.active = item
-	s.items = append(s.items, item)
-	return item.open(w, s.outputIdx)
+	return s.openItem(item, w)
 }
 
 func (s *responsesStreamState) handleToolCalls(calls []chatToolCall, w io.Writer) error {
@@ -1058,6 +1111,12 @@ func (s *responsesStreamState) handleToolCalls(calls []chatToolCall, w io.Writer
 	for _, tc := range calls {
 		fc, ok := s.toolCalls[tc.Index]
 		if !ok {
+			// A tool call starts its own output item. Close any open
+			// message/reasoning item first, but never close another
+			// tool call here: its argument deltas may still be in
+			// flight, and Codex executes the tool call from the
+			// completed item, so closing early truncates the
+			// arguments. Tool calls are closed together at finish().
 			if s.active != nil {
 				if err := s.closeActive(w); err != nil {
 					return err
@@ -1065,14 +1124,13 @@ func (s *responsesStreamState) handleToolCalls(calls []chatToolCall, w io.Writer
 			}
 			fc = newFunctionCallItem(s.id, tc)
 			s.toolCalls[tc.Index] = fc
-			s.items = append(s.items, fc)
-			s.active = fc
-			if err := fc.open(w, s.outputIdx); err != nil {
+			s.openToolCalls = append(s.openToolCalls, fc)
+			if err := s.openItem(fc, w); err != nil {
 				return err
 			}
 		}
 		if tc.Function.Arguments != "" {
-			if err := fc.writeDelta(w, s.outputIdx, tc.Function.Arguments); err != nil {
+			if err := fc.writeDelta(w, tc.Function.Arguments); err != nil {
 				return err
 			}
 		}
@@ -1080,17 +1138,26 @@ func (s *responsesStreamState) handleToolCalls(calls []chatToolCall, w io.Writer
 	return nil
 }
 
-// closeActive closes the current item and advances the output index.
+// closeActive closes the current message/reasoning item.
 func (s *responsesStreamState) closeActive(w io.Writer) error {
 	if s.active == nil {
 		return nil
 	}
 	item := s.active
 	s.active = nil
-	if err := item.close(w, s.outputIdx); err != nil {
-		return err
+	return item.close(w)
+}
+
+// closeToolCalls closes every tool call opened during the stream, in the order
+// they were opened, so each one reaches the client with its full arguments.
+func (s *responsesStreamState) closeToolCalls(w io.Writer) error {
+	pending := s.openToolCalls
+	s.openToolCalls = nil
+	for _, fc := range pending {
+		if err := fc.close(w); err != nil {
+			return err
+		}
 	}
-	s.outputIdx++
 	return nil
 }
 
@@ -1115,6 +1182,13 @@ func (s *responsesStreamState) finish(w io.Writer) error {
 		if err := s.closeActive(w); err != nil {
 			return err
 		}
+	}
+	// Tool calls are closed only here, once every argument delta has been
+	// seen. Codex executes the tool call from this completed item and ignores
+	// response.function_call_arguments.*, so a premature close would hand it
+	// truncated arguments and the turn would stall at the tool call.
+	if err := s.closeToolCalls(w); err != nil {
+		return err
 	}
 	return writeSSE(w, "response.completed", map[string]any{
 		"type": "response.completed",
