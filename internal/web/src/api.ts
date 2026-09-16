@@ -50,6 +50,7 @@ export interface Provider {
   format: string;
   auth: string;
   load_balance: string;
+  is_active: boolean;
   created_at?: string;
   updated_at?: string;
 }

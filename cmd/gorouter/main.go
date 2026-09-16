@@ -237,7 +237,7 @@ func run() error {
 		slog.Warn("semantic cache requested but no embedding model configured; disabled")
 	}
 
-	models := &app.ModelsService{Combos: comboRepo, Models: modelRepo}
+	models := &app.ModelsService{Combos: comboRepo, Models: modelRepo, Selector: router.Selector}
 	connSvc := &app.ConnectionService{Repo: cachedConns}
 	combos := &app.ComboService{Repo: comboRepo, Models: modelRepo}
 	usage := &app.UsageService{Repo: usageRepo}

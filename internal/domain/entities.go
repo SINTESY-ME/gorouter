@@ -115,9 +115,12 @@ type ProviderConfig struct {
 	// fall through on failure. "round-robin": rotate the starting index
 	// across requests to distribute load evenly.
 	LoadBalance string `json:"load_balance" gorm:"column:load_balance;default:failover"`
-	// CreatedBy is the dashboard user ID that owns this provider. Empty
-	// means admin-owned (pre-multi-user or created by an admin).
-	CreatedBy string    `json:"-" gorm:"column:created_by;index"`
+	// IsActive is the provider-level kill switch. A disabled provider is
+	// excluded from /v1/models, rejected before routing (503), and skipped
+	// by health probes. Connections under it keep their own IsActive —
+	// disabling the provider is a single switch over all of them.
+	IsActive    bool   `json:"is_active" gorm:"column:is_active;default:true"`
+	CreatedBy   string `json:"-" gorm:"column:created_by;index"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

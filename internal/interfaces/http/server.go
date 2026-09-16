@@ -483,7 +483,7 @@ func statusForError(err error) int {
 		return http.StatusUnauthorized
 	case isDomain(err, domain.ErrForbidden):
 		return http.StatusForbidden
-	case isDomain(err, domain.ErrNoConnection):
+	case isDomain(err, domain.ErrNoConnection), isDomain(err, domain.ErrProviderDisabled):
 		return http.StatusServiceUnavailable
 	case isDomain(err, domain.ErrAllModelsFailed):
 		return http.StatusBadGateway

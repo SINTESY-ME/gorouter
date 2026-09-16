@@ -10,13 +10,14 @@ import (
 
 // Sentinel domain errors.
 var (
-	ErrNotFound        = errors.New("gorouter: not found")
-	ErrAlreadyExists   = errors.New("gorouter: already exists")
-	ErrValidation      = errors.New("gorouter: validation error")
-	ErrUnauthorized    = errors.New("gorouter: unauthorized")
-	ErrForbidden       = errors.New("gorouter: forbidden")
-	ErrNoConnection    = errors.New("gorouter: no active connection for provider")
-	ErrAllModelsFailed = errors.New("gorouter: all models in the combo failed")
+	ErrNotFound         = errors.New("gorouter: not found")
+	ErrAlreadyExists    = errors.New("gorouter: already exists")
+	ErrValidation       = errors.New("gorouter: validation error")
+	ErrUnauthorized     = errors.New("gorouter: unauthorized")
+	ErrForbidden        = errors.New("gorouter: forbidden")
+	ErrNoConnection     = errors.New("gorouter: no active connection for provider")
+	ErrProviderDisabled = errors.New("gorouter: provider is disabled")
+	ErrAllModelsFailed  = errors.New("gorouter: all models in the combo failed")
 )
 
 // ShouldFallback decides whether a failed upstream response (or its parsed

@@ -195,6 +195,7 @@
     "inactive": "inativa",
     "editAria": "editar",
     "deleteAria": "excluir",
+    "disabledChip": "desativado",
     "editEndpoint": "Editar Endpoint (Provider)",
     "chooseProvider": "Escolher Provider",
     "configureProvider": "Configurar Provider",

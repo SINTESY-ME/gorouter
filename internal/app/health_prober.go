@@ -111,6 +111,13 @@ func (h *HealthProber) RunProbe(modelStr string, m domain.ModelID, connID string
 		slog.Debug("health probe: connection not found", "model", modelStr, "conn", connID)
 		return
 	}
+	// Provider kill switch: a disabled provider's connections are never
+	// probed (they cannot route anyway).
+	if h.Selector != nil && h.Selector.IsProviderDisabled(m.Provider) {
+		h.Health.ProbeFailed(modelStr, connID)
+		slog.Debug("health probe: provider disabled", "model", modelStr, "conn", connID)
+		return
+	}
 	if !conn.IsActive {
 		h.Health.ProbeFailed(modelStr, connID)
 		slog.Debug("health probe: connection inactive", "model", modelStr, "conn", connID)

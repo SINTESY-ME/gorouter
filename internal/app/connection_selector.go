@@ -63,6 +63,20 @@ func (c *ConnectionSelector) StartIndex(conns []domain.Connection) int {
 	return 0
 }
 
+// IsProviderDisabled reports whether the provider's config marks it
+// inactive. Unknown providers and catalog-only providers are treated as
+// active (fail-open) so behaviour is unchanged for anything not toggled
+// in the dashboard.
+func (c *ConnectionSelector) IsProviderDisabled(providerID string) bool {
+	if c == nil {
+		return false
+	}
+	c.mu.RLock()
+	cfg := c.cache[providerID]
+	c.mu.RUnlock()
+	return cfg != nil && !cfg.IsActive
+}
+
 // Refresh loads all provider metadata from the database into the cache.
 // Called at startup and after provider changes.
 func (c *ConnectionSelector) Refresh(ctx context.Context) {

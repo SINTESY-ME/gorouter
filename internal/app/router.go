@@ -403,6 +403,11 @@ func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body 
 	if len(contentType) > 0 {
 		ct = contentType[0]
 	}
+	// Provider kill switch: a disabled provider rejects before any
+	// cache/sem-cache/conn-pool work (503, client can retry once re-enabled).
+	if s.Selector != nil && s.Selector.IsProviderDisabled(m.Provider) {
+		return nil, domain.ErrProviderDisabled
+	}
 	conns, err := s.Connections.ListByProvider(ctx, m.Provider)
 	if err != nil {
 		return nil, err
@@ -758,6 +763,12 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 		conns, err := s.Connections.ListByProvider(ctx, m.Provider)
 		if err != nil {
 			lastErr = err
+			continue
+		}
+		// Provider kill switch: disabled providers are skipped in combos
+		// like any other unusable model, so fallback continues.
+		if s.Selector != nil && s.Selector.IsProviderDisabled(m.Provider) {
+			lastErr = fmt.Errorf("%w: provider %q", domain.ErrProviderDisabled, m.Provider)
 			continue
 		}
 		startIdx := 0
@@ -2058,8 +2069,9 @@ func rewriteMultipartModel(body []byte, upstreamModel string) []byte {
 // model catalog (synced from providers). It no longer fetches live from
 // upstreams on every request — the catalog is kept fresh by ModelSyncService.
 type ModelsService struct {
-	Combos domain.ComboRepo
-	Models domain.ModelRepo
+	Combos   domain.ComboRepo
+	Models   domain.ModelRepo
+	Selector *ConnectionSelector
 }
 
 func (s *ModelsService) List(ctx context.Context) ([]domain.ModelInfo, error) {
@@ -2073,19 +2085,40 @@ func (s *ModelsService) List(ctx context.Context) ([]domain.ModelInfo, error) {
 		if kind == "" {
 			kind = domain.KindLLM
 		}
+		// Combos are always listed, even when every member sits on a
+		// disabled provider or an inactive model — the combo id stays
+		// addressable and shows its fallback behaviour on use.
 		out = append(out, domain.ModelInfo{ID: c.Name, Object: "model", OwnedBy: "combo", Kind: kind})
 	}
-	// Read active models from the catalog (no live fetch).
+	// Read active models from the catalog (no live fetch). Models whose
+	// provider is disabled are excluded — the list mirrors what can route.
 	if s.Models != nil {
 		entries, err := s.Models.ListActive(ctx)
 		if err != nil {
 			return nil, err
+		}
+		if s.Selector != nil {
+			entries = filterDisabledProviderEntries(s.Selector, entries)
 		}
 		for _, e := range entries {
 			out = append(out, domain.ModelInfo{ID: e.ID, Object: "model", OwnedBy: e.ProviderID, Kind: e.Kind})
 		}
 	}
 	return out, nil
+}
+
+// filterDisabledProviderEntries drops catalog entries whose provider config
+// (as cached in the ConnectionSelector) is inactive. Nil-safe and fail-open:
+// unknown providers pass through.
+func filterDisabledProviderEntries(sel *ConnectionSelector, entries []domain.ModelEntry) []domain.ModelEntry {
+	out := entries[:0]
+	for _, e := range entries {
+		if sel.IsProviderDisabled(e.ProviderID) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 // inputFormatCtxKey stores the client's input format in the context so

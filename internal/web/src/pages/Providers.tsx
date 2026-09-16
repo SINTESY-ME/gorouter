@@ -5,7 +5,7 @@ import {
 } from "@heroui/react";
 import { useTranslation } from "react-i18next";
 import { api, type Provider, type Connection, type ModelEntry, type ProviderDef } from "../api";
-import { IconPlus, IconSearch, IconPencil, IconTrash, IconChevron, IconEye, IconEyeOff } from "../icons";
+import { IconPlus, IconSearch, IconPencil, IconTrash, IconChevron, IconEye, IconEyeOff, IconPower } from "../icons";
 import { runCodexDeviceFlow } from "../oauth/codexDeviceFlow";
 
 const FORMATS = ["auto", "openai", "anthropic", "gemini", "responses"];
@@ -201,6 +201,18 @@ export default function Providers() {
     }
   };
 
+  const toggleProviderActive = async (providerId: string, active: boolean) => {
+    setSavingConfig(providerId);
+    try {
+      await api.providers.update(providerId, { is_active: active });
+      setProviders(prev => prev.map(p => p.id === providerId ? { ...p, is_active: active } : p));
+    } catch (e: any) {
+      // surface error?
+    } finally {
+      setSavingConfig(null);
+    }
+  };
+
   const openNewConnection = (providerId: string) => {
     setConnProviderId(providerId);
     setConnForm(emptyConnection);
@@ -354,8 +366,19 @@ export default function Providers() {
                   </div>
 
                   <div className="flex items-center gap-3">
+                    {savingConfig === provider.id ? (
+                      <Spinner size="sm" />
+                    ) : provider.is_active === false ? (
+                      <Chip size="sm" variant="soft" color="danger">{t("providers.disabledChip")}</Chip>
+                    ) : null}
                     <Chip size="sm" variant="soft" color="accent">{provider.format}</Chip>
                     <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                      <Button isIconOnly size="sm" variant="ghost"
+                        onPress={() => toggleProviderActive(provider.id, provider.is_active === false)}
+                        aria-label={provider.is_active === false ? t("providers.activate") : t("providers.deactivate")}
+                        className={provider.is_active === false ? "text-success" : "text-warning"}>
+                        <IconPower className="w-4 h-4" />
+                      </Button>
                       <Button isIconOnly size="sm" variant="ghost" onPress={() => openEditProvider(provider)} aria-label={t("providers.editAria")}><IconPencil className="w-4 h-4" /></Button>
                       <Button isIconOnly size="sm" variant="ghost" className="text-danger" onPress={() => setConfirmProviderId(provider.id)} aria-label={t("providers.deleteAria")}><IconTrash className="w-4 h-4" /></Button>
                     </div>

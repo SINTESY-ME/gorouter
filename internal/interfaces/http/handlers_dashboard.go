@@ -27,6 +27,7 @@ type createProviderRequest struct {
 	Format      string `json:"format"`
 	Auth        string `json:"auth"`
 	LoadBalance string `json:"load_balance"`
+	IsActive    *bool  `json:"is_active"`   // provider kill switch; nil = unchanged
 	TemplateID  string `json:"template_id"` // optional catalog preset
 }
 
@@ -92,7 +93,11 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		Format:      domain.Format(req.Format),
 		Auth:        domain.AuthScheme(req.Auth),
 		LoadBalance: req.LoadBalance,
+		IsActive:    true,
 		CreatedBy:   s.createdByFor(r),
+	}
+	if req.IsActive != nil {
+		cfg.IsActive = *req.IsActive
 	}
 
 	if cfg.Format == "" {
@@ -149,6 +154,11 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.LoadBalance == "failover" || req.LoadBalance == "round-robin" {
 		existing.LoadBalance = req.LoadBalance
+	}
+	// Provider kill switch: only applied when the field is present in the
+	// payload, so a PUT without is_active never accidentally re-enables.
+	if req.IsActive != nil {
+		existing.IsActive = *req.IsActive
 	}
 
 	if err := s.ProviderConfigs.Update(r.Context(), existing); err != nil {
