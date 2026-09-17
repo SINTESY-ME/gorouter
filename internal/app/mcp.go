@@ -191,9 +191,10 @@ func (s *MCPService) OwnedTools(ctx context.Context, clientIDs []string) map[str
 }
 
 // InjectTools merges the exposed MCP tools into a chat request body in the
-// given client format (OpenAI chat, Anthropic, or Responses). Existing tools
-// keep precedence (the caller's tools win on name collision). The body is
-// returned unchanged when MCP is disabled or there are no tools.
+// given client format (OpenAI chat, Anthropic, or Responses). A tool the caller
+// already declared wins, including when only the spelling differs (see
+// alreadyDeclared), and the body is returned unchanged when MCP is disabled,
+// there are no tools, or every tool was already declared.
 func (s *MCPService) InjectTools(ctx context.Context, format domain.Format, body []byte) ([]byte, error) {
 	return s.InjectToolsForClients(ctx, format, body, nil)
 }
@@ -298,6 +299,69 @@ func validateMCPClient(c *domain.MCPClient) error {
 
 // ---- format-aware tool injection ----
 
+// harnessToolPrefix is how a harness that already speaks MCP itself (Claude
+// Code, Hermes) names a tool it has connected: "mcp__<server>__<tool>". The
+// gateway names the same upstream tool "<client>__<tool>", so the two
+// conventions never collide on the raw string and a plain name comparison sees
+// no overlap.
+const harnessToolPrefix = "mcp__"
+
+// toolNameKey folds a tool name to its comparison key. The comparison is
+// case-insensitive because the server half of the name is spelled by whoever
+// configured it, and the same server is routinely display-cased differently on
+// each side.
+func toolNameKey(name string) string { return strings.ToLower(name) }
+
+// openAIToolName reads the name of a chat tool, which nests it under
+// "function".
+func openAIToolName(t map[string]any) string {
+	fn, _ := t["function"].(map[string]any)
+	n, _ := fn["name"].(string)
+	return n
+}
+
+// flatToolName reads the name of a Responses or Anthropic tool, both of which
+// carry it at the top level.
+func flatToolName(t map[string]any) string {
+	n, _ := t["name"].(string)
+	return n
+}
+
+// declaredTools parses the caller's own tool list, returning it untouched along
+// with the names it already claims. nameOf reads the name out of a tool because
+// each wire format nests it differently.
+func declaredTools(raw json.RawMessage, nameOf func(map[string]any) string) ([]map[string]any, map[string]bool, error) {
+	names := map[string]bool{}
+	if len(raw) == 0 {
+		return nil, names, nil
+	}
+	var parsed []map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil, nil, err
+	}
+	for _, t := range parsed {
+		if n := nameOf(t); n != "" {
+			names[toolNameKey(n)] = true
+		}
+	}
+	return parsed, names, nil
+}
+
+// alreadyDeclared reports whether the caller already declared this upstream
+// tool, under the gateway's own name or behind the harness prefix. When it did,
+// the caller's definition wins: a second copy of the same capability spends
+// tokens on a duplicate schema and leaves the model picking between two
+// identical tools, which also picks the execution path (server-side loop versus
+// the caller running it) by accident.
+func alreadyDeclared(declared map[string]bool, name string) bool {
+	return declared[toolNameKey(name)] || declared[toolNameKey(harnessToolPrefix+name)]
+}
+
+// markDeclared records an injected tool so the same name is not offered twice.
+func markDeclared(declared map[string]bool, name string) {
+	declared[toolNameKey(name)] = true
+}
+
 // injectOpenAITools appends OpenAI chat-style tools ({type:"function",
 // function:{name,description,parameters}}).
 func injectOpenAITools(body []byte, tools []domain.MCPTool) ([]byte, error) {
@@ -307,35 +371,30 @@ func injectOpenAITools(body []byte, tools []domain.MCPTool) ([]byte, error) {
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
-	merged, err := mergeOpenAITools(req.Tools, tools)
+	merged, injected, err := mergeOpenAITools(req.Tools, tools)
 	if err != nil {
 		return nil, err
+	}
+	if !injected {
+		// The caller already declared every tool: hand its request back
+		// untouched rather than re-serializing a body that does not change.
+		return body, nil
 	}
 	return setField(body, "tools", merged)
 }
 
-func mergeOpenAITools(existing json.RawMessage, tools []domain.MCPTool) (json.RawMessage, error) {
-	names := map[string]bool{}
-	var out []map[string]any
-	if len(existing) > 0 {
-		var parsed []map[string]any
-		if err := json.Unmarshal(existing, &parsed); err != nil {
-			return nil, err
-		}
-		for _, t := range parsed {
-			if fn, ok := t["function"].(map[string]any); ok {
-				if n, ok := fn["name"].(string); ok && n != "" {
-					names[n] = true
-				}
-			}
-			out = append(out, t)
-		}
+func mergeOpenAITools(existing json.RawMessage, tools []domain.MCPTool) (json.RawMessage, bool, error) {
+	out, declared, err := declaredTools(existing, openAIToolName)
+	if err != nil {
+		return nil, false, err
 	}
+	injected := false
 	for _, t := range tools {
-		if names[t.Name] {
+		if alreadyDeclared(declared, t.Name) {
 			continue
 		}
-		names[t.Name] = true
+		markDeclared(declared, t.Name)
+		injected = true
 		out = append(out, map[string]any{
 			"type": "function",
 			"function": map[string]any{
@@ -345,7 +404,14 @@ func mergeOpenAITools(existing json.RawMessage, tools []domain.MCPTool) (json.Ra
 			},
 		})
 	}
-	return json.Marshal(out)
+	if !injected {
+		return existing, false, nil
+	}
+	merged, err := json.Marshal(out)
+	if err != nil {
+		return nil, false, err
+	}
+	return merged, true, nil
 }
 
 // injectResponsesTools appends Responses-style tools
@@ -357,31 +423,26 @@ func injectResponsesTools(body []byte, tools []domain.MCPTool) ([]byte, error) {
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
-	names := map[string]bool{}
-	var out []map[string]any
-	if len(req.Tools) > 0 {
-		var parsed []map[string]any
-		if err := json.Unmarshal(req.Tools, &parsed); err != nil {
-			return nil, err
-		}
-		for _, t := range parsed {
-			if n, ok := t["name"].(string); ok && n != "" {
-				names[n] = true
-			}
-			out = append(out, t)
-		}
+	out, declared, err := declaredTools(req.Tools, flatToolName)
+	if err != nil {
+		return nil, err
 	}
+	injected := false
 	for _, t := range tools {
-		if names[t.Name] {
+		if alreadyDeclared(declared, t.Name) {
 			continue
 		}
-		names[t.Name] = true
+		markDeclared(declared, t.Name)
+		injected = true
 		out = append(out, map[string]any{
 			"type":        "function",
 			"name":        t.Name,
 			"description": t.Description,
 			"parameters":  t.InputSchema,
 		})
+	}
+	if !injected {
+		return body, nil
 	}
 	b, err := json.Marshal(out)
 	if err != nil {
@@ -399,30 +460,25 @@ func injectAnthropicTools(body []byte, tools []domain.MCPTool) ([]byte, error) {
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
-	names := map[string]bool{}
-	var out []map[string]any
-	if len(req.Tools) > 0 {
-		var parsed []map[string]any
-		if err := json.Unmarshal(req.Tools, &parsed); err != nil {
-			return nil, err
-		}
-		for _, t := range parsed {
-			if n, ok := t["name"].(string); ok && n != "" {
-				names[n] = true
-			}
-			out = append(out, t)
-		}
+	out, declared, err := declaredTools(req.Tools, flatToolName)
+	if err != nil {
+		return nil, err
 	}
+	injected := false
 	for _, t := range tools {
-		if names[t.Name] {
+		if alreadyDeclared(declared, t.Name) {
 			continue
 		}
-		names[t.Name] = true
+		markDeclared(declared, t.Name)
+		injected = true
 		out = append(out, map[string]any{
 			"name":         t.Name,
 			"description":  t.Description,
 			"input_schema": t.InputSchema,
 		})
+	}
+	if !injected {
+		return body, nil
 	}
 	b, err := json.Marshal(out)
 	if err != nil {
