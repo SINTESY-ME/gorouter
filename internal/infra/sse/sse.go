@@ -14,14 +14,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 // Headers are the standard SSE response headers with permissive CORS so
 // browser-based clients (the dashboard) can connect on the same origin.
 var Headers = map[string]string{
-	"Content-Type":  "text/event-stream",
-	"Cache-Control": "no-cache, no-transform",
-	"Connection":    "keep-alive",
+	"Content-Type":      "text/event-stream",
+	"Cache-Control":     "no-cache, no-transform",
+	"Connection":        "keep-alive",
 	"X-Accel-Buffering": "no",
 }
 
@@ -96,6 +97,67 @@ func ParseEvent(r *bufio.Reader) (data string, done bool, err error) {
 			return "", true, nil
 		}
 	}
+}
+
+// Event is one raw SSE event: the optional `event:` name, the concatenated
+// data lines, and Raw — the complete event including its blank-line
+// terminator, so a caller can forward it byte-for-byte.
+type Event struct {
+	Name string
+	Data string
+	Raw  []byte
+}
+
+// ReadEvent reads one event from br, keeping the bytes verbatim. A final event
+// without a trailing blank line is still returned; err is io.EOF once the
+// stream is exhausted. Unlike ParseEvent this preserves the `event:` name,
+// which the Responses and Anthropic wire formats depend on.
+func ReadEvent(br *bufio.Reader) (Event, error) {
+	var (
+		ev   Event
+		raw  []byte
+		data []string
+	)
+	for {
+		line, err := br.ReadString('\n')
+		if line != "" {
+			raw = append(raw, line...)
+			trimmed := trimRight(line)
+			switch {
+			case trimmed == "":
+				ev.Raw = raw
+				ev.Data = strings.Join(data, "\n")
+				return ev, nil
+			case strings.HasPrefix(trimmed, ":"):
+				// Comment / keep-alive: forwarded as part of Raw.
+			case strings.HasPrefix(trimmed, "event:"):
+				ev.Name = strings.TrimSpace(trimmed[len("event:"):])
+			case strings.HasPrefix(trimmed, "data:"):
+				data = append(data, strings.TrimSpace(trimmed[len("data:"):]))
+			}
+		}
+		if err != nil {
+			if len(raw) > 0 {
+				ev.Raw = raw
+				ev.Data = strings.Join(data, "\n")
+				return ev, err
+			}
+			return Event{}, err
+		}
+	}
+}
+
+// BuildEvent renders an event with its name and payload, for the cases where a
+// caller had to rewrite a payload and the original framing cannot be reused.
+func BuildEvent(name string, data []byte) []byte {
+	if name == "" {
+		return append(append([]byte("data: "), data...), '\n', '\n')
+	}
+	out := append([]byte("event: "), name...)
+	out = append(out, '\n')
+	out = append(out, "data: "...)
+	out = append(out, data...)
+	return append(out, '\n', '\n')
 }
 
 // ReadAll collects every remaining event's data payload. Intended for

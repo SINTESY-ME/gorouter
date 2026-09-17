@@ -287,14 +287,20 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 
 	// Route the request. Direct model requests and combos without MCP
 	// clients never run the agent loop. A combo that declares MCP clients
-	// resolves tool calls server-side for buffered requests, in whichever
-	// format the client speaks (chat completions, responses or messages).
-	// Streamed requests keep the client in charge: it executes tools itself
-	// through the /mcp gateway, because the loop has to buffer a turn.
+	// resolves tool calls server-side: buffered requests are looped on
+	// directly, streamed ones keep streaming and only the tool-call events are
+	// held back while the gateway runs the tool.
 	combo, comboErr := s.lookupCombo(ctx, modelStr)
-	if s.MCP != nil && !stream && opts.Endpoint == "" && comboErr == nil && combo != nil && len(combo.MCPClients) > 0 {
-		if proto := agentProtocolFor(opts.InputFormat); proto != nil {
+	if s.MCP != nil && opts.Endpoint == "" && comboErr == nil && combo != nil && len(combo.MCPClients) > 0 {
+		if agentProtocolFor(opts.InputFormat) != nil {
 			if owned := s.MCP.OwnedTools(ctx, combo.MCPClients); len(owned) > 0 {
+				if stream {
+					res, err := s.routeChatDispatch(ctx, modelStr, body, true, apiKey, opts, requestID)
+					if err != nil || res == nil || !res.Stream || res.StatusCode >= 400 {
+						return s.finishRoute(ctx, hc, res, err)
+					}
+					return s.finishRoute(ctx, hc, s.runAgentStreamLoop(ctx, res, modelStr, body, apiKey, opts, requestID, owned), nil)
+				}
 				res, err := s.routeWithAgentLoop(ctx, modelStr, body, apiKey, opts, requestID, owned)
 				return s.finishRoute(ctx, hc, res, err)
 			}
