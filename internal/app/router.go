@@ -408,6 +408,18 @@ type RouterResponse struct {
 	RTKBytesSaved  int
 	RTKTokensSaved int
 	RTKCostSaved   float64
+	// Blank reports an upstream turn that used its whole output budget
+	// without producing content or tool calls. Measured by executeOne on the
+	// OpenAI-format body, before translation to the client format.
+	Blank blankCompletion
+}
+
+// blankCompletion describes an empty turn that exhausted the output budget.
+// Reason is empty when the turn was usable.
+type blankCompletion struct {
+	Reason           string
+	PromptTokens     int
+	CompletionTokens int
 }
 
 func (s *RouterService) routeSingle(ctx context.Context, m domain.ModelID, body []byte, stream bool, apiKey string, opts RouteOptions, endpoint string, requestID string, attempt *int, contentType ...string) (*RouterResponse, error) {
@@ -994,21 +1006,17 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 		// Responses API incomplete_details fallback behavior. The provider
 		// itself is healthy (the client's max_tokens is what cut it short),
 		// so no health/probe action — just try the next connection/model.
-		if opts.Endpoint == "" && !res.Stream {
-			if reason, prompt, completion, berr := blankCompletionReason(res); reason != "" || berr != nil {
-				msg := reason
-				status := 0
-				if berr != nil {
-					msg = "read upstream response: " + berr.Error()
-				}
-				s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, status, msg, connStart, comboChain, requestID, *attempt, prompt, completion)
-				*attempt++
-				lastUpstream = &domain.UpstreamError{Status: status, Message: msg}
-				if res.Body != nil {
-					res.Body.Close()
-				}
-				continue
+		// executeOne measured this on the OpenAI-format body, so it holds for
+		// every client format.
+		if opts.Endpoint == "" && !res.Stream && res.Blank.Reason != "" {
+			msg := res.Blank.Reason
+			s.recordFailedUsage(m, conn, apiKey, opts.Endpoint, 0, msg, connStart, comboChain, requestID, *attempt, res.Blank.PromptTokens, res.Blank.CompletionTokens)
+			*attempt++
+			lastUpstream = &domain.UpstreamError{Status: 0, Message: msg}
+			if res.Body != nil {
+				res.Body.Close()
 			}
+			continue
 		}
 		s.Health.MarkHealthy(modelStr, conn.ID)
 		if err := s.finalizeSuccess(ctx, res, m, conn, apiKey, opts.Endpoint, comboChain, start, requestID, *attempt); err != nil {
@@ -1183,6 +1191,14 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 			}
 			openaiBody = io.NopCloser(bytes.NewReader(t))
 		}
+		// The blank-completion guard is measured here, on the OpenAI-format
+		// body, and carried to the caller: once step 4 rewrites the body into
+		// the client's format (Anthropic and Responses have no `choices`), the
+		// completion is no longer recognizable as one.
+		var blank blankCompletion
+		if !res.Stream {
+			openaiBody, blank = inspectBlankCompletion(openaiBody)
+		}
 		// 4) OpenAI -> client format
 		respBody = openaiBody
 		if inputFmt != domain.FormatOpenAI {
@@ -1209,6 +1225,7 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 			Headers:        res.Headers,
 			Body:           respBody,
 			Stream:         res.Stream,
+			Blank:          blank,
 			RTKBytesSaved:  rtkBytesSaved,
 			RTKTokensSaved: rtkTokensSaved,
 			RTKCostSaved:   rtkCostSaved,
@@ -1525,69 +1542,72 @@ func upstreamErrorMessage(res *RouterResponse) string {
 	return msg
 }
 
-// blankCompletionReason inspects a non-stream chat completion response and
-// reports when the upstream produced no usable content while exhausting its
-// output budget (finish_reason "length"/"max_tokens" with empty message
-// content and no tool calls). This mirrors litellm's Responses API handling
-// of incomplete_details.reason = max_output_tokens, which raises so the
-// router can fall back to the next model group instead of passing the empty
-// response through. The body is preserved for the caller — fully read
-// responses are rewinded, larger ones are spliced back onto the remainder —
-// and no cache entry is created for blank completions.
-// blankCompletionReason inspects a non-stream chat completion response and
-// reports when the upstream produced no usable content while exhausting its
-// output budget (finish_reason "length"/"max_tokens" with empty message
-// content and no tool calls). This mirrors litellm's Responses API handling
-// of incomplete_details.reason = max_output_tokens, which raises so the
-// router can fall back to the next model group instead of passing the empty
-// response through. The body is preserved for the caller — fully read
-// responses are rewinded, larger ones are spliced back onto the remainder —
-// and no cache entry is created for blank completions. When a blank
-// completion is detected, the tokens the upstream actually consumed are
-// returned so the failure is still accounted for.
-func blankCompletionReason(res *RouterResponse) (reason string, prompt, completion int, err error) {
+// inspectBlankCompletion inspects a buffered OpenAI chat completion and reports
+// when the upstream produced no usable content while exhausting its output
+// budget (finish_reason "length"/"max_tokens" with empty message content and no
+// tool calls). This mirrors litellm's Responses API handling of
+// incomplete_details.reason = max_output_tokens, which raises so the router can
+// fall back to the next model group instead of passing the empty response
+// through. No cache entry is created for blank completions.
+//
+// It runs in executeOne, on the OpenAI-format body, because the guard has to
+// work for every client format: an Anthropic or Responses body has no
+// `choices`, so a check running after the client translation would read every
+// usable turn as blank.
+//
+// The body is preserved for the caller — a fully read response is rewinded, a
+// larger one is spliced back onto its remainder — and the tokens the upstream
+// actually consumed are returned so the failure is still accounted for.
+func inspectBlankCompletion(body io.ReadCloser) (io.ReadCloser, blankCompletion) {
 	const cap = 512 << 10 // 512 KiB: blank completions are tiny; larger bodies are left untouched
-	if res.Body == nil {
-		return "upstream response body is nil", 0, 0, nil
+	if body == nil {
+		return body, blankCompletion{Reason: "upstream response body is nil"}
 	}
-	head, readErr := io.ReadAll(io.LimitReader(res.Body, cap))
+	head, readErr := io.ReadAll(io.LimitReader(body, cap))
 	if readErr != nil {
-		res.Body.Close()
-		return "", 0, 0, readErr
+		body.Close()
+		return io.NopCloser(bytes.NewReader(nil)), blankCompletion{Reason: "read upstream response: " + readErr.Error()}
 	}
 	if len(head) == cap {
-		// Body is bigger than the inspection cap — reattach the tail so the
-		// client still receives the full response untouched.
-		res.Body = &readTailCloser{r: io.MultiReader(bytes.NewReader(head), res.Body), c: res.Body}
-		return "", 0, 0, nil
+		// Bigger than the inspection cap — hand back the whole thing untouched.
+		return &readTailCloser{r: io.MultiReader(bytes.NewReader(head), body), c: body}, blankCompletion{}
 	}
-	res.Body = io.NopCloser(bytes.NewReader(head))
-	var out struct {
-		Choices []struct {
-			Message struct {
-				Content   string `json:"content"`
-				ToolCalls any    `json:"tool_calls"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		} `json:"choices"`
+	// A body without a choices key is not a chat completion (an already
+	// translated Anthropic or Responses turn, for instance): nothing to judge.
+	// Only a completion that genuinely has no choices is blank.
+	var envelope struct {
+		Choices json.RawMessage `json:"choices"`
 	}
-	if err := json.Unmarshal(head, &out); err != nil {
-		return "", 0, 0, nil // not a JSON completion — pass through
+	if err := json.Unmarshal(head, &envelope); err != nil || len(envelope.Choices) == 0 {
+		return io.NopCloser(bytes.NewReader(head)), blankCompletion{}
 	}
-	for _, c := range out.Choices {
-		if c.Message.ToolCalls != nil {
-			return "", 0, 0, nil // empty content + tool calls is a valid response
+	var choices []struct {
+		Message struct {
+			Content   string `json:"content"`
+			ToolCalls any    `json:"tool_calls"`
+		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
+	}
+	if err := json.Unmarshal(envelope.Choices, &choices); err != nil {
+		return io.NopCloser(bytes.NewReader(head)), blankCompletion{}
+	}
+	reason := ""
+	if len(choices) == 0 {
+		reason = "upstream returned a completion with no choices"
+	} else {
+		c := choices[0]
+		// Empty content with tool calls is a valid response.
+		if c.Message.ToolCalls == nil &&
+			(c.FinishReason == "length" || c.FinishReason == "max_tokens") &&
+			strings.TrimSpace(c.Message.Content) == "" {
+			reason = fmt.Sprintf("upstream exhausted tokens (%s) with empty content", c.FinishReason)
 		}
-		if c.FinishReason == "length" || c.FinishReason == "max_tokens" {
-			if strings.TrimSpace(c.Message.Content) == "" {
-				prompt, completion = parseUsageFromJSON(head)
-				return fmt.Sprintf("upstream exhausted tokens (%s) with empty content", c.FinishReason), prompt, completion, nil
-			}
-			return "", 0, 0, nil
-		}
-		return "", 0, 0, nil
 	}
-	return "upstream returned a completion with no choices", 0, 0, nil
+	blank := blankCompletion{Reason: reason}
+	if reason != "" {
+		blank.PromptTokens, blank.CompletionTokens = parseUsageFromJSON(head)
+	}
+	return io.NopCloser(bytes.NewReader(head)), blank
 }
 
 // readTailCloser presents the head+tail of a partially-consumed body as one
