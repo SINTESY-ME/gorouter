@@ -2105,6 +2105,9 @@ type ModelsService struct {
 	Combos   domain.ComboRepo
 	Models   domain.ModelRepo
 	Selector *ConnectionSelector
+	// Caps aggregates a combo's capabilities from its members. Combos are
+	// listed here as models, so they answer with the same facts a model does.
+	Caps *ComboService
 }
 
 func (s *ModelsService) List(ctx context.Context) ([]domain.ModelInfo, error) {
@@ -2121,7 +2124,18 @@ func (s *ModelsService) List(ctx context.Context) ([]domain.ModelInfo, error) {
 		// Combos are always listed, even when every member sits on a
 		// disabled provider or an inactive model — the combo id stays
 		// addressable and shows its fallback behaviour on use.
-		out = append(out, domain.ModelInfo{ID: c.Name, Object: "model", OwnedBy: "combo", Kind: kind})
+		info := domain.ModelInfo{ID: c.Name, Object: "model", OwnedBy: "combo", Kind: kind}
+		if s.Caps != nil {
+			// Same aggregation the dashboard shows: the largest window any
+			// member reports, the largest output ceiling, and the union of
+			// the effort ladders. A caller reading only this list can size a
+			// request against a combo without knowing it is one.
+			caps := s.Caps.Capabilities(ctx, c)
+			info.ContextLength = caps.Context
+			info.MaxOutputTokens = caps.MaxOutputTokens
+			info.ReasoningEfforts = caps.Reasoning.Efforts
+		}
+		out = append(out, info)
 	}
 	// Read active models from the catalog (no live fetch). Models whose
 	// provider is disabled are excluded — the list mirrors what can route.
@@ -2134,7 +2148,15 @@ func (s *ModelsService) List(ctx context.Context) ([]domain.ModelInfo, error) {
 			entries = filterDisabledProviderEntries(s.Selector, entries)
 		}
 		for _, e := range entries {
-			out = append(out, domain.ModelInfo{ID: e.ID, Object: "model", OwnedBy: e.ProviderID, Kind: e.Kind})
+			out = append(out, domain.ModelInfo{
+				ID:               e.ID,
+				Object:           "model",
+				OwnedBy:          e.ProviderID,
+				Kind:             e.Kind,
+				ContextLength:    e.Context,
+				MaxOutputTokens:  e.MaxOutputTokens,
+				ReasoningEfforts: reasoningLadder(reasoningCapabilitiesFromModelEntry(e)),
+			})
 		}
 	}
 	return out, nil

@@ -401,3 +401,67 @@ func TestMandatoryRemovesTheDisableSwitch(t *testing.T) {
 		t.Errorf("adaptReasoningEffort(high) = %q, want high", got)
 	}
 }
+
+// TestModelListCarriesCapabilitiesForModelsAndCombos pins what a harness reads
+// before it calls: the same list that carries the ids must carry the window,
+// the output ceiling and the effort ladder — for a catalog model and for a
+// combo, because from the caller's side a combo is a model.
+func TestModelListCarriesCapabilitiesForModelsAndCombos(t *testing.T) {
+	models := &fakeModelRepo{entries: []domain.ModelEntry{
+		comboEntry("p/plain", domain.ModelEntry{
+			Context: 200000, MaxOutputTokens: 8192, IsActive: true,
+			SupportsReasoning: true, SupportedReasoningEfforts: []string{"low", "medium", "high"},
+		}),
+		comboEntry("p/deep", domain.ModelEntry{
+			Context: 1000000, MaxOutputTokens: 64000, IsActive: true,
+			SupportsReasoning: true, SupportedReasoningEfforts: []string{"low", "high", "xhigh", "max"},
+			DefaultReasoningEffort: "high", ReasoningMandatory: true,
+		}),
+		comboEntry("p/silent", domain.ModelEntry{IsActive: true}),
+	}}
+	combos := &fakeComboRepo{combos: []domain.Combo{
+		{ID: "1", Name: "sintesy", Models: []string{"p/plain", "p/deep"}},
+		{ID: "2", Name: "bare", Models: []string{"p/silent"}},
+	}}
+	caps := &ComboService{Repo: combos, Models: models}
+	svc := &ModelsService{Combos: combos, Models: models, Caps: caps}
+
+	got, err := svc.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	byID := map[string]domain.ModelInfo{}
+	for _, m := range got {
+		byID[m.ID] = m
+	}
+
+	combo := byID["sintesy"]
+	if combo.OwnedBy != "combo" {
+		t.Fatalf("combo owned_by = %q, want combo", combo.OwnedBy)
+	}
+	if combo.ContextLength != 1000000 || combo.MaxOutputTokens != 64000 {
+		t.Errorf("combo window = %d/%d, want the largest member 1000000/64000",
+			combo.ContextLength, combo.MaxOutputTokens)
+	}
+	if want := []string{"low", "medium", "high", "xhigh", "max"}; !reflect.DeepEqual(combo.ReasoningEfforts, want) {
+		t.Errorf("combo ladder = %v, want the union %v", combo.ReasoningEfforts, want)
+	}
+
+	model := byID["p/plain"]
+	if model.ContextLength != 200000 || model.MaxOutputTokens != 8192 {
+		t.Errorf("model window = %d/%d, want 200000/8192", model.ContextLength, model.MaxOutputTokens)
+	}
+	if want := []string{"low", "medium", "high"}; !reflect.DeepEqual(model.ReasoningEfforts, want) {
+		t.Errorf("model ladder = %v, want %v", model.ReasoningEfforts, want)
+	}
+
+	// A model no source described answers with nothing rather than with zeros,
+	// and the combo built from it is still listed.
+	silent := byID["p/silent"]
+	if silent.ContextLength != 0 || silent.MaxOutputTokens != 0 || len(silent.ReasoningEfforts) != 0 {
+		t.Errorf("undescribed model claims capabilities: %+v", silent)
+	}
+	if _, ok := byID["bare"]; !ok {
+		t.Error("a combo whose members are undocumented must still be listed")
+	}
+}

@@ -132,6 +132,16 @@ type ModelInfo struct {
 	Object  string    `json:"object"`   // always "model"
 	OwnedBy string    `json:"owned_by"` // provider id, or "combo"
 	Kind    ModelKind `json:"kind,omitempty"`
+	// The catalog facts a caller needs to size a request travel on the same
+	// list that carries the ids, because that list is the only thing a harness
+	// reads before it calls. A combo carries them too, aggregated from its
+	// members: from the caller's side a combo is a model.
+	//
+	// All three are omitted when unknown — zero means "no source declared it",
+	// so an absent field never reads as a zero-length window.
+	ContextLength    int      `json:"context_length,omitempty"`
+	MaxOutputTokens  int      `json:"max_output_tokens,omitempty"`
+	ReasoningEfforts []string `json:"reasoning_efforts,omitempty"`
 	// Metadata is what the model's own provider stated about it, filled by
 	// the model fetcher. It is not part of the public model list wire format.
 	Metadata ModelMetadata `json:"-" gorm:"-"`

@@ -283,10 +283,13 @@ func TestSourceBuildersReportLimits(t *testing.T) {
 // it was not promised, so the leak has to fail here rather than in the wild.
 func TestModelInfoWireFormatKeepsThePublicContract(t *testing.T) {
 	info := domain.ModelInfo{
-		ID:      "command/command-r",
-		Object:  "model",
-		OwnedBy: "command",
-		Kind:    domain.KindLLM,
+		ID:               "command/command-r",
+		Object:           "model",
+		OwnedBy:          "command",
+		Kind:             domain.KindLLM,
+		ContextLength:    128000,
+		MaxOutputTokens:  4096,
+		ReasoningEfforts: []string{"low", "medium", "high"},
 		Metadata: domain.ModelMetadata{
 			Context:           128000,
 			MaxOutputTokens:   4096,
@@ -305,7 +308,13 @@ func TestModelInfoWireFormatKeepsThePublicContract(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	want := map[string]bool{"id": true, "object": true, "owned_by": true, "kind": true}
+	// The list every harness reads carries the ids AND the facts needed to
+	// size a request. Anything else on the wire is a leak of internal
+	// bookkeeping (the provider's raw metadata lives in Metadata, json:"-").
+	want := map[string]bool{
+		"id": true, "object": true, "owned_by": true, "kind": true,
+		"context_length": true, "max_output_tokens": true, "reasoning_efforts": true,
+	}
 	for k := range got {
 		if !want[k] {
 			t.Errorf("model list leaks an extra key %q: %s", k, raw)
@@ -315,6 +324,28 @@ func TestModelInfoWireFormatKeepsThePublicContract(t *testing.T) {
 		if _, ok := got[k]; !ok {
 			t.Errorf("model list lost the promised key %q: %s", k, raw)
 		}
+	}
+}
+
+// TestModelInfoOmitsUnknownCapabilities pins the other half of the contract: an
+// unknown fact is absent, never zero. "context_length": 0 would read as a model
+// that fits nothing, and an empty ladder as a model that accepts no level.
+func TestModelInfoOmitsUnknownCapabilities(t *testing.T) {
+	raw, err := json.Marshal(domain.ModelInfo{ID: "p/m", Object: "model", OwnedBy: "p", Kind: domain.KindLLM})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, k := range []string{"context_length", "max_output_tokens", "reasoning_efforts"} {
+		if _, ok := got[k]; ok {
+			t.Errorf("unknown %s must be omitted, got %s", k, raw)
+		}
+	}
+	if len(got) != 4 {
+		t.Errorf("wire = %s, want only id/object/owned_by/kind", raw)
 	}
 }
 

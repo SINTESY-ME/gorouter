@@ -240,6 +240,8 @@ func run() error {
 	models := &app.ModelsService{Combos: comboRepo, Models: modelRepo, Selector: router.Selector}
 	connSvc := &app.ConnectionService{Repo: cachedConns}
 	combos := &app.ComboService{Repo: comboRepo, Models: modelRepo}
+	// Combos answer the model list with the capabilities of their members.
+	models.Caps = combos
 	usage := &app.UsageService{Repo: usageRepo}
 	modelSync := &app.ModelSyncService{
 		Connections: cachedConns,
