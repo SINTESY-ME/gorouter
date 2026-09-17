@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/jhon/gorouter/internal/infra/sse"
 )
@@ -135,12 +137,43 @@ func translateOpenAIToAnthropicResponseJSONImpl(body []byte) ([]byte, error) {
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("openai->anthropic response: parse: %w", err)
 	}
-	var textContent []map[string]string
+	content := make([]map[string]any, 0, 2)
 	if len(in.Choices) > 0 {
 		if raw, ok := in.Choices[0].Message["content"]; ok {
 			var s string
 			if err := json.Unmarshal(raw, &s); err == nil && s != "" {
-				textContent = []map[string]string{{"type": "text", "text": s}}
+				content = append(content, map[string]any{"type": "text", "text": s})
+			}
+		}
+		// A turn that only calls a tool has no text content. Without the
+		// tool_use block an Anthropic client that retried without streaming
+		// (Claude Code does exactly that) sees an empty answer and stops.
+		if raw, ok := in.Choices[0].Message["tool_calls"]; ok {
+			var calls []struct {
+				ID       string `json:"id"`
+				Type     string `json:"type"`
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			}
+			if err := json.Unmarshal(raw, &calls); err == nil {
+				for i, tc := range calls {
+					input := map[string]any{}
+					if strings.TrimSpace(tc.Function.Arguments) != "" {
+						_ = json.Unmarshal([]byte(tc.Function.Arguments), &input)
+					}
+					id := tc.ID
+					if id == "" {
+						id = fmt.Sprintf("toolu_%d", i)
+					}
+					content = append(content, map[string]any{
+						"type":  "tool_use",
+						"id":    id,
+						"name":  tc.Function.Name,
+						"input": input,
+					})
+				}
 			}
 		}
 	}
@@ -150,7 +183,7 @@ func translateOpenAIToAnthropicResponseJSONImpl(body []byte) ([]byte, error) {
 		"type":        "message",
 		"role":        "assistant",
 		"model":       in.Model,
-		"content":     textContent,
+		"content":     content,
 		"stop_reason": stop,
 		"usage": map[string]any{
 			"input_tokens":  in.Usage.PromptTokens,
@@ -385,8 +418,183 @@ func newOpenAIToAnthropicStreamReader(ctx context.Context, body io.ReadCloser) (
 	return pr, nil
 }
 
+// anthropicStreamState tracks the Anthropic content blocks opened while
+// translating an OpenAI SSE stream. Every opened block must be closed in order
+// before message_delta/message_stop: Claude Code aborts the turn
+// ("Streaming response ended before any complete data was received") when a
+// block is left open or the closing events never arrive.
+type anthropicStreamState struct {
+	w         io.Writer
+	started   bool
+	finished  bool
+	nextIndex int
+	textIndex int
+
+	stopReason   string
+	inputTokens  int
+	outputTokens int
+
+	toolOrder  []int
+	toolBlocks map[int]int // upstream tool_call index -> anthropic block index
+	toolArgs   map[int]*strings.Builder
+	toolNames  map[int]string
+	toolIDs    map[int]string
+
+	opened []int // anthropic block indexes, in the order they were opened
+}
+
+func (s *anthropicStreamState) writeEvent(name string, payload map[string]any) {
+	b, _ := json.Marshal(payload)
+	_, _ = io.WriteString(s.w, "event: "+name+"\ndata: "+string(b)+"\n\n")
+}
+
+// startMessage emits message_start exactly once. Anthropic opens a message
+// with an EMPTY content array — blocks are announced by content_block_start.
+func (s *anthropicStreamState) startMessage(id, model string) {
+	if s.started {
+		return
+	}
+	s.started = true
+	if id == "" {
+		id = nextAnthropicID("msg_")
+	}
+	s.writeEvent("message_start", map[string]any{
+		"type": "message_start",
+		"message": map[string]any{
+			"id":            id,
+			"type":          "message",
+			"role":          "assistant",
+			"model":         model,
+			"content":       []any{},
+			"stop_reason":   nil,
+			"stop_sequence": nil,
+			"usage": map[string]any{
+				"input_tokens":  s.inputTokens,
+				"output_tokens": 0,
+			},
+		},
+	})
+}
+
+func (s *anthropicStreamState) openText() {
+	if s.textIndex >= 0 {
+		return
+	}
+	s.textIndex = s.nextIndex
+	s.nextIndex++
+	s.opened = append(s.opened, s.textIndex)
+	s.writeEvent("content_block_start", map[string]any{
+		"type":          "content_block_start",
+		"index":         s.textIndex,
+		"content_block": map[string]any{"type": "text", "text": ""},
+	})
+}
+
+// noteTool records a streamed tool call and opens its tool_use block as soon
+// as the function name is known (name usually arrives with the first chunk and
+// arguments follow it).
+func (s *anthropicStreamState) noteTool(idx int, id, name string) {
+	if _, ok := s.toolBlocks[idx]; !ok {
+		if _, seen := s.toolIDs[idx]; !seen {
+			s.toolOrder = append(s.toolOrder, idx)
+		}
+	}
+	if id != "" {
+		s.toolIDs[idx] = id
+	}
+	if name != "" {
+		s.toolNames[idx] = name
+		s.openTool(idx)
+	}
+}
+
+func (s *anthropicStreamState) openTool(idx int) {
+	if _, ok := s.toolBlocks[idx]; ok {
+		return
+	}
+	block := s.nextIndex
+	s.nextIndex++
+	s.toolBlocks[idx] = block
+	s.opened = append(s.opened, block)
+
+	id := s.toolIDs[idx]
+	if id == "" {
+		id = nextAnthropicID("toolu_")
+	}
+	s.writeEvent("content_block_start", map[string]any{
+		"type":  "content_block_start",
+		"index": block,
+		"content_block": map[string]any{
+			"type":  "tool_use",
+			"id":    id,
+			"name":  s.toolNames[idx],
+			"input": map[string]any{},
+		},
+	})
+	// Flush arguments that arrived before the name did.
+	if buf := s.toolArgs[idx]; buf != nil && buf.Len() > 0 {
+		s.emitToolArgs(idx, buf.String())
+		buf.Reset()
+	}
+}
+
+func (s *anthropicStreamState) writeToolArgs(idx int, args string) {
+	if _, open := s.toolBlocks[idx]; !open {
+		if s.toolArgs[idx] == nil {
+			s.toolArgs[idx] = &strings.Builder{}
+		}
+		s.toolArgs[idx].WriteString(args)
+		return
+	}
+	s.emitToolArgs(idx, args)
+}
+
+func (s *anthropicStreamState) emitToolArgs(idx int, args string) {
+	s.writeEvent("content_block_delta", map[string]any{
+		"type":  "content_block_delta",
+		"index": s.toolBlocks[idx],
+		"delta": map[string]any{"type": "input_json_delta", "partial_json": args},
+	})
+}
+
+// finish closes every open block and terminates the message. A client that
+// never sees message_delta/message_stop treats the turn as truncated and
+// retries the whole request without streaming.
+func (s *anthropicStreamState) finish() {
+	if s.finished {
+		return
+	}
+	s.finished = true
+	for _, idx := range s.toolOrder {
+		s.openTool(idx)
+	}
+	for _, idx := range s.opened {
+		s.writeEvent("content_block_stop", map[string]any{
+			"type":  "content_block_stop",
+			"index": idx,
+		})
+	}
+	reason := s.stopReason
+	if reason == "" {
+		reason = "end_turn"
+	}
+	s.writeEvent("message_delta", map[string]any{
+		"type":  "message_delta",
+		"delta": map[string]any{"stop_reason": reason, "stop_sequence": nil},
+		"usage": map[string]any{"output_tokens": s.outputTokens},
+	})
+	s.writeEvent("message_stop", map[string]any{"type": "message_stop"})
+}
+
 func streamOpenAIToAnthropic(ctx context.Context, br *bufio.Reader, w io.Writer) error {
-	started := false
+	st := &anthropicStreamState{
+		w:          w,
+		textIndex:  -1,
+		toolBlocks: map[int]int{},
+		toolArgs:   map[int]*strings.Builder{},
+		toolNames:  map[int]string{},
+		toolIDs:    map[int]string{},
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -398,7 +606,10 @@ func streamOpenAIToAnthropic(ctx context.Context, br *bufio.Reader, w io.Writer)
 			return err
 		}
 		if done {
-			_, _ = w.Write([]byte("event: message_stop\ndata:{}\n\n"))
+			// The upstream may end without ever sending a usable chunk: emit a
+			// complete (empty) message instead of a bare [DONE].
+			st.startMessage("", "")
+			st.finish()
 			return nil
 		}
 		if data == "" {
@@ -409,33 +620,65 @@ func streamOpenAIToAnthropic(ctx context.Context, br *bufio.Reader, w io.Writer)
 			Model   string `json:"model"`
 			Choices []struct {
 				Delta struct {
-					Role    string `json:"role"`
-					Content string `json:"content"`
+					Role      string `json:"role"`
+					Content   string `json:"content"`
+					ToolCalls []struct {
+						Index    int    `json:"index"`
+						ID       string `json:"id"`
+						Type     string `json:"type"`
+						Function struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
 				} `json:"delta"`
 				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
+			Usage struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
 			continue
 		}
-		if !started && ev.ID != "" {
-			started = true
-			_, _ = fmt.Fprintf(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":%q,\"type\":\"message\",\"role\":\"assistant\",\"model\":%q,\"content\":[{\"type\":\"text\",\"text\":\"\"}],\"usage\":{\"input_tokens\":0,\"output_tokens\":0}}}\n\n", ev.ID, ev.Model)
-			_, _ = w.Write([]byte("event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"))
+		if ev.Usage.PromptTokens > 0 {
+			st.inputTokens = ev.Usage.PromptTokens
 		}
-		if len(ev.Choices) > 0 {
-			c := ev.Choices[0].Delta.Content
-			if c != "" {
-				payload := map[string]any{
-					"type":  "content_block_delta",
-					"index": 0,
-					"delta": map[string]any{"type": "text_delta", "text": c},
-				}
-				b, _ := json.Marshal(payload)
-				_, _ = w.Write([]byte("event: content_block_delta\ndata: " + string(b) + "\n\n"))
+		if ev.Usage.CompletionTokens > 0 {
+			st.outputTokens = ev.Usage.CompletionTokens
+		}
+		st.startMessage(ev.ID, ev.Model)
+		if len(ev.Choices) == 0 {
+			continue
+		}
+		c := ev.Choices[0]
+		if c.Delta.Content != "" {
+			st.openText()
+			st.writeEvent("content_block_delta", map[string]any{
+				"type":  "content_block_delta",
+				"index": st.textIndex,
+				"delta": map[string]any{"type": "text_delta", "text": c.Delta.Content},
+			})
+		}
+		for _, tc := range c.Delta.ToolCalls {
+			st.noteTool(tc.Index, tc.ID, tc.Function.Name)
+			if tc.Function.Arguments != "" {
+				st.writeToolArgs(tc.Index, tc.Function.Arguments)
 			}
 		}
+		if c.FinishReason != "" {
+			st.stopReason = openAIToAnthropicStop(c.FinishReason)
+		}
 	}
+}
+
+// nextAnthropicID synthesizes an id when the upstream omitted one; Anthropic
+// clients key blocks and messages by id.
+var anthropicIDSeq uint64
+
+func nextAnthropicID(prefix string) string {
+	return prefix + strconv.FormatUint(atomic.AddUint64(&anthropicIDSeq, 1), 36)
 }
 
 // asString extracts a JSON string field; empty on parse failure.
