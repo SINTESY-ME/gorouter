@@ -20,12 +20,14 @@ import (
 // providerModelMetadata extracts everything the provider itself stated about a
 // model it returned in its own model list.
 func providerModelMetadata(m map[string]any) domain.ModelMetadata {
+	reasoning := providerReasoning(m)
 	return domain.ModelMetadata{
 		Context:           providerContext(m),
 		MaxOutputTokens:   providerMaxOutput(m),
 		SupportsVision:    providerSupportsVision(m),
 		SupportsToolCall:  providerSupportsToolCall(m),
-		SupportsReasoning: providerSupportsReasoning(m),
+		SupportsReasoning: reasoning.SupportsReasoning,
+		Reasoning:         reasoning,
 	}
 }
 
@@ -93,20 +95,73 @@ func providerSupportsToolCall(m map[string]any) bool {
 	return hasParam(m, "tools") || hasParam(m, "tool_choice")
 }
 
+// providerReasoning reads what the provider stated about reasoning. The
+// richest shape is an object that carries the ladder itself — OpenRouter
+// publishes {"mandatory":false,"supported_efforts":[...],"default_effort":...}
+// in its own /models — which makes efforts a first-class part of the chain
+// rather than something only the external registries know.
+func providerReasoning(m map[string]any) domain.ReasoningCapabilities {
+	caps := domain.ReasoningCapabilities{}
+	if r := obj(m, "reasoning"); r != nil {
+		caps.SupportsReasoning = true
+		if ladder := stringList(r["supported_efforts"]); len(ladder) > 0 {
+			caps.Efforts, caps.EffortsStated = domain.SortEfforts(ladder), true
+		}
+		if d, ok := r["default_effort"].(string); ok {
+			caps.DefaultEffort = strings.ToLower(strings.TrimSpace(d))
+		}
+		if b, ok := r["mandatory"].(bool); ok {
+			caps.Mandatory = b
+		}
+	}
+	if ladder := reasoningLadderFromOptions(m["reasoning_options"]); len(ladder) > 0 {
+		caps.Efforts, caps.EffortsStated = domain.SortEfforts(ladder), true
+	}
+	// A bare flag, a dedicated reasoning budget, or the reasoning entry in the
+	// list of parameters the model accepts.
+	if truthy(m["supports_reasoning"]) || truthy(m["reasoning"]) || len(caps.Efforts) > 0 {
+		caps.SupportsReasoning = true
+	}
+	if firstPositiveInt(obj(m, "token_limits"), "max_reasoning_token_length") > 0 {
+		caps.SupportsReasoning = true
+	}
+	if hasParam(m, "reasoning") || hasParam(m, "reasoning_effort") || hasParam(m, "include_reasoning") {
+		caps.SupportsReasoning = true
+	}
+	if len(caps.Efforts) == 0 && reasoningCapsStated(caps) {
+		caps.Efforts = ladderFromFlags(caps)
+	}
+	return caps
+}
+
+// reasoningLadderFromOptions reads a reasoning_options list, the shape
+// models.dev publishes: only the entry whose type is "effort" carries levels.
+// The other types ("toggle", "budget_tokens") describe a different control
+// surface and are not turned into a ladder.
+func reasoningLadderFromOptions(v any) []string {
+	options, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	var ladder []string
+	for _, raw := range options {
+		option, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if kind, _ := option["type"].(string); !strings.EqualFold(kind, "effort") {
+			continue
+		}
+		ladder = append(ladder, stringList(option["values"])...)
+	}
+	return ladder
+}
+
 // providerSupportsReasoning reads a capability flag, a reasoning object, a
 // dedicated reasoning budget, or the reasoning entry in the accepted
 // parameters.
 func providerSupportsReasoning(m map[string]any) bool {
-	if truthy(m["supports_reasoning"]) || truthy(m["reasoning"]) {
-		return true
-	}
-	if obj(m, "reasoning") != nil {
-		return true
-	}
-	if firstPositiveInt(obj(m, "token_limits"), "max_reasoning_token_length") > 0 {
-		return true
-	}
-	return hasParam(m, "reasoning") || hasParam(m, "reasoning_effort") || hasParam(m, "include_reasoning")
+	return providerReasoning(m).SupportsReasoning
 }
 
 // obj returns a nested JSON object, or nil when the key is absent or is not an

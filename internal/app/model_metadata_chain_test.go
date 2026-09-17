@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -86,6 +87,12 @@ func TestProviderMetadataReadsTheShapesProvidersActuallySend(t *testing.T) {
 				MaxOutputTokens:   16384,
 				SupportsVision:    true,
 				SupportsReasoning: true, // only reachable via max_reasoning_token_length
+				Reasoning: domain.ReasoningCapabilities{
+					SupportsReasoning: true,
+					// No ladder stated: the levels a reasoning model is
+					// assumed to accept are inferred from the flags.
+					Efforts: []string{"none", "medium", "high"},
+				},
 			},
 		},
 		{
@@ -116,6 +123,12 @@ func TestProviderMetadataReadsTheShapesProvidersActuallySend(t *testing.T) {
 				SupportsVision:    true,
 				SupportsToolCall:  true,
 				SupportsReasoning: true,
+				Reasoning: domain.ReasoningCapabilities{
+					SupportsReasoning: true,
+					// The reasoning entry in supported_parameters states the
+					// capability but not the levels.
+					Efforts: []string{"none", "medium", "high"},
+				},
 			},
 		},
 		{
@@ -130,7 +143,7 @@ func TestProviderMetadataReadsTheShapesProvidersActuallySend(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := providerModelMetadata(tc.raw)
-			if got != tc.want {
+			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("providerModelMetadata() = %+v, want %+v", got, tc.want)
 			}
 		})
@@ -168,7 +181,7 @@ func TestModelMetadataWithNoRegistryKeepsProviderFacts(t *testing.T) {
 	s := &ModelSyncService{}
 	m := domain.ModelInfo{ID: "x", Metadata: domain.ModelMetadata{Context: 200000, MaxOutputTokens: 8000}}
 
-	if got := s.modelMetadata("command", m); got != m.Metadata {
+	if got := s.modelMetadata("command", m); !reflect.DeepEqual(got, m.Metadata) {
 		t.Fatalf("modelMetadata() = %+v, want the provider facts %+v", got, m.Metadata)
 	}
 }

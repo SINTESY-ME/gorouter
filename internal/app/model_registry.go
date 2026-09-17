@@ -53,6 +53,7 @@ func (e registryEntry) metadata() domain.ModelMetadata {
 		SupportsVision:    e.SupportsVision,
 		SupportsToolCall:  e.SupportsToolCall,
 		SupportsReasoning: e.SupportsReasoning,
+		Reasoning:         e.Reasoning,
 	}
 }
 
@@ -337,9 +338,17 @@ func modelsDevEntry(m map[string]any) registryEntry {
 	e.SupportsToolCall, _ = m["tool_call"].(bool)
 	e.SupportsReasoning, _ = m["reasoning"].(bool)
 	e.Reasoning = reasoningCapabilitiesFromMap(m)
+	// models.dev states the ladder explicitly in reasoning_options, which is a
+	// better answer than anything inferred from its boolean.
+	if ladder := reasoningLadderFromOptions(m["reasoning_options"]); len(ladder) > 0 {
+		e.Reasoning.Efforts = domain.SortEfforts(ladder)
+		e.Reasoning.EffortsStated = true
+		e.Reasoning.SupportsReasoning = true
+	}
 	if e.SupportsReasoning {
 		e.Reasoning.SupportsReasoning = true
 	}
+	e.SupportsReasoning = e.Reasoning.SupportsReasoning
 	if limit, ok := m["limit"].(map[string]any); ok {
 		e.Context = int(floatVal(limit["context"]))
 		e.MaxOutputTokens = firstPositiveInt(limit, "output", "max_output_tokens")
@@ -456,10 +465,15 @@ func openRouterEntry(m map[string]any, kind domain.ModelKind, supportsVision boo
 	e.SupportsVision = supportsVision
 	e.SupportsToolCall = hasParam(m, "tools")
 	e.SupportsReasoning = hasParam(m, "reasoning") || hasParam(m, "reasoning_effort")
-	e.Reasoning = domain.ReasoningCapabilities{
-		Known:             true,
-		SupportsReasoning: e.SupportsReasoning,
+	// OpenRouter publishes its own ladder per model — {"mandatory":...,
+	// "supported_efforts":[...], "default_effort":...} — which is the same
+	// shape the provider link reads. One parser, both links.
+	e.Reasoning = providerReasoning(m)
+	if !reasoningCapsStated(e.Reasoning) {
+		e.Reasoning = domain.ReasoningCapabilities{Known: true, SupportsReasoning: e.SupportsReasoning}
 	}
+	e.Reasoning.Known = true
+	e.SupportsReasoning = e.Reasoning.SupportsReasoning
 	if pricing, ok := m["pricing"].(map[string]any); ok {
 		e.Pricing = parseOpenRouterPricing(pricing)
 		e.Pricing.Source = "openrouter"

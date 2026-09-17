@@ -540,6 +540,12 @@ func (s *Server) handleListCombos(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// A combo's capabilities are the union of its members', so they are
+	// resolved from the catalog on every read instead of being stored.
+	for i := range cs {
+		caps := s.Combos.Capabilities(r.Context(), cs[i])
+		cs[i].Capabilities = &caps
+	}
 	writeJSON(w, http.StatusOK, cs)
 }
 

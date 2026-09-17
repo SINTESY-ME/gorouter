@@ -149,6 +149,11 @@ type ModelMetadata struct {
 	SupportsVision    bool `json:"supports_vision,omitempty"`
 	SupportsToolCall  bool `json:"supports_tool_call,omitempty"`
 	SupportsReasoning bool `json:"supports_reasoning,omitempty"`
+	// Reasoning carries the reasoning detail a source stated: the effort
+	// ladder, its default, and whether reasoning can be disabled. Providers
+	// that publish efforts in their own /models (OpenRouter does) land here,
+	// which makes efforts part of the same chain as the other fields.
+	Reasoning ReasoningCapabilities `json:"reasoning,omitempty"`
 }
 
 // ReasoningCapabilities mirrors LiteLLM's per-model reasoning metadata. A
@@ -161,6 +166,19 @@ type ReasoningCapabilities struct {
 	SupportsLowReasoningEffort     bool `json:"supports_low_reasoning_effort,omitempty"`
 	SupportsXHighReasoningEffort   bool `json:"supports_xhigh_reasoning_effort,omitempty"`
 	SupportsMaxReasoningEffort     bool `json:"supports_max_reasoning_effort,omitempty"`
+	// Efforts is the ladder a source stated verbatim, in canonical order.
+	// Empty means "not stated": the booleans above are then the only evidence
+	// and the levels between them are inferred.
+	Efforts []string `json:"supported_reasoning_efforts,omitempty"`
+	// EffortsStated records where Efforts came from. A ladder a source listed
+	// outranks one inferred from flags, whichever link of the chain produced
+	// it; without this the first link's guess would shadow the next link's
+	// exact answer.
+	EffortsStated bool `json:"-"`
+	// DefaultEffort is the level the model uses when the request names none.
+	DefaultEffort string `json:"default_reasoning_effort,omitempty"`
+	// Mandatory means a source stated reasoning cannot be disabled.
+	Mandatory bool `json:"reasoning_mandatory,omitempty"`
 }
 
 // ModelEntry is a persisted model in the catalog. It is populated by sync
@@ -184,6 +202,13 @@ type ModelEntry struct {
 	SupportsLowReasoningEffort     bool         `json:"supports_low_reasoning_effort,omitempty" gorm:"column:supports_low_reasoning_effort"`
 	SupportsXHighReasoningEffort   bool         `json:"supports_xhigh_reasoning_effort,omitempty" gorm:"column:supports_xhigh_reasoning_effort"`
 	SupportsMaxReasoningEffort     bool         `json:"supports_max_reasoning_effort,omitempty" gorm:"column:supports_max_reasoning_effort"`
+	// SupportedReasoningEfforts is the ladder the chain established for this
+	// model, in canonical order. The four flags above are derived from it
+	// whenever a source stated a ladder; it is what lets routing pick the
+	// closest supported level instead of guessing from flags.
+	SupportedReasoningEfforts []string `json:"supported_reasoning_efforts,omitempty" gorm:"serializer:json;type:text;column:supported_reasoning_efforts"`
+	DefaultReasoningEffort    string   `json:"default_reasoning_effort,omitempty" gorm:"column:default_reasoning_effort"`
+	ReasoningMandatory        bool     `json:"reasoning_mandatory,omitempty" gorm:"column:reasoning_mandatory"`
 	Pricing                        ModelPricing `json:"pricing,omitempty" gorm:"serializer:json;type:text"`
 	LastSyncedAt                   time.Time    `json:"last_synced_at,omitempty" gorm:"index"`
 	CreatedAt                      time.Time    `json:"created_at"`
@@ -247,11 +272,34 @@ type Combo struct {
 	// Tools are only ever injected for combo requests — direct model
 	// requests are never touched.
 	MCPClients []string `json:"mcp_clients,omitempty" gorm:"serializer:json;type:text"`
+	// Capabilities is what the combo as a whole can do, aggregated from its
+	// members on read. Computed, never stored: members change on their own
+	// sync, and a cached aggregate would silently go stale.
+	Capabilities *ComboCapabilities `json:"capabilities,omitempty" gorm:"-"`
 	// CreatedBy is the dashboard user ID that owns this combo. Empty means
 	// admin-owned.
 	CreatedBy string    `json:"-" gorm:"column:created_by;index"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ComboCapabilities is a combo's union capability, derived from the catalog
+// entries of its members. Context and MaxOutputTokens are the largest value
+// any member reports: the router skips members whose window cannot fit the
+// prompt, so the combo can serve a prompt as long as one member fits.
+// Reasoning.Efforts is the union of the members' ladders — every level at
+// least one member can honour — while Mandatory is true only when every member
+// states that reasoning cannot be disabled.
+type ComboCapabilities struct {
+	Context          int                  `json:"context,omitempty"`
+	MaxOutputTokens  int                  `json:"max_output_tokens,omitempty"`
+	SupportsVision   bool                 `json:"supports_vision,omitempty"`
+	SupportsToolCall bool                 `json:"supports_tool_call,omitempty"`
+	Reasoning        ReasoningCapabilities `json:"reasoning,omitempty"`
+	// Members and MembersKnown report coverage: an aggregate over three of
+	// five members is a different claim from one over all five.
+	Members      int `json:"members,omitempty"`
+	MembersKnown int `json:"members_with_metadata,omitempty"`
 }
 
 // ComboModelMeta holds per-member metadata for combo routing strategies.

@@ -96,17 +96,11 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 		// first, and the external registries are consulted only for the fields
 		// it left out.
 		meta := s.modelMetadata(conn.ProviderID, m)
-		reasoningCaps := inferReasoningCapabilities(m.ID)
-		if s.Registry != nil {
-			if registered, ok := s.Registry.ResolveReasoningCapabilitiesForProvider(conn.ProviderID, m.ID); ok {
-				reasoningCaps = registered
-			}
-		}
-		if meta.SupportsReasoning {
-			reasoningCaps.SupportsReasoning = true
-		}
+		entryID := conn.ProviderID + "/" + m.ID
+		caps := s.reasoningCapabilities(meta, m.ID, existing[entryID])
+		ladder, defaultEffort, mandatory, minimal, low, xhigh, maxEffort := reasoningCapabilitiesForEntry(caps)
 		entry := &domain.ModelEntry{
-			ID:                             conn.ProviderID + "/" + m.ID,
+			ID:                             entryID,
 			ProviderID:                     conn.ProviderID,
 			ModelID:                        m.ID,
 			Name:                           m.ID,
@@ -117,11 +111,14 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 			MaxOutputTokens:                meta.MaxOutputTokens,
 			SupportsVision:                 meta.SupportsVision,
 			SupportsToolCall:               meta.SupportsToolCall,
-			SupportsReasoning:              reasoningCaps.SupportsReasoning || meta.SupportsReasoning,
-			SupportsMinimalReasoningEffort: reasoningCaps.SupportsMinimalReasoningEffort,
-			SupportsLowReasoningEffort:     reasoningCaps.SupportsLowReasoningEffort,
-			SupportsXHighReasoningEffort:   reasoningCaps.SupportsXHighReasoningEffort,
-			SupportsMaxReasoningEffort:     reasoningCaps.SupportsMaxReasoningEffort,
+			SupportsReasoning:              caps.SupportsReasoning,
+			SupportsMinimalReasoningEffort: minimal,
+			SupportsLowReasoningEffort:     low,
+			SupportsXHighReasoningEffort:   xhigh,
+			SupportsMaxReasoningEffort:     maxEffort,
+			SupportedReasoningEfforts:      ladder,
+			DefaultReasoningEffort:         defaultEffort,
+			ReasoningMandatory:             mandatory,
 			LastSyncedAt:                   now,
 			UpdatedAt:                      now,
 		}
@@ -198,6 +195,28 @@ func (s *ModelSyncService) modelMetadata(providerID string, m domain.ModelInfo) 
 	return fillMissingMetadata(meta, s.Registry.ResolveMetadata(m.ID))
 }
 
+// reasoningCapabilities resolves a model's reasoning facts in chain order. The
+// provider's own statement arrives already merged into meta; the name
+// heuristic is the last resort for a model no link knows; and when nothing at
+// all was stated, the catalog's previous value is kept — a sync that learns
+// nothing new must not erase a fact an earlier one established.
+func (s *ModelSyncService) reasoningCapabilities(meta domain.ModelMetadata, modelID string, prev *domain.ModelEntry) domain.ReasoningCapabilities {
+	caps := meta.Reasoning
+	if !reasoningCapsStated(caps) {
+		caps = inferReasoningCapabilities(modelID)
+	}
+	if !reasoningCapsStated(caps) && prev != nil {
+		return reasoningCapabilitiesFromModelEntry(*prev)
+	}
+	if reasoningCapsStated(caps) {
+		// Materialize the ladder so the stored row carries the levels routing
+		// will use, not just the flags they were derived from.
+		caps.Efforts = reasoningLadder(caps)
+		caps = applyReasoningLadder(caps)
+	}
+	return caps
+}
+
 // fillMissingMetadata keeps every field base already states and takes the rest
 // from fallback. A zero field means "not stated", so a source that knows less
 // never erases a fact another source established.
@@ -211,6 +230,7 @@ func fillMissingMetadata(base, fallback domain.ModelMetadata) domain.ModelMetada
 	base.SupportsVision = base.SupportsVision || fallback.SupportsVision
 	base.SupportsToolCall = base.SupportsToolCall || fallback.SupportsToolCall
 	base.SupportsReasoning = base.SupportsReasoning || fallback.SupportsReasoning
+	base.Reasoning = mergeReasoningCapabilities(base.Reasoning, fallback.Reasoning)
 	return base
 }
 
