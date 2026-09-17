@@ -26,7 +26,6 @@ type responsesStream struct {
 	turn     int
 	seqShift int
 	outShift int
-	items    int // items seen in this turn
 	events   int // events seen in this turn
 }
 
@@ -42,15 +41,16 @@ func (a *responsesStream) StartTurn() {
 	a.streamTurnState.reset()
 	a.mcpItems = map[string]bool{}
 	a.outputs = nil
-	a.items = 0
 	a.events = 0
 }
 
 func (a *responsesStream) NextTurn() {
 	a.turn++
-	// Keep the client's numbering moving forward, over the items and events
-	// the loop withheld as well.
-	a.outShift += a.items
+	// Keep the client's numbering moving forward. The base is what the client
+	// has actually seen, not what the upstream produced: a withheld tool call
+	// must not consume an index, or the client's output items end up with a
+	// hole where the hidden call used to be.
+	a.outShift = len(a.visible)
 	a.seqShift += a.events
 }
 
@@ -74,7 +74,6 @@ func (a *responsesStream) Handle(ev sse.Event) streamStep {
 		if item.Type == "function_call" {
 			if item.Name == "" || a.owned[item.Name] {
 				a.mcpItems[item.ID] = true
-				a.items++
 				a.sawMCP = true
 				return a.hold(ev)
 			}
@@ -82,11 +81,9 @@ func (a *responsesStream) Handle(ev sse.Event) streamStep {
 				// The client owns this call: release the turn and forward
 				// everything from here on untouched.
 				a.client = true
-				a.items++
 				return a.flush(ev)
 			}
 		}
-		a.items++
 		return streamStep{Forward: a.rewrite(ev, nil)}
 	case "response.output_item.done":
 		item := itemOf(ev.Data)
