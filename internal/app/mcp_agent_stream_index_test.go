@@ -68,6 +68,50 @@ func TestResponsesStreamContiguousOutputIndex(t *testing.T) {
 	}
 }
 
+// Upstreams recycle item ids across turns: the continuation reuses the id of
+// the message the client already has. Each delivery is a distinct item, so the
+// client must get a fresh index instead of a collision.
+func TestResponsesStreamRecycledItemID(t *testing.T) {
+	ad := newAgentStreamAdapter(domain.FormatResponses, map[string]bool{"lojateste__consultar_preco": true})
+
+	runTurn(t, ad, strings.Join([]string{
+		`event: response.created` + "\n" + `data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_1"}}` + "\n\n",
+		`event: response.output_item.added` + "\n" + `data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"msg_1","type":"message"}}` + "\n\n",
+		`event: response.output_item.done` + "\n" + `data: {"type":"response.output_item.done","sequence_number":2,"output_index":0,"item":{"id":"msg_1","type":"message","content":[{"type":"output_text","text":" "}]}}` + "\n\n",
+		`event: response.output_item.added` + "\n" + `data: {"type":"response.output_item.added","sequence_number":3,"output_index":1,"item":{"id":"fc_1","type":"function_call","name":"lojateste__consultar_preco","call_id":"call_1"}}` + "\n\n",
+		`event: response.output_item.done` + "\n" + `data: {"type":"response.output_item.done","sequence_number":4,"output_index":1,"item":{"id":"fc_1","type":"function_call","name":"lojateste__consultar_preco","call_id":"call_1","arguments":"{}"}}` + "\n\n",
+		`event: response.completed` + "\n" + `data: {"type":"response.completed","sequence_number":5,"response":{"id":"resp_1","output":[]}}` + "\n\n",
+	}, ""))
+
+	ad.NextTurn()
+	second := runTurn(t, ad, strings.Join([]string{
+		`event: response.created` + "\n" + `data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_2"}}` + "\n\n",
+		// Same id as the first turn's message, new content.
+		`event: response.output_item.added` + "\n" + `data: {"type":"response.output_item.added","sequence_number":1,"output_index":1,"item":{"id":"msg_1","type":"message"}}` + "\n\n",
+		`event: response.output_text.delta` + "\n" + `data: {"type":"response.output_text.delta","sequence_number":2,"output_index":1,"item_id":"msg_1","delta":" "}` + "\n\n",
+		`event: response.output_item.done` + "\n" + `data: {"type":"response.output_item.done","sequence_number":3,"output_index":1,"item":{"id":"msg_1","type":"message","content":[{"type":"output_text","text":" "}]}}` + "\n\n",
+		`event: response.output_item.added` + "\n" + `data: {"type":"response.output_item.added","sequence_number":4,"output_index":2,"item":{"id":"msg_2","type":"message"}}` + "\n\n",
+		`event: response.output_text.delta` + "\n" + `data: {"type":"response.output_text.delta","sequence_number":5,"output_index":2,"item_id":"msg_2","delta":"4321"}` + "\n\n",
+		`event: response.output_item.done` + "\n" + `data: {"type":"response.output_item.done","sequence_number":6,"output_index":2,"item":{"id":"msg_2","type":"message","content":[{"type":"output_text","text":"4321"}]}}` + "\n\n",
+		`event: response.completed` + "\n" + `data: {"type":"response.completed","sequence_number":7,"response":{"id":"resp_2","output":[]}}` + "\n\n",
+	}, ""))
+
+	indices := outputIndices(second)
+	if len(indices) == 0 {
+		t.Fatal("no output_index reached the client")
+	}
+	for _, idx := range indices {
+		switch idx {
+		case 1, 2:
+		default:
+			t.Fatalf("output_index = %v, want 1 or 2 (no reuse, no hole); stream:\n%s", idx, second)
+		}
+	}
+	if first := indices[0]; first != 1 {
+		t.Fatalf("first continuation index = %v, want 1", first)
+	}
+}
+
 // outputIndices collects every output_index the client received, in order.
 func outputIndices(stream string) []float64 {
 	var out []float64

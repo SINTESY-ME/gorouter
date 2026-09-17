@@ -23,9 +23,10 @@ type responsesStream struct {
 	outputs []json.RawMessage // this turn's items, replayed to the upstream
 	visible []json.RawMessage // every item the client has seen
 
-	// Numbering is the gateway's, not the upstream's: an item keeps the index
-	// the client first saw it at, so withheld calls leave no holes and a
-	// continuation turn cannot renumber the items already delivered.
+	// Numbering is the gateway's, not the upstream's: an item takes the
+	// client's next free index, so withheld calls leave no holes and a
+	// continuation turn cannot renumber the items already delivered. index is
+	// per turn because upstreams recycle item ids across turns.
 	index map[string]int
 	next  int
 
@@ -56,6 +57,7 @@ func newResponsesStream(owned map[string]bool) *responsesStream {
 func (a *responsesStream) StartTurn() {
 	a.streamTurnState.reset()
 	a.mcpItems = map[string]bool{}
+	a.index = map[string]int{}
 	a.outputs = nil
 	a.events = 0
 }
@@ -135,7 +137,7 @@ func (a *responsesStream) Handle(ev sse.Event) streamStep {
 	}
 }
 
-// noteItem remembers the index an item was delivered at. On the first turn the
+// noteItem remembers the index an item is delivered at. On the first turn the
 // upstream's own numbering is what the client sees; afterwards the gateway
 // hands out the numbers, so it decides where each new item goes.
 func (a *responsesStream) noteItem(id string, upstream float64) {
@@ -145,15 +147,14 @@ func (a *responsesStream) noteItem(id string, upstream float64) {
 	if _, seen := a.index[id]; seen {
 		return
 	}
+	at := a.next
 	if a.turn == 0 {
-		a.index[id] = int(upstream)
-		if int(upstream) >= a.next {
-			a.next = int(upstream) + 1
-		}
-		return
+		at = int(upstream)
 	}
-	a.index[id] = a.next
-	a.next++
+	a.index[id] = at
+	if at >= a.next {
+		a.next = at + 1
+	}
 }
 
 // clientIndex resolves the index an event must carry: the one the item was
