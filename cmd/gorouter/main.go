@@ -447,6 +447,10 @@ func run() error {
 	// the /mcp endpoint is populated immediately.
 	mcpManager.Start(ctx)
 	mcpGateway.Sync(ctx)
+	// The upstream client sync runs on its own schedule; re-read the registry on
+	// a timer so a tool that appeared upstream reaches connected /mcp clients
+	// even when the endpoint itself receives no traffic.
+	mcpGateway.Start(ctx)
 
 	// Pre-load pricing cache from the DB so the first requests have
 	// pricing data before the initial sync completes.

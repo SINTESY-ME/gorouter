@@ -2,7 +2,6 @@ package httpx
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -180,36 +179,20 @@ func (s *Server) handleMCPToolExecute(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(out)
 }
 
-// handleMCPGateway is the aggregated MCP server endpoint (JSON-RPC over
-// POST). It re-syncs the gateway on each request so newly added clients and
-// tools are visible immediately, then delegates to the mcp-go server.
+// handleMCPGateway is the aggregated MCP server endpoint. The transport is the
+// library's Streamable HTTP server: POST carries JSON-RPC, GET opens the
+// server-to-client stream that notifications arrive on, and DELETE ends the
+// session named by Mcp-Session-Id.
 //
-// The optional Streamable-HTTP methods (GET for a server-initiated SSE
-// stream, DELETE to terminate a session) are answered with 405 + Allow —
-// without this the SPA catch-all would answer them with dashboard HTML, which
-// is worse than an honest "not supported".
+// Every POST re-syncs the gateway first, so a client added moments ago is
+// visible in the very request that lists tools.
 func (s *Server) handleMCPGateway(w http.ResponseWriter, r *http.Request) {
 	if s.MCP == nil || s.MCP.Gateway == nil {
 		writeError(w, http.StatusNotImplemented, "mcp gateway not enabled")
 		return
 	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		writeError(w, http.StatusMethodNotAllowed, "mcp gateway accepts POST (JSON-RPC)")
-		return
+	if r.Method == http.MethodPost {
+		s.MCP.Gateway.Sync(r.Context())
 	}
-	s.MCP.Gateway.Sync(r.Context())
-	body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "read body: "+err.Error())
-		return
-	}
-	response := s.MCP.Gateway.Server().HandleMessage(r.Context(), body)
-	if response == nil {
-		// Notification — no response body per JSON-RPC.
-		w.WriteHeader(http.StatusAccepted)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(response)
+	s.MCP.Gateway.Handler().ServeHTTP(w, r)
 }

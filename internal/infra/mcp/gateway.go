@@ -4,12 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sync"
+	"time"
 
 	"github.com/jhon/gorouter/internal/domain"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
+
+// gatewaySyncInterval is how often the gateway re-reads the tool registry on
+// its own. The registry only moves when a background client sync finishes, and
+// a client waiting for a notification is not sending requests, so polling is
+// what keeps the announcement flowing when the endpoint is idle.
+const gatewaySyncInterval = 30 * time.Second
+
+// sessionHeartbeat keeps an idle server-to-client SSE stream from being
+// reaped by an intermediary while it waits for notifications.
+const sessionHeartbeat = 30 * time.Second
 
 // Gateway is the aggregated MCP server behind the /mcp endpoint. It exposes
 // every discovered tool (across all connected clients) as a single MCP server
@@ -18,72 +30,141 @@ import (
 //
 // Sync runs per incoming /mcp request (see handleMCPGateway), so it must be
 // safe against concurrent requests: mu serializes the whole re-registration,
-// which also covers the handlers map.
+// which also covers the registered map.
 type Gateway struct {
-	mu       sync.Mutex
-	manager  *Manager
-	mcp      *server.MCPServer
-	version  string
-	handlers map[string]bool // prefixed tool name → registered
+	mu      sync.Mutex
+	manager *Manager
+	mcp     *server.MCPServer
+	handler *server.StreamableHTTPServer
+	version string
+	// registered maps an exposed tool name to the fingerprint of what the MCP
+	// server currently holds for it. Comparing a fingerprint against the
+	// registry is what makes a changed description or schema a real change,
+	// and not just a silent no-op.
+	registered map[string]string
 }
 
-// NewGateway builds an empty aggregated server. syncServer must be called
-// after construction to populate tools.
+// NewGateway builds an empty aggregated server. Sync must be called after
+// construction to populate tools.
+//
+// The transport is the library's Streamable HTTP server in stateful mode, so
+// a session survives across requests (Mcp-Session-Id), GET opens the
+// server-to-client stream notifications travel on, and DELETE ends a session.
+// State is per process: the service runs a single replica.
 func NewGateway(manager *Manager, version string) *Gateway {
 	srv := server.NewMCPServer(
 		"gorouter",
 		version,
 		server.WithToolCapabilities(true),
 	)
-	return &Gateway{manager: manager, mcp: srv, version: version, handlers: map[string]bool{}}
+	return &Gateway{
+		manager:    manager,
+		mcp:        srv,
+		handler:    server.NewStreamableHTTPServer(srv, server.WithStateful(true), server.WithHeartbeatInterval(sessionHeartbeat)),
+		version:    version,
+		registered: map[string]string{},
+	}
 }
 
 // Server exposes the underlying mcp-go server for HandleMessage.
 func (g *Gateway) Server() *server.MCPServer { return g.mcp }
 
-// Sync re-registers every tool from the manager. Tools that disappeared are
-// removed; new or changed ones are registered. Safe for concurrent use.
+// Handler serves the /mcp endpoint: POST for JSON-RPC, GET for the
+// server-to-client notification stream, DELETE to end a session.
+func (g *Gateway) Handler() http.Handler { return g.handler }
+
+// Start re-syncs the gateway on a timer until ctx is done, so tool changes
+// discovered in the background are announced to connected clients even when
+// the endpoint receives no traffic.
+func (g *Gateway) Start(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(gatewaySyncInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				g.Sync(ctx)
+			}
+		}
+	}()
+}
+
+// Sync brings the registered tool set in line with the live registry. Tools
+// that vanished are removed and tools that are new or changed are
+// re-registered; the MCP server itself announces every such move to connected
+// clients, because the gateway declares the tools.listChanged capability.
+// Safe for concurrent use.
 func (g *Gateway) Sync(ctx context.Context) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	available := g.manager.GetTools(ctx)
+	g.applyTools(g.manager.GetTools(ctx))
+}
 
-	// Remove tools that are no longer available.
-	registered := g.mcp.ListTools()
-	for name := range registered {
+// applyTools reconciles the MCP server's tool set with available and reports
+// whether anything moved. A tool is re-registered when its description or input
+// schema changed, not only when its name first appears: the client caches both,
+// so a stale description is a real divergence, and re-registering is also what
+// makes the server announce it.
+func (g *Gateway) applyTools(available []domain.MCPTool) bool {
+	changed := false
+
+	for name := range g.registered {
 		if !containsTool(available, name) {
 			g.mcp.DeleteTools(name)
-			delete(g.handlers, name)
+			delete(g.registered, name)
+			changed = true
 		}
 	}
 
-	// Add or refresh available tools.
 	for _, t := range available {
-		if g.handlers[t.Name] {
+		fp := toolFingerprint(t)
+		if cur, ok := g.registered[t.Name]; ok && cur == fp {
 			continue
 		}
-		toolName := t.Name
-		schema := mcp.ToolInputSchema{Type: "object"}
-		if s, ok := t.InputSchema["type"].(string); ok && s != "" {
-			schema.Type = s
-		}
-		if props, ok := t.InputSchema["properties"].(map[string]any); ok {
-			schema.Properties = props
-		}
-		if req, ok := t.InputSchema["required"].([]any); ok {
-			for _, r := range req {
-				if s, ok := r.(string); ok {
-					schema.Required = append(schema.Required, s)
-				}
+		// AddTool overwrites by name, so a changed description or schema is
+		// replaced in place and announced exactly once.
+		g.mcp.AddTool(mcp.Tool{
+			Name:        t.Name,
+			Description: t.Description,
+			InputSchema: inputSchemaOf(t),
+		}, g.toolHandler(t.Name))
+		g.registered[t.Name] = fp
+		changed = true
+	}
+
+	return changed
+}
+
+// inputSchemaOf rebuilds the MCP tool schema from the registry entry, which
+// carries it as a loose JSON object.
+func inputSchemaOf(t domain.MCPTool) mcp.ToolInputSchema {
+	schema := mcp.ToolInputSchema{Type: "object"}
+	if s, ok := t.InputSchema["type"].(string); ok && s != "" {
+		schema.Type = s
+	}
+	if props, ok := t.InputSchema["properties"].(map[string]any); ok {
+		schema.Properties = props
+	}
+	if req, ok := t.InputSchema["required"].([]any); ok {
+		for _, r := range req {
+			if s, ok := r.(string); ok {
+				schema.Required = append(schema.Required, s)
 			}
 		}
-		g.mcp.AddTool(mcp.Tool{
-			Name:        toolName,
-			Description: t.Description,
-			InputSchema: schema,
-		}, g.toolHandler(toolName))
-		g.handlers[toolName] = true
 	}
+	return schema
+}
+
+// toolFingerprint is what makes a tool "the same" from the client's point of
+// view: its description and the schema it must fill.
+func toolFingerprint(t domain.MCPTool) string {
+	schema, err := json.Marshal(t.InputSchema)
+	if err != nil {
+		return t.Description
+	}
+	return t.Description + "\x00" + string(schema)
 }
 
 func containsTool(tools []domain.MCPTool, name string) bool {
