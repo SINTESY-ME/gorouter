@@ -145,7 +145,7 @@ func (a *anthropicStream) Handle(ev sse.Event) streamStep {
 	case "message_stop":
 		if a.sawMCP {
 			// The turn continues: the client must not see the message close.
-			return streamStep{Hold: true, Ended: true}
+			return a.holdEnd(ev)
 		}
 		return streamStep{Forward: ev.Raw, Ended: true}
 	default:

@@ -33,6 +33,10 @@ type agentStreamAdapter interface {
 	// Held returns the events withheld in this turn, in order, so the caller
 	// can flush them when the loop stops mid-turn.
 	Held() [][]byte
+	// Terminate returns only what closes the turn for the client, dropping the
+	// calls the gateway owns: the client has no such tool, so handing it one
+	// would ask it to run something it never declared.
+	Terminate() [][]byte
 	// SawMCPCall reports whether the turn asked for a tool the gateway owns.
 	SawMCPCall() bool
 	// ClientCall reports whether the turn also asked for a tool the client
@@ -48,7 +52,8 @@ type agentStreamAdapter interface {
 
 // streamTurnState holds what every adapter accumulates per turn.
 type streamTurnState struct {
-	held   [][]byte
+	held   [][]byte // events of the calls the gateway owns
+	ended  [][]byte // the events that close the turn
 	calls  []agentToolCall
 	sawMCP bool
 	client bool
@@ -56,6 +61,7 @@ type streamTurnState struct {
 
 func (s *streamTurnState) reset() {
 	s.held = nil
+	s.ended = nil
 	s.calls = nil
 	s.sawMCP = false
 	s.client = false
@@ -64,6 +70,30 @@ func (s *streamTurnState) reset() {
 func (s *streamTurnState) hold(ev sse.Event) streamStep {
 	s.held = append(s.held, ev.Raw)
 	return streamStep{Hold: true}
+}
+
+// holdEnd withholds the events that close the turn, apart from the call events
+// so the loop can close the turn without releasing a call of its own.
+func (s *streamTurnState) holdEnd(ev sse.Event) streamStep {
+	s.ended = append(s.ended, ev.Raw)
+	return streamStep{Hold: true, Ended: true}
+}
+
+// Held returns every withheld event, in order: the calls first, then whatever
+// closes the turn.
+func (s *streamTurnState) Held() [][]byte {
+	out := make([][]byte, 0, len(s.held)+len(s.ended))
+	return append(append(out, s.held...), s.ended...)
+}
+
+// Terminate returns only the turn's closing events, or everything withheld
+// when the turn never closed (better a released call than a client left
+// waiting on a response that never ends).
+func (s *streamTurnState) Terminate() [][]byte {
+	if len(s.ended) == 0 {
+		return s.Held()
+	}
+	return append([][]byte{}, s.ended...)
 }
 
 // flush releases every withheld event, followed by ev when forwardNow is set.
@@ -86,9 +116,8 @@ func (s *streamTurnState) ownCall(call agentToolCall) {
 	s.calls = append(s.calls, call)
 }
 
-// Held, SawMCPCall, ClientCall and Calls satisfy the read side of the adapter
+// SawMCPCall, ClientCall and Calls satisfy the read side of the adapter
 // interface for every format.
-func (s *streamTurnState) Held() [][]byte         { return s.held }
 func (s *streamTurnState) SawMCPCall() bool       { return s.sawMCP }
 func (s *streamTurnState) ClientCall() bool       { return s.client }
 func (s *streamTurnState) Calls() []agentToolCall { return s.calls }
@@ -154,9 +183,9 @@ func (s *RouterService) driveAgentStream(ctx context.Context, w io.Writer, first
 		}
 		next, err := ad.AppendTurn(current, s.executeAgentTools(ctx, ad.Calls()))
 		if err != nil || depth == maxAgentDepth {
-			// Cannot continue: the withheld events are the only thing that
-			// terminates the turn for the client.
-			writeHeld(w, ad.Held())
+			// Cannot continue: close the turn for the client, without handing
+			// it a call it does not know how to run.
+			writeHeld(w, ad.Terminate())
 			return
 		}
 		current = next

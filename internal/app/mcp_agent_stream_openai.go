@@ -56,7 +56,7 @@ func (a *openAIChatStream) Handle(ev sse.Event) streamStep {
 	}
 	if data == "[DONE]" {
 		if a.sawMCP && !a.client {
-			return streamStep{Hold: true, Ended: true}
+			return a.holdEnd(ev)
 		}
 		return streamStep{Forward: ev.Raw, Ended: true}
 	}

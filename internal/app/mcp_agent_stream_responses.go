@@ -134,7 +134,7 @@ func (a *responsesStream) Handle(ev sse.Event) streamStep {
 		if a.sawMCP && !a.client {
 			// The loop may continue: hold the terminator so the client sees a
 			// single, still-open response.
-			return streamStep{Hold: true, Ended: true}
+			return a.holdEnd(ev)
 		}
 		return streamStep{Forward: a.rewrite(ev, a.completedOutput()), Ended: true}
 	default:
