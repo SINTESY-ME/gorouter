@@ -43,8 +43,12 @@ func TestResponsesStreamContiguousOutputIndex(t *testing.T) {
 	ad.NextTurn()
 	second := runTurn(t, ad, strings.Join([]string{
 		`event: response.created` + "\n" + `data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_2"}}` + "\n\n",
-		`event: response.output_item.added` + "\n" + `data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"msg_2","type":"message"}}` + "\n\n",
-		`event: response.output_text.delta` + "\n" + `data: {"type":"response.output_text.delta","sequence_number":2,"output_index":0,"item_id":"msg_2","delta":"4321"}` + "\n\n",
+		// The upstream numbers its own continuation items however it likes:
+		// here the answer sits at its index 1. The client must still see it
+		// right after the message it already has, at index 1.
+		`event: response.output_item.added` + "\n" + `data: {"type":"response.output_item.added","sequence_number":1,"output_index":1,"item":{"id":"msg_2","type":"message"}}` + "\n\n",
+		`event: response.output_text.delta` + "\n" + `data: {"type":"response.output_text.delta","sequence_number":2,"output_index":1,"item_id":"msg_2","delta":"4321"}` + "\n\n",
+		`event: response.output_item.done` + "\n" + `data: {"type":"response.output_item.done","sequence_number":3,"output_index":1,"item":{"id":"msg_2","type":"message","content":[{"type":"output_text","text":"4321"}]}}` + "\n\n",
 		`event: response.completed` + "\n" + `data: {"type":"response.completed","sequence_number":3,"response":{"id":"resp_2","output":[{"id":"msg_2","type":"message","content":[{"type":"output_text","text":"4321"}]}]}}` + "\n\n",
 	}, ""))
 

@@ -23,10 +23,25 @@ type responsesStream struct {
 	outputs []json.RawMessage // this turn's items, replayed to the upstream
 	visible []json.RawMessage // every item the client has seen
 
+	// Numbering is the gateway's, not the upstream's: an item keeps the index
+	// the client first saw it at, so withheld calls leave no holes and a
+	// continuation turn cannot renumber the items already delivered.
+	index map[string]int
+	next  int
+
 	turn     int
 	seqShift int
 	outShift int
 	events   int // events seen in this turn
+}
+
+// outputIndexOf reads an event's own output_index.
+func outputIndexOf(data string) float64 {
+	var obj struct {
+		OutputIndex float64 `json:"output_index"`
+	}
+	_ = json.Unmarshal([]byte(data), &obj)
+	return obj.OutputIndex
 }
 
 func newResponsesStream(owned map[string]bool) *responsesStream {
@@ -34,6 +49,7 @@ func newResponsesStream(owned map[string]bool) *responsesStream {
 		proto:    responsesAgent{},
 		owned:    owned,
 		mcpItems: map[string]bool{},
+		index:    map[string]int{},
 	}
 }
 
@@ -46,11 +62,10 @@ func (a *responsesStream) StartTurn() {
 
 func (a *responsesStream) NextTurn() {
 	a.turn++
-	// Keep the client's numbering moving forward. The base is what the client
-	// has actually seen, not what the upstream produced: a withheld tool call
-	// must not consume an index, or the client's output items end up with a
-	// hole where the hidden call used to be.
-	a.outShift = len(a.visible)
+	// The numbering base is the client's next free index, not what the
+	// upstream produced: a withheld tool call must not consume an index, or
+	// the client's items end up with a hole where the hidden call used to be.
+	a.outShift = a.next
 	a.seqShift += a.events
 }
 
@@ -84,6 +99,7 @@ func (a *responsesStream) Handle(ev sse.Event) streamStep {
 				return a.flush(ev)
 			}
 		}
+		a.noteItem(item.ID, outputIndexOf(ev.Data))
 		return streamStep{Forward: a.rewrite(ev, nil)}
 	case "response.output_item.done":
 		item := itemOf(ev.Data)
@@ -100,6 +116,7 @@ func (a *responsesStream) Handle(ev sse.Event) streamStep {
 		if len(item.Raw) > 0 {
 			a.visible = append(a.visible, item.Raw)
 		}
+		a.noteItem(item.ID, outputIndexOf(ev.Data))
 		return streamStep{Forward: a.rewrite(ev, nil)}
 	case "response.function_call_arguments.delta", "response.function_call_arguments.done":
 		if a.mcpItems[eventItemID(ev.Data)] && !a.client {
@@ -116,6 +133,55 @@ func (a *responsesStream) Handle(ev sse.Event) streamStep {
 	default:
 		return streamStep{Forward: a.rewrite(ev, nil)}
 	}
+}
+
+// noteItem remembers the index an item was delivered at. On the first turn the
+// upstream's own numbering is what the client sees; afterwards the gateway
+// hands out the numbers, so it decides where each new item goes.
+func (a *responsesStream) noteItem(id string, upstream float64) {
+	if id == "" {
+		return
+	}
+	if _, seen := a.index[id]; seen {
+		return
+	}
+	if a.turn == 0 {
+		a.index[id] = int(upstream)
+		if int(upstream) >= a.next {
+			a.next = int(upstream) + 1
+		}
+		return
+	}
+	a.index[id] = a.next
+	a.next++
+}
+
+// clientIndex resolves the index an event must carry: the one the item was
+// delivered at, falling back to the upstream's own numbering.
+func (a *responsesStream) clientIndex(data string, upstream float64) float64 {
+	if id := eventOrItemID(data); id != "" {
+		if i, ok := a.index[id]; ok {
+			return float64(i)
+		}
+	}
+	return float64(a.outShift) + upstream
+}
+
+// eventOrItemID reads the item an event refers to: deltas carry a top level
+// item_id, while item lifecycle events nest the item under "item".
+func eventOrItemID(data string) string {
+	if id := eventItemID(data); id != "" {
+		return id
+	}
+	var ev struct {
+		Item struct {
+			ID string `json:"id"`
+		} `json:"item"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(data)), &ev) != nil {
+		return ""
+	}
+	return ev.Item.ID
 }
 
 // completedOutput rewrites response.completed so its output lists every item
@@ -156,7 +222,7 @@ func (a *responsesStream) rewrite(ev sse.Event, extra func(map[string]any)) []by
 		obj["sequence_number"] = float64(a.seqShift) + seq
 	}
 	if idx, ok := obj["output_index"].(float64); ok {
-		obj["output_index"] = float64(a.outShift) + idx
+		obj["output_index"] = a.clientIndex(ev.Data, idx)
 	}
 	if extra != nil {
 		extra(obj)
