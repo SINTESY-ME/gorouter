@@ -40,9 +40,9 @@ func TestAnthropicRequestForwardsToolsAndToolBlocks(t *testing.T) {
 		} `json:"tools"`
 		ToolChoice json.RawMessage `json:"tool_choice"`
 		Messages   []struct {
-			Role      string `json:"role"`
-			Content   any    `json:"content"`
-			ToolCalls []struct {
+			Role       string `json:"role"`
+			Content    any    `json:"content"`
+			ToolCalls  []struct {
 				ID       string `json:"id"`
 				Type     string `json:"type"`
 				Function struct {

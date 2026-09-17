@@ -36,10 +36,10 @@ func NewProviderProbe() *ProviderProbe {
 // resolved base URL ready for consumption, the fetched model list, and any
 // error.
 type ProbeResult struct {
-	Format  domain.Format
-	BaseURL string // resolved base URL (includes version prefix, e.g. /v1)
-	Models  []domain.ModelInfo
-	Error   error
+	Format   domain.Format
+	BaseURL  string // resolved base URL (includes version prefix, e.g. /v1)
+	Models   []domain.ModelInfo
+	Error    error
 }
 
 // versionPrefixes returns the version path prefixes to try for a format,
