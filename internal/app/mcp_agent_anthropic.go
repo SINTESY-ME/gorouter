@@ -1,6 +1,10 @@
 package app
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+)
 
 // anthropicAgent drives the agent loop for /v1/messages clients (Claude Code):
 // tool calls are tool_use content blocks, and results come back as a user
@@ -41,19 +45,39 @@ func (anthropicAgent) AppendTurn(prevBody, respBody []byte, results []agentToolR
 		return nil, err
 	}
 	var resp struct {
-		Content json.RawMessage `json:"content"`
+		Content []json.RawMessage `json:"content"`
 	}
 	if err := json.Unmarshal(respBody, &resp); err != nil {
 		return nil, err
+	}
+	// Replay the assistant turn with its text and tool_use blocks, dropping
+	// empty text blocks: some upstreams emit them, and providers reject a
+	// content block with no text.
+	content := make([]json.RawMessage, 0, len(resp.Content))
+	for _, block := range resp.Content {
+		var probe struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(block, &probe); err != nil {
+			continue
+		}
+		if probe.Type == "text" && strings.TrimSpace(probe.Text) == "" {
+			continue
+		}
+		content = append(content, block)
+	}
+	if len(content) == 0 {
+		return nil, fmt.Errorf("assistant turn has no usable content")
 	}
 
 	msgs := make([]json.RawMessage, 0, len(prev.Messages)+2)
 	msgs = append(msgs, prev.Messages...)
 
-	// The assistant turn is replayed verbatim (text and tool_use blocks).
+	// The assistant turn is replayed with its text and tool_use blocks.
 	assistant, err := json.Marshal(map[string]any{
 		"role":    "assistant",
-		"content": resp.Content,
+		"content": content,
 	})
 	if err != nil {
 		return nil, err

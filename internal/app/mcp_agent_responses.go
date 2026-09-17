@@ -1,6 +1,9 @@
 package app
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // responsesAgent drives the agent loop for /v1/responses clients (Codex CLI):
 // tool calls are output items of type function_call, and results come back as
@@ -51,14 +54,7 @@ func (responsesAgent) AppendTurn(prevBody, respBody []byte, results []agentToolR
 		return nil, err
 	}
 	for _, raw := range resp.Output {
-		var head struct {
-			Type string `json:"type"`
-		}
-		if json.Unmarshal(raw, &head) != nil {
-			continue
-		}
-		switch head.Type {
-		case "function_call", "message", "reasoning":
+		if appendableItem(raw) {
 			items = append(items, raw)
 		}
 	}
@@ -78,6 +74,33 @@ func (responsesAgent) AppendTurn(prevBody, respBody []byte, results []agentToolR
 		return nil, err
 	}
 	return setField(prevBody, "input", merged)
+}
+
+// appendableItem reports whether a response output item may be replayed as
+// input for the next turn. Message items with no text are dropped: providers
+// reject an assistant message with empty content.
+func appendableItem(raw json.RawMessage) bool {
+	var item struct {
+		Type    string `json:"type"`
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if json.Unmarshal(raw, &item) != nil {
+		return false
+	}
+	switch item.Type {
+	case "message":
+		for _, part := range item.Content {
+			if strings.TrimSpace(part.Text) != "" {
+				return true
+			}
+		}
+		return false
+	case "reasoning", "function_call":
+		return true
+	}
+	return false
 }
 
 // responsesInputItems normalizes the request's input into an item array. The
