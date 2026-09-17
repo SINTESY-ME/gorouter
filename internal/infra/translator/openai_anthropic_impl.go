@@ -15,6 +15,14 @@ import (
 
 // translateAnthropicToOpenAIRequestImpl converts an Anthropic /v1/messages
 // request body into an OpenAI chat/completions request.
+//
+// Beyond roles and sampling, an Anthropic coding client (Claude Code) needs
+// three things carried over, or the upstream model is crippled: the tool
+// definitions (`tools[].input_schema` is OpenAI's `tools[].function.parameters`,
+// and a DROPPED tools array means the model can never call a tool), the
+// assistant `tool_use` blocks (OpenAI `tool_calls`) and the user `tool_result`
+// blocks (a separate `role:"tool"` message). Passing those blocks through
+// untouched poisons every turn after the first tool call.
 func translateAnthropicToOpenAIRequestImpl(upstreamModel string, body []byte) ([]byte, error) {
 	var in struct {
 		Model       string             `json:"model"`
@@ -25,6 +33,8 @@ func translateAnthropicToOpenAIRequestImpl(upstreamModel string, body []byte) ([
 		TopP        *float64           `json:"top_p,omitempty"`
 		Stop        []string           `json:"stop_sequences,omitempty"`
 		Stream      bool               `json:"stream"`
+		Tools       []anthropicTool    `json:"tools,omitempty"`
+		ToolChoice  json.RawMessage    `json:"tool_choice,omitempty"`
 	}
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("anthropic->openai: parse: %w", err)
@@ -34,13 +44,215 @@ func translateAnthropicToOpenAIRequestImpl(upstreamModel string, body []byte) ([
 		out.Messages = append(out.Messages, openaiMessage{Role: "system", Content: systemToOpenAIContent(in.System)})
 	}
 	for _, m := range in.Messages {
-		out.Messages = append(out.Messages, openaiMessage{Role: m.Role, Content: m.Content})
+		out.Messages = append(out.Messages, anthropicMessageToOpenAI(m)...)
 	}
 	if len(in.Stop) > 0 {
 		raw, _ := json.Marshal(in.Stop)
 		out.Stop = raw
 	}
+	if tools := anthropicToolsToOpenAI(in.Tools); tools != nil {
+		out.Tools = tools
+	}
+	if choice := anthropicToolChoiceToOpenAI(in.ToolChoice); choice != nil {
+		out.ToolChoice = choice
+	}
 	return json.Marshal(out)
+}
+
+// anthropicContentBlock is the union of the block shapes an Anthropic client
+// sends inside a message's content array.
+type anthropicContentBlock struct {
+	Type      string          `json:"type"`
+	Text      string          `json:"text,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
+	ToolUseID string          `json:"tool_use_id,omitempty"`
+	Content   json.RawMessage `json:"content,omitempty"`
+	Source    json.RawMessage `json:"source,omitempty"`
+}
+
+type anthropicTool struct {
+	Type        string          `json:"type,omitempty"`
+	Name        string          `json:"name,omitempty"`
+	Description string          `json:"description,omitempty"`
+	InputSchema json.RawMessage `json:"input_schema,omitempty"`
+}
+
+type openaiTool struct {
+	Type     string             `json:"type"`
+	Function openaiToolFunction `json:"function"`
+}
+
+type openaiToolFunction struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+}
+
+// anthropicToolsToOpenAI maps Anthropic tool definitions onto OpenAI function
+// tools. Server-side tools (web_search, code_execution, ...) carry a type and
+// no name: they have no OpenAI equivalent and are skipped.
+func anthropicToolsToOpenAI(tools []anthropicTool) json.RawMessage {
+	out := make([]openaiTool, 0, len(tools))
+	for _, t := range tools {
+		if t.Name == "" {
+			continue
+		}
+		fn := openaiToolFunction{Name: t.Name, Description: t.Description, Parameters: t.InputSchema}
+		if len(fn.Parameters) == 0 || string(fn.Parameters) == "null" {
+			fn.Parameters = json.RawMessage(`{"type":"object","properties":{}}`)
+		}
+		out = append(out, openaiTool{Type: "function", Function: fn})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+func anthropicToolChoiceToOpenAI(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var tc struct {
+		Type string `json:"type"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(raw, &tc); err != nil {
+		return nil
+	}
+	switch tc.Type {
+	case "auto":
+		return json.RawMessage(`"auto"`)
+	case "any":
+		return json.RawMessage(`"required"`)
+	case "none":
+		return json.RawMessage(`"none"`)
+	case "tool":
+		if tc.Name == "" {
+			return json.RawMessage(`"auto"`)
+		}
+		b, _ := json.Marshal(map[string]any{
+			"type":     "function",
+			"function": map[string]any{"name": tc.Name},
+		})
+		return b
+	}
+	return nil
+}
+
+// anthropicMessageToOpenAI expands one Anthropic message into the OpenAI
+// messages it corresponds to (a user turn with tool results becomes one
+// `role:"tool"` message per result).
+func anthropicMessageToOpenAI(m anthropicMessage) []openaiMessage {
+	var s string
+	if err := json.Unmarshal(m.Content, &s); err == nil {
+		return []openaiMessage{{Role: m.Role, Content: json.RawMessage(jsonQuoteString(s))}}
+	}
+	var blocks []anthropicContentBlock
+	if err := json.Unmarshal(m.Content, &blocks); err != nil {
+		// Unknown shape: forward untouched rather than dropping the turn.
+		return []openaiMessage{{Role: m.Role, Content: m.Content}}
+	}
+	if m.Role == "assistant" {
+		return assistantBlocksToOpenAI(blocks)
+	}
+	return userBlocksToOpenAI(blocks)
+}
+
+func assistantBlocksToOpenAI(blocks []anthropicContentBlock) []openaiMessage {
+	var text strings.Builder
+	var calls []openaiToolCall
+	for _, b := range blocks {
+		switch b.Type {
+		case "text":
+			text.WriteString(b.Text)
+		case "tool_use":
+			args := "{}"
+			if len(b.Input) > 0 {
+				args = string(b.Input)
+			}
+			calls = append(calls, openaiToolCall{
+				ID:       b.ID,
+				Type:     "function",
+				Function: openaiFunction{Name: b.Name, Arguments: args},
+			})
+		}
+	}
+	msg := openaiMessage{Role: "assistant", ToolCalls: calls}
+	if text.Len() > 0 {
+		msg.Content = json.RawMessage(jsonQuoteString(text.String()))
+	}
+	return []openaiMessage{msg}
+}
+
+func userBlocksToOpenAI(blocks []anthropicContentBlock) []openaiMessage {
+	var out []openaiMessage
+	var parts []map[string]any
+	for _, b := range blocks {
+		switch b.Type {
+		case "tool_result":
+			out = append(out, openaiMessage{
+				Role:       "tool",
+				ToolCallID: b.ToolUseID,
+				Content:    json.RawMessage(jsonQuoteString(normalizeToolOutput(b.Content))),
+			})
+		case "text":
+			if b.Text != "" {
+				parts = append(parts, map[string]any{"type": "text", "text": b.Text})
+			}
+		case "image":
+			if url := anthropicImageURL(b.Source); url != "" {
+				parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]any{"url": url}})
+			}
+		}
+	}
+	switch len(parts) {
+	case 0:
+	case 1:
+		if parts[0]["type"] == "text" {
+			out = append(out, openaiMessage{Role: "user", Content: json.RawMessage(jsonQuoteString(parts[0]["text"].(string)))})
+			break
+		}
+		fallthrough
+	default:
+		if b, err := json.Marshal(parts); err == nil {
+			out = append(out, openaiMessage{Role: "user", Content: b})
+		}
+	}
+	return out
+}
+
+// anthropicImageURL turns an Anthropic image source into an OpenAI image URL.
+func anthropicImageURL(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var src struct {
+		Type      string `json:"type"`
+		MediaType string `json:"media_type"`
+		Data      string `json:"data"`
+		URL       string `json:"url"`
+	}
+	if err := json.Unmarshal(raw, &src); err != nil {
+		return ""
+	}
+	if src.Type == "url" {
+		return src.URL
+	}
+	if src.Data == "" {
+		return ""
+	}
+	media := src.MediaType
+	if media == "" {
+		media = "image/png"
+	}
+	return "data:" + media + ";base64," + src.Data
 }
 
 // systemToOpenAIContent turns an Anthropic system field (string or array of
