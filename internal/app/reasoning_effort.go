@@ -52,14 +52,18 @@ func reasoningLadder(caps domain.ReasoningCapabilities) []string {
 // list. Every reasoning model is read as accepting the middle levels and the
 // disable switch, because that is what these flags have always meant here: a
 // source saying "supports_reasoning" has never been read as refusing "high".
-// Extremes are added only when a source claims them.
+// Extremes are added only when a source claims them, and the disable switch is
+// dropped entirely when a source stated reasoning cannot be turned off.
 func ladderFromFlags(caps domain.ReasoningCapabilities) []string {
 	if !caps.SupportsReasoning && !caps.SupportsMinimalReasoningEffort &&
 		!caps.SupportsLowReasoningEffort && !caps.SupportsXHighReasoningEffort &&
 		!caps.SupportsMaxReasoningEffort {
 		return nil
 	}
-	ladder := []string{"none", "medium", "high"}
+	ladder := []string{"medium", "high"}
+	if !caps.Mandatory {
+		ladder = append(ladder, "none")
+	}
 	if caps.SupportsMinimalReasoningEffort {
 		ladder = append(ladder, "minimal")
 	}
@@ -135,37 +139,42 @@ func reasoningCapabilitiesFromMap(values map[string]any) domain.ReasoningCapabil
 	if d, ok := values["default_reasoning_effort"].(string); ok {
 		caps.DefaultEffort = strings.ToLower(strings.TrimSpace(d))
 	}
-	// A list and the explicit bool extremes are statements from this same
-	// source, so they combine — nothing enters the ladder that this source did
-	// not say.
-	ladder := stringList(values["reasoning_effort_levels"])
-	stated := len(ladder) > 0
-	if caps.SupportsMinimalReasoningEffort {
-		ladder, stated = append(ladder, "minimal"), true
-	}
-	if caps.SupportsLowReasoningEffort {
-		ladder, stated = append(ladder, "low"), true
-	}
-	if caps.SupportsXHighReasoningEffort {
-		ladder, stated = append(ladder, "xhigh"), true
-	}
-	if caps.SupportsMaxReasoningEffort {
-		ladder, stated = append(ladder, "max"), true
-	}
-	if none, ok := values["supports_none_reasoning_effort"].(bool); ok {
-		if none {
-			ladder, stated = append(ladder, "none"), true
-		} else if caps.SupportsReasoning {
-			// Stated as not disableable: a mandatory claim.
-			caps.Mandatory = true
+	// A LIST states the whole ladder; a boolean states a single rung. Only the
+	// list may win the chain: reading a rung as the ladder itself froze the
+	// ladder at whichever link published a flag first — LiteLLM advertises
+	// minimal+xhigh for muse-spark, and that sparse pair kept OpenRouter's
+	// complete minimal..xhigh out of the chain. Single rungs stay facts; a link
+	// that publishes the ladder wins on evidence, not on arrival order.
+	list := stringList(values["reasoning_effort_levels"])
+	if len(list) > 0 {
+		// One source's own list and its own rungs combine: nothing enters the
+		// ladder that this source did not say.
+		if caps.SupportsMinimalReasoningEffort {
+			list = append(list, "minimal")
 		}
-	}
-	if stated {
-		caps.Efforts = domain.SortEfforts(ladder)
+		if caps.SupportsLowReasoningEffort {
+			list = append(list, "low")
+		}
+		if caps.SupportsXHighReasoningEffort {
+			list = append(list, "xhigh")
+		}
+		if caps.SupportsMaxReasoningEffort {
+			list = append(list, "max")
+		}
+		if none, ok := values["supports_none_reasoning_effort"].(bool); ok && none {
+			list = append(list, "none")
+		}
+		caps.Efforts = domain.SortEfforts(list)
 		caps.EffortsStated = true
-	} else {
-		caps.Efforts = ladderFromFlags(caps)
+		return caps
 	}
+	if none, ok := values["supports_none_reasoning_effort"].(bool); ok && !none && caps.SupportsReasoning {
+		// Stated as not disableable: a mandatory claim.
+		caps.Mandatory = true
+	}
+	// No list: keep the rungs as facts and let the ladder be the contiguous one
+	// they imply, so a later link with a real list can still state it.
+	caps.Efforts = ladderFromFlags(caps)
 	return caps
 }
 

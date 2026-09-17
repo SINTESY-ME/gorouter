@@ -319,3 +319,85 @@ func TestComboCapabilitiesFollowsNestedCombos(t *testing.T) {
 		t.Errorf("Efforts = %v, want the union %v", got.Reasoning.Efforts, want)
 	}
 }
+
+// TestSingleRungIsNotTheLadder pins the defect behind the `article` combo
+// exposing ["minimal","xhigh"]: LiteLLM's supports_*_reasoning_effort booleans
+// are statements about single rungs, not about the whole ladder. Treating a
+// boolean as the ladder let the first link that published any flag freeze it
+// and keep a later link's complete ladder out of the chain.
+func TestSingleRungIsNotTheLadder(t *testing.T) {
+	caps := reasoningCapabilitiesFromMap(map[string]any{
+		"supports_reasoning":                true,
+		"supports_minimal_reasoning_effort": true,
+		"supports_xhigh_reasoning_effort":   true,
+	})
+	if caps.EffortsStated {
+		t.Error("a boolean is one rung, not a stated ladder — it must not claim the ladder")
+	}
+	if want := []string{"none", "minimal", "medium", "high", "xhigh"}; !reflect.DeepEqual(caps.Efforts, want) {
+		t.Errorf("Efforts = %v, want the contiguous ladder %v", caps.Efforts, want)
+	}
+}
+
+// TestDeclaredLadderBeatsAnEarlierLinksFlags is the regression for the live
+// `article` combo: the chain merges LiteLLM first and OpenRouter last, and the
+// richer ladder must win on evidence rather than on arrival order.
+func TestDeclaredLadderBeatsAnEarlierLinksFlags(t *testing.T) {
+	litellm := reasoningCapabilitiesFromMap(map[string]any{
+		"supports_reasoning":                true,
+		"supports_minimal_reasoning_effort": true,
+		"supports_xhigh_reasoning_effort":   true,
+	})
+	openrouter := openRouterEntry(map[string]any{
+		"id": "meta/muse-spark-1.2",
+		"reasoning": map[string]any{
+			"mandatory":         true,
+			"supported_efforts": []any{"xhigh", "high", "medium", "low", "minimal"},
+			"default_effort":    "medium",
+		},
+	}, domain.KindLLM, false).Reasoning
+
+	got := mergeReasoningCapabilities(litellm, openrouter)
+	if want := []string{"minimal", "low", "medium", "high", "xhigh"}; !reflect.DeepEqual(got.Efforts, want) {
+		t.Errorf("Efforts = %v, want the declared ladder %v", got.Efforts, want)
+	}
+	if !got.EffortsStated {
+		t.Error("the surviving ladder came from a list and must count as stated")
+	}
+	if got.DefaultEffort != "medium" || !got.Mandatory {
+		t.Errorf("DefaultEffort/Mandatory = %q/%v, want medium/true from the same source", got.DefaultEffort, got.Mandatory)
+	}
+	// A request for high is now served at high instead of dropping to minimal.
+	if adapted := adaptReasoningEffort("high", got); adapted != "high" {
+		t.Errorf("adaptReasoningEffort(high) = %q, want high", adapted)
+	}
+}
+
+// TestMandatoryRemovesTheDisableSwitch guards the other half: a source that
+// says reasoning cannot be turned off must not have "none" invented for it by
+// the flag-derived ladder, and a request to disable it is omitted, not sent.
+func TestMandatoryRemovesTheDisableSwitch(t *testing.T) {
+	caps := reasoningCapabilitiesFromMap(map[string]any{
+		"supports_reasoning":             true,
+		"supports_none_reasoning_effort": false,
+	})
+	if !caps.Mandatory {
+		t.Fatal("Mandatory = false, want true")
+	}
+	for _, l := range caps.Efforts {
+		if l == "none" {
+			t.Fatalf("Efforts = %v, want no disable switch on a mandatory model", caps.Efforts)
+		}
+	}
+	if got := adaptReasoningEffort("none", caps); got != "" {
+		t.Errorf("adaptReasoningEffort(none) = %q, want \"\" (omit, do not disable)", got)
+	}
+	// The ladder of a flags-only mandatory model is medium..: a request below it
+	// is omitted rather than upgraded, and one inside it is honoured.
+	if got := adaptReasoningEffort("low", caps); got != "" {
+		t.Errorf("adaptReasoningEffort(low) = %q, want \"\" (nothing at or below low)", got)
+	}
+	if got := adaptReasoningEffort("high", caps); got != "high" {
+		t.Errorf("adaptReasoningEffort(high) = %q, want high", got)
+	}
+}
