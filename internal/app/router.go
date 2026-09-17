@@ -286,12 +286,19 @@ func (s *RouterService) RouteChat(ctx context.Context, body []byte, modelStr str
 	}
 
 	// Route the request. Direct model requests and combos without MCP
-	// clients never run the agent loop; only combos that declare MCPs and
-	// arrive as non-stream OpenAI chat do (tool calls resolved server-side).
+	// clients never run the agent loop. A combo that declares MCP clients
+	// resolves tool calls server-side for buffered requests, in whichever
+	// format the client speaks (chat completions, responses or messages).
+	// Streamed requests keep the client in charge: it executes tools itself
+	// through the /mcp gateway, because the loop has to buffer a turn.
 	combo, comboErr := s.lookupCombo(ctx, modelStr)
-	if s.MCP != nil && !stream && opts.InputFormat == domain.FormatOpenAI && opts.Endpoint == "" && comboErr == nil && combo != nil && len(combo.MCPClients) > 0 {
-		res, err := s.routeWithAgentLoop(ctx, modelStr, body, apiKey, opts, requestID)
-		return s.finishRoute(ctx, hc, res, err)
+	if s.MCP != nil && !stream && opts.Endpoint == "" && comboErr == nil && combo != nil && len(combo.MCPClients) > 0 {
+		if proto := agentProtocolFor(opts.InputFormat); proto != nil {
+			if owned := s.MCP.OwnedTools(ctx, combo.MCPClients); len(owned) > 0 {
+				res, err := s.routeWithAgentLoop(ctx, modelStr, body, apiKey, opts, requestID, owned)
+				return s.finishRoute(ctx, hc, res, err)
+			}
+		}
 	}
 	res, err := s.routeChatDispatch(ctx, modelStr, body, stream, apiKey, opts, requestID)
 	return s.finishRoute(ctx, hc, res, err)

@@ -42,7 +42,7 @@ func (m *memConnRepo) Get(ctx context.Context, id string) (*domain.Connection, e
 }
 func (m *memConnRepo) Create(ctx context.Context, c *domain.Connection) error { return nil }
 func (m *memConnRepo) Update(ctx context.Context, c *domain.Connection) error { return nil }
-func (m *memConnRepo) Delete(ctx context.Context, id string) error             { return nil }
+func (m *memConnRepo) Delete(ctx context.Context, id string) error            { return nil }
 func (m *memConnRepo) SetRateLimited(ctx context.Context, id string, until time.Time) error {
 	return nil
 }
@@ -53,18 +53,18 @@ func TestResponsesPathBody(t *testing.T) {
 	// Just test translate + injectStreamUsage path manually
 	tr := translator.New()
 	body := []byte(`{"model":"coding","input":[{"role":"user","content":"say hi"}],"stream":true}`)
-	
+
 	// Step 1: Responses -> OpenAI
 	step1, err := tr.TranslateRequest(domain.FormatResponses, domain.FormatOpenAI, "glm-5.2", body)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("step1: %s", step1)
-	
+
 	// Step 2: injectStreamUsage
 	step2 := injectStreamUsage(step1)
 	t.Logf("step2: %s", step2)
-	
+
 	// Step 3: rewriteModel
 	step3, err := tr.TranslateRequest(domain.FormatOpenAI, domain.FormatOpenAI, "glm-5.2", step2)
 	if err != nil {

@@ -501,31 +501,42 @@ func translateResponsesToOpenAIRequest(upstreamModel string, body []byte) ([]byt
 
 // translateResponsesTools converts Responses API tools (array of {type:"function",name,parameters})
 // to OpenAI Chat Completions tools (array of {type:"function",function:{name,parameters}}).
+// The description MUST be carried over: it is how the model decides which tool
+// to call, and a tool that reaches the upstream without one is effectively
+// invisible to a coding agent.
 // Returns nil if input is empty (omitted from JSON).
 func translateResponsesTools(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 {
 		return nil
 	}
 	var tools []struct {
-		Type       string          `json:"type"`
-		Name       string          `json:"name"`
-		Parameters json.RawMessage `json:"parameters"`
+		Type        string          `json:"type"`
+		Name        string          `json:"name"`
+		Description string          `json:"description"`
+		Parameters  json.RawMessage `json:"parameters"`
+		Strict      *bool           `json:"strict,omitempty"`
 	}
 	if err := json.Unmarshal(raw, &tools); err != nil {
 		return raw // passthrough on parse failure
 	}
 	out := make([]map[string]any, 0, len(tools))
 	for _, t := range tools {
-		if t.Type != "function" {
+		if t.Type != "function" || t.Name == "" {
 			continue
 		}
-		out = append(out, map[string]any{
-			"type": "function",
-			"function": map[string]any{
-				"name":       t.Name,
-				"parameters": json.RawMessage(t.Parameters),
-			},
-		})
+		fn := map[string]any{"name": t.Name}
+		if t.Description != "" {
+			fn["description"] = t.Description
+		}
+		if len(t.Parameters) > 0 && string(t.Parameters) != "null" {
+			fn["parameters"] = json.RawMessage(t.Parameters)
+		} else {
+			fn["parameters"] = map[string]any{"type": "object", "properties": map[string]any{}}
+		}
+		if t.Strict != nil {
+			fn["strict"] = *t.Strict
+		}
+		out = append(out, map[string]any{"type": "function", "function": fn})
 	}
 	b, _ := json.Marshal(out)
 	return b

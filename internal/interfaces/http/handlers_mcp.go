@@ -137,8 +137,9 @@ func (s *Server) handleMCPTools(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.MCP.Svc.Tools(r.Context()))
 }
 
-// handleMCPToolExecute runs a tool call in the requested format (chat or
-// responses). Body: {"name": "<client>__<tool>", "arguments": {...}}.
+// handleMCPToolExecute runs a tool call in the requested format (chat,
+// anthropic or responses). Body: {"name": "<client>__<tool>",
+// "arguments": {...}, "call_id": "<optional>"}.
 func (s *Server) handleMCPToolExecute(w http.ResponseWriter, r *http.Request) {
 	if s.MCP == nil {
 		writeError(w, http.StatusNotImplemented, "mcp gateway not enabled")
@@ -148,6 +149,10 @@ func (s *Server) handleMCPToolExecute(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
+		// CallID is the id of the model's function_call this result answers.
+		// Anthropic clients use their tool_use id; Responses clients need the
+		// original call_id back, not the tool name.
+		CallID string `json:"call_id"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -161,7 +166,11 @@ func (s *Server) handleMCPToolExecute(w http.ResponseWriter, r *http.Request) {
 	if len(req.Arguments) > 0 {
 		args = string(req.Arguments)
 	}
-	out, err := s.MCP.Svc.ExecuteTool(r.Context(), format, req.Name, args)
+	callID := req.CallID
+	if callID == "" {
+		callID = req.Name
+	}
+	out, err := s.MCP.Svc.ExecuteTool(r.Context(), format, req.Name, callID, args)
 	if err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
@@ -174,9 +183,19 @@ func (s *Server) handleMCPToolExecute(w http.ResponseWriter, r *http.Request) {
 // handleMCPGateway is the aggregated MCP server endpoint (JSON-RPC over
 // POST). It re-syncs the gateway on each request so newly added clients and
 // tools are visible immediately, then delegates to the mcp-go server.
+//
+// The optional Streamable-HTTP methods (GET for a server-initiated SSE
+// stream, DELETE to terminate a session) are answered with 405 + Allow —
+// without this the SPA catch-all would answer them with dashboard HTML, which
+// is worse than an honest "not supported".
 func (s *Server) handleMCPGateway(w http.ResponseWriter, r *http.Request) {
 	if s.MCP == nil || s.MCP.Gateway == nil {
 		writeError(w, http.StatusNotImplemented, "mcp gateway not enabled")
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		writeError(w, http.StatusMethodNotAllowed, "mcp gateway accepts POST (JSON-RPC)")
 		return
 	}
 	s.MCP.Gateway.Sync(r.Context())

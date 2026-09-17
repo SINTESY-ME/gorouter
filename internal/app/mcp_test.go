@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -20,14 +21,14 @@ type mockMCPManager struct {
 }
 
 func (m *mockMCPManager) Start(ctx context.Context) {}
-func (m *mockMCPManager) Close()                     {}
+func (m *mockMCPManager) Close()                    {}
 func (m *mockMCPManager) AddClient(ctx context.Context, cfg *domain.MCPClient) error {
 	return m.err
 }
 func (m *mockMCPManager) UpdateClient(ctx context.Context, cfg *domain.MCPClient) error {
 	return m.err
 }
-func (m *mockMCPManager) RemoveClient(ctx context.Context, id string) error { return m.err }
+func (m *mockMCPManager) RemoveClient(ctx context.Context, id string) error  { return m.err }
 func (m *mockMCPManager) Reconnect(ctx context.Context, id string) error     { return m.err }
 func (m *mockMCPManager) EnableClient(ctx context.Context, id string) error  { return m.err }
 func (m *mockMCPManager) DisableClient(ctx context.Context, id string) error { return m.err }
@@ -234,50 +235,112 @@ func TestInjectToolsForClientsFilters(t *testing.T) {
 }
 
 func TestExecuteToolChatFormat(t *testing.T) {
-	svc := &MCPService{Manager: &mockMCPManager{results: map[string]string{"github__create_issue": "issue #42 created"}}}
-	out, err := svc.ExecuteTool(context.Background(), "chat", "github__create_issue", `{"title":"x"}`)
+	svc := &MCPService{Manager: &mockMCPManager{
+		tools:   []domain.MCPTool{testMCPTool("github__create_issue", "create issue")},
+		results: map[string]string{"github__create_issue": "issue #42 created"},
+	}}
+	out, err := svc.ExecuteTool(context.Background(), "chat", "github__create_issue", "call_9", `{"title":"x"}`)
 	if err != nil {
 		t.Fatalf("ExecuteTool: %v", err)
 	}
 	var msg struct {
-		Role        string `json:"role"`
-		ToolCallID  string `json:"tool_call_id"`
-		Content     string `json:"content"`
+		Role       string `json:"role"`
+		ToolCallID string `json:"tool_call_id"`
+		Content    string `json:"content"`
 	}
 	if err := json.Unmarshal(out, &msg); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if msg.Role != "tool" || msg.ToolCallID != "github__create_issue" || msg.Content != "issue #42 created" {
+	if msg.Role != "tool" || msg.ToolCallID != "call_9" || msg.Content != "issue #42 created" {
 		t.Fatalf("unexpected chat tool message: %+v", msg)
+	}
+}
+
+// A tool the gateway does not own must be reported as not found: answering it
+// would fabricate a result for a tool the client owns.
+func TestExecuteToolRejectsUnownedTool(t *testing.T) {
+	svc := &MCPService{Manager: &mockMCPManager{
+		tools:   []domain.MCPTool{testMCPTool("github__create_issue", "create issue")},
+		results: map[string]string{"github__create_issue": "ok"},
+	}}
+	if _, err := svc.ExecuteTool(context.Background(), "chat", "shell", "call_1", "{}"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for an unowned tool, got %v", err)
+	}
+}
+
+// The Responses format must echo the model's call_id, not the tool name: the
+// client pairs function_call_output by call_id.
+func TestExecuteToolResponsesKeepsCallID(t *testing.T) {
+	svc := &MCPService{Manager: &mockMCPManager{
+		tools:   []domain.MCPTool{testMCPTool("github__create_issue", "create issue")},
+		results: map[string]string{"github__create_issue": "ok"},
+	}}
+	out, err := svc.ExecuteTool(context.Background(), "responses", "github__create_issue", "call_abc", "{}")
+	if err != nil {
+		t.Fatalf("ExecuteTool: %v", err)
+	}
+	var item struct {
+		Type   string `json:"type"`
+		CallID string `json:"call_id"`
+		Output string `json:"output"`
+	}
+	if err := json.Unmarshal(out, &item); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if item.Type != "function_call_output" || item.CallID != "call_abc" {
+		t.Fatalf("unexpected responses item: %+v", item)
+	}
+}
+
+func TestExecuteToolAnthropicKeepsToolUseID(t *testing.T) {
+	svc := &MCPService{Manager: &mockMCPManager{
+		tools:   []domain.MCPTool{testMCPTool("github__create_issue", "create issue")},
+		results: map[string]string{"github__create_issue": "ok"},
+	}}
+	out, err := svc.ExecuteTool(context.Background(), "anthropic", "github__create_issue", "toolu_7", "{}")
+	if err != nil {
+		t.Fatalf("ExecuteTool: %v", err)
+	}
+	var block struct {
+		Type      string `json:"type"`
+		ToolUseID string `json:"tool_use_id"`
+		Content   string `json:"content"`
+	}
+	if err := json.Unmarshal(out, &block); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if block.Type != "tool_result" || block.ToolUseID != "toolu_7" {
+		t.Fatalf("unexpected anthropic block: %+v", block)
 	}
 }
 
 func TestExtractOpenAIToolCalls(t *testing.T) {
 	body := []byte(`{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"github__create_issue","arguments":"{\"title\":\"x\"}"}}]}}]}`)
-	calls, err := extractOpenAIToolCalls(body)
+	calls, err := openAIChatAgent{}.ToolCalls(body)
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
-	if len(calls) != 1 || calls[0].Function.Name != "github__create_issue" {
+	if len(calls) != 1 || calls[0].Name != "github__create_issue" || calls[0].ID != "call_1" {
 		t.Fatalf("unexpected calls: %+v", calls)
 	}
 }
 
 func TestBuildAgentTurn(t *testing.T) {
 	srv := NewRouterService(&mockComboRepo{}, &mockConnectionRepo{}, &mockExecutor{}, &mockTranslator{}, &mockUsageRepo{})
-	srv.MCP = &MCPService{Manager: &mockMCPManager{results: map[string]string{"github__create_issue": "done"}}}
+	srv.MCP = &MCPService{Manager: &mockMCPManager{
+		tools:   []domain.MCPTool{testMCPTool("github__create_issue", "create issue")},
+		results: map[string]string{"github__create_issue": "done"},
+	}}
 	prev := []byte(`{"model":"openai/gpt-4o","messages":[{"role":"user","content":"create issue"}]}`)
 	resp := []byte(`{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"github__create_issue","arguments":"{}"}}]}}]}`)
-	next, err := srv.buildAgentTurn(context.Background(), prev, resp, []openaiToolCall{{
-		ID:   "call_1",
-		Type: "function",
-		Function: struct {
-			Name      string `json:"name"`
-			Arguments string `json:"arguments"`
-		}{Name: "github__create_issue", Arguments: "{}"},
-	}})
+	proto := openAIChatAgent{}
+	calls, err := proto.ToolCalls(resp)
 	if err != nil {
-		t.Fatalf("buildAgentTurn: %v", err)
+		t.Fatalf("ToolCalls: %v", err)
+	}
+	next, err := proto.AppendTurn(prev, resp, srv.executeAgentTools(context.Background(), calls))
+	if err != nil {
+		t.Fatalf("AppendTurn: %v", err)
 	}
 	var req struct {
 		Messages []map[string]any `json:"messages"`
@@ -290,6 +353,9 @@ func TestBuildAgentTurn(t *testing.T) {
 	}
 	if req.Messages[2]["role"] != "tool" || req.Messages[2]["content"] != "done" {
 		t.Fatalf("unexpected tool message: %+v", req.Messages[2])
+	}
+	if req.Messages[2]["tool_call_id"] != "call_1" {
+		t.Fatalf("tool result must answer call_1: %+v", req.Messages[2])
 	}
 }
 
@@ -312,7 +378,7 @@ func TestRouteWithAgentLoop(t *testing.T) {
 			Name: "agent-combo",
 			// The mock manager exposes tools with ClientID "mcp1"; the combo
 			// must reference that ID for the agent loop to engage.
-			Models:      []string{"openai/gpt-4o"},
+			Models:     []string{"openai/gpt-4o"},
 			MCPClients: []string{"mcp1"},
 		},
 	}}

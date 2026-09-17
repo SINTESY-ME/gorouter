@@ -8,8 +8,8 @@ import (
 
 func TestCalculateCostChat(t *testing.T) {
 	p := domain.ModelPricing{
-		InputCostPerToken:  2.5e-6,  // $2.50/1M
-		OutputCostPerToken: 1e-5,     // $10.00/1M
+		InputCostPerToken:  2.5e-6, // $2.50/1M
+		OutputCostPerToken: 1e-5,   // $10.00/1M
 	}
 	cost := CalculateCost(p, "chat/completions", 1000, 500, 0, 0)
 	// 1000 * 2.5e-6 + 500 * 1e-5 = 0.0025 + 0.005 = 0.0075

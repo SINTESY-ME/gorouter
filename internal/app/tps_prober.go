@@ -18,11 +18,11 @@ import (
 // upstream. The result is stored in TPSCache via SetProbe. Models with real
 // usage data are never probed (NeedsProbe returns false for them).
 type TPSProber struct {
-	Cache   *TPSCache
-	Router  *RouterService
-	maxTPS  time.Duration // timeout for the probe request
+	Cache  *TPSCache
+	Router *RouterService
+	maxTPS time.Duration // timeout for the probe request
 
-	mu      sync.Mutex
+	mu       sync.Mutex
 	inFlight map[string]bool
 }
 

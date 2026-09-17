@@ -6,6 +6,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -60,7 +61,7 @@ type MCPClientView struct {
 	Error      string                    `json:"error,omitempty"`
 	ToolCount  int                       `json:"tool_count"`
 	LastSyncAt time.Time                 `json:"last_sync_at,omitempty"`
-}// Create validates and persists a client, then dials it.
+} // Create validates and persists a client, then dials it.
 func (s *MCPService) Create(ctx context.Context, c *domain.MCPClient) error {
 	if c.ID == "" {
 		c.ID = uuid.NewString()
@@ -167,6 +168,28 @@ func (s *MCPService) Tools(ctx context.Context) []domain.MCPTool {
 	return s.Manager.GetTools(ctx)
 }
 
+// OwnedTools returns the set of tool names the gateway may execute for the
+// given client IDs. It is the ownership boundary of the server-side agent
+// loop: a tool outside this set belongs to the client, not to gorouter, and
+// must never be executed (or answered) here. A nil clientIDs means "every
+// enabled client" — matching GetTools, not GetToolsByClients.
+func (s *MCPService) OwnedTools(ctx context.Context, clientIDs []string) map[string]bool {
+	if s.Manager == nil {
+		return nil
+	}
+	var tools []domain.MCPTool
+	if clientIDs != nil {
+		tools = s.Manager.GetToolsByClients(ctx, clientIDs)
+	} else {
+		tools = s.Manager.GetTools(ctx)
+	}
+	owned := make(map[string]bool, len(tools))
+	for _, t := range tools {
+		owned[t.Name] = true
+	}
+	return owned
+}
+
 // InjectTools merges the exposed MCP tools into a chat request body in the
 // given client format (OpenAI chat, Anthropic, or Responses). Existing tools
 // keep precedence (the caller's tools win on name collision). The body is
@@ -210,11 +233,17 @@ func (s *MCPService) InjectToolsForClients(ctx context.Context, format domain.Fo
 	return out, nil
 }
 
-// ExecuteTool runs a tool call in the requested format (chat or responses)
-// and returns the formatted result body. Used by /v1/mcp/tool/execute.
-func (s *MCPService) ExecuteTool(ctx context.Context, format string, toolName, arguments string) ([]byte, error) {
+// ExecuteTool runs a tool call in the requested format (chat, anthropic or
+// responses) and returns the formatted result body. Used by
+// /v1/mcp/tool/execute. callID is the id of the model's function_call that
+// this result answers (tool_use id, tool_call id or Responses call_id).
+// A tool the gateway does not own is reported as not found.
+func (s *MCPService) ExecuteTool(ctx context.Context, format string, toolName, callID, arguments string) ([]byte, error) {
 	if s.Manager == nil {
 		return nil, domain.ErrNotFound
+	}
+	if !s.OwnedTools(ctx, nil)[toolName] {
+		return nil, fmt.Errorf("%w: mcp tool %q is not available", domain.ErrNotFound, toolName)
 	}
 	text, err := s.Manager.ExecuteTool(ctx, toolName, arguments)
 	if err != nil {
@@ -223,15 +252,21 @@ func (s *MCPService) ExecuteTool(ctx context.Context, format string, toolName, a
 	switch strings.ToLower(format) {
 	case "responses":
 		return json.Marshal(map[string]any{
-			"type":   "function_call_output",
-			"call_id": toolName,
-			"output": text,
+			"type":    "function_call_output",
+			"call_id": callID,
+			"output":  text,
+		})
+	case "anthropic":
+		return json.Marshal(map[string]any{
+			"type":        "tool_result",
+			"tool_use_id": callID,
+			"content":     text,
 		})
 	default: // chat
 		return json.Marshal(map[string]any{
-			"role": "tool",
-			"content": text,
-			"tool_call_id": toolName,
+			"role":         "tool",
+			"content":      text,
+			"tool_call_id": callID,
 		})
 	}
 }
@@ -384,8 +419,8 @@ func injectAnthropicTools(body []byte, tools []domain.MCPTool) ([]byte, error) {
 		}
 		names[t.Name] = true
 		out = append(out, map[string]any{
-			"name":        t.Name,
-			"description": t.Description,
+			"name":         t.Name,
+			"description":  t.Description,
 			"input_schema": t.InputSchema,
 		})
 	}

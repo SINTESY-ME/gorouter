@@ -134,7 +134,7 @@ func (s *Server) Routes() http.Handler {
 	// Aggregated MCP gateway endpoint. Agents (Codex, Claude CLI, …) connect
 	// here as their MCP server and gorouter proxies tools/call to the owning
 	// upstream client. Authenticated with the same client API key as /v1.
-	r.With(s.requireApiKey).Post("/mcp", s.handleMCPGateway)
+	r.With(s.requireApiKey).Handle("/mcp", http.HandlerFunc(s.handleMCPGateway))
 
 	r.Route("/api", func(r chi.Router) {
 		// Auth routes are public (not behind requireDashboardToken) so the

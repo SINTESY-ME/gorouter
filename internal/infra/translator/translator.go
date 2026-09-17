@@ -23,8 +23,8 @@ func New() domain.Translator {
 }
 
 type pair struct {
-	translateRequest  func(upstreamModel string, body []byte) ([]byte, error)
-	translateResponseJSON func(body []byte) ([]byte, error)
+	translateRequest        func(upstreamModel string, body []byte) ([]byte, error)
+	translateResponseJSON   func(body []byte) ([]byte, error)
 	translateResponseStream func(ctx context.Context, r io.ReadCloser) (io.ReadCloser, error)
 }
 

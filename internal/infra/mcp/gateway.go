@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/jhon/gorouter/internal/domain"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -14,7 +15,12 @@ import (
 // every discovered tool (across all connected clients) as a single MCP server
 // and proxies tools/call to the owning upstream client. It is re-synced
 // whenever the tool registry changes.
+//
+// Sync runs per incoming /mcp request (see handleMCPGateway), so it must be
+// safe against concurrent requests: mu serializes the whole re-registration,
+// which also covers the handlers map.
 type Gateway struct {
+	mu       sync.Mutex
 	manager  *Manager
 	mcp      *server.MCPServer
 	version  string
@@ -36,8 +42,10 @@ func NewGateway(manager *Manager, version string) *Gateway {
 func (g *Gateway) Server() *server.MCPServer { return g.mcp }
 
 // Sync re-registers every tool from the manager. Tools that disappeared are
-// removed; new or changed ones are registered.
+// removed; new or changed ones are registered. Safe for concurrent use.
 func (g *Gateway) Sync(ctx context.Context) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	available := g.manager.GetTools(ctx)
 
 	// Remove tools that are no longer available.

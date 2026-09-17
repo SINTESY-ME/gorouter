@@ -3,21 +3,75 @@ package app
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
+
+	"github.com/jhon/gorouter/internal/domain"
 )
 
 // maxAgentDepth caps how many model round-trips a single request may perform
-// in the MCP agent loop before the last response is returned as-is.
+// in the MCP agent loop before the last turn is returned as-is.
 const maxAgentDepth = 5
 
-// routeWithAgentLoop runs the server-side agent loop for a non-stream OpenAI
-// chat request: dispatch → if the response carries tool_calls, execute each
-// tool via the MCP gateway, append the assistant + tool messages to the
-// conversation, and re-dispatch. Stops when the model stops calling tools or
-// maxAgentDepth is reached.
-func (s *RouterService) routeWithAgentLoop(ctx context.Context, modelStr string, body []byte, apiKey string, opts RouteOptions, requestID string) (*RouterResponse, error) {
+// agentToolCall is one tool call a model asked for, in wire-independent form.
+type agentToolCall struct {
+	// ID is what the client must echo back with the result: an OpenAI
+	// tool_call id, a Responses call_id, or an Anthropic tool_use id.
+	ID   string
+	Name string
+	// Args is the raw JSON arguments object as the model produced it.
+	Args string
+}
+
+// agentToolResult is the outcome of executing one agentToolCall.
+type agentToolResult struct {
+	CallID string
+	Text   string
+}
+
+// agentProtocol adapts the server-side tool loop to one client wire format: it
+// reads the tool calls out of a completed turn and builds the next request
+// body with the executed results appended. Keeping this per format is what
+// lets the loop itself stay format-agnostic and shared by every endpoint.
+type agentProtocol interface {
+	// ToolCalls returns the tool calls a completed buffered turn asked for,
+	// or nil when it asked for none.
+	ToolCalls(respBody []byte) ([]agentToolCall, error)
+	// AppendTurn returns the next request body: the previous conversation,
+	// the assistant turn, and one result message per executed call.
+	AppendTurn(prevBody, respBody []byte, results []agentToolResult) ([]byte, error)
+}
+
+// agentProtocolFor returns the loop adapter for a client format, or nil when
+// that format has no adapter and therefore no server-side tool execution.
+func agentProtocolFor(f domain.Format) agentProtocol {
+	switch f {
+	case domain.FormatOpenAI:
+		return openAIChatAgent{}
+	case domain.FormatResponses:
+		return responsesAgent{}
+	case domain.FormatAnthropic:
+		return anthropicAgent{}
+	}
+	return nil
+}
+
+// routeWithAgentLoop runs the server-side agent loop for a buffered request:
+// dispatch → if the turn asks for tools the gateway owns, execute them over
+// MCP, append the assistant turn plus one result per call, and re-dispatch.
+//
+// It stops when the model stops calling tools, when a turn asks for a tool
+// gorouter does not own (that tool belongs to the client, which must receive
+// the turn untouched), at maxAgentDepth, or on any response the loop cannot
+// work with (stream, error status, unparsable body).
+//
+// owned is the set of tool names the gateway may execute: nothing outside it
+// is ever executed here, so a client's own tools are never hijacked.
+func (s *RouterService) routeWithAgentLoop(ctx context.Context, modelStr string, body []byte, apiKey string, opts RouteOptions, requestID string, owned map[string]bool) (*RouterResponse, error) {
+	proto := agentProtocolFor(opts.InputFormat)
+	if proto == nil {
+		return s.routeChatDispatch(ctx, modelStr, body, false, apiKey, opts, requestID)
+	}
 	current := body
 	for depth := 0; depth < maxAgentDepth; depth++ {
 		res, err := s.routeChatDispatch(ctx, modelStr, current, false, apiKey, opts, requestID)
@@ -33,119 +87,45 @@ func (s *RouterService) routeWithAgentLoop(ctx context.Context, modelStr string,
 		if rerr != nil {
 			return res, rerr
 		}
-		calls, perr := extractOpenAIToolCalls(buf)
-		if perr != nil || len(calls) == 0 {
-			res.Body = io.NopCloser(bytes.NewReader(buf))
+		// Every early exit hands the same bytes to the caller.
+		res.Body = io.NopCloser(bytes.NewReader(buf))
+
+		calls, perr := proto.ToolCalls(buf)
+		if perr != nil || len(calls) == 0 || !allOwned(calls, owned) {
 			return res, nil
 		}
-		next, berr := s.buildAgentTurn(ctx, current, buf, calls)
+		next, berr := proto.AppendTurn(current, buf, s.executeAgentTools(ctx, calls))
 		if berr != nil {
-			// If we cannot append tool results, return the tool-call
-			// response so the client sees what the model asked for.
-			res.Body = io.NopCloser(bytes.NewReader(buf))
+			// Fail open: the client still receives the turn and its calls.
 			return res, nil
 		}
 		current = next
 	}
-	// Depth exhausted: return the last response as-is.
-	res, err := s.routeChatDispatch(ctx, modelStr, current, false, apiKey, opts, requestID)
-	return res, err
+	// Depth exhausted: return the last turn as-is.
+	return s.routeChatDispatch(ctx, modelStr, current, false, apiKey, opts, requestID)
 }
 
-// openaiToolCall is a tool_calls entry in a chat completion response.
-type openaiToolCall struct {
-	ID       string `json:"id"`
-	Type     string `json:"type"`
-	Function struct {
-		Name      string `json:"name"`
-		Arguments string `json:"arguments"`
-	} `json:"function"`
+// allOwned reports whether every call belongs to the MCP gateway. A single
+// foreign call means the turn is the client's to complete.
+func allOwned(calls []agentToolCall, owned map[string]bool) bool {
+	for _, c := range calls {
+		if !owned[c.Name] {
+			return false
+		}
+	}
+	return true
 }
 
-// extractOpenAIToolCalls returns the assistant tool_calls from a buffered
-// OpenAI chat completion response.
-func extractOpenAIToolCalls(body []byte) ([]openaiToolCall, error) {
-	var resp struct {
-		Choices []struct {
-			Message struct {
-				ToolCalls []openaiToolCall `json:"tool_calls"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, err
-	}
-	if len(resp.Choices) == 0 {
-		return nil, nil
-	}
-	return resp.Choices[0].Message.ToolCalls, nil
-}
-
-// buildAgentTurn executes the given tool calls, then builds the next request
-// body: previous conversation + assistant message (with tool_calls) + one
-// role:"tool" message per executed tool.
-func (s *RouterService) buildAgentTurn(ctx context.Context, prevBody []byte, respBody []byte, calls []openaiToolCall) ([]byte, error) {
-	if s.MCP == nil {
-		return nil, fmt.Errorf("mcp disabled")
-	}
-	var prev struct {
-		Messages []json.RawMessage `json:"messages"`
-	}
-	if err := json.Unmarshal(prevBody, &prev); err != nil {
-		return nil, err
-	}
-	var resp struct {
-		Choices []struct {
-			Message struct {
-				Content json.RawMessage `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.Unmarshal(respBody, &resp); err != nil {
-		return nil, err
-	}
-	content := json.RawMessage(nil)
-	if len(resp.Choices) > 0 {
-		content = resp.Choices[0].Message.Content
-	}
-
-	msgs := make([]json.RawMessage, 0, len(prev.Messages)+1+len(calls))
-	msgs = append(msgs, prev.Messages...)
-
-	// Assistant message replaying the tool_calls the model made.
-	assistant, err := json.Marshal(map[string]any{
-		"role":       "assistant",
-		"content":    content,
-		"tool_calls": calls,
-	})
-	if err != nil {
-		return nil, err
-	}
-	msgs = append(msgs, assistant)
-
-	// Execute each tool and append its result as a role:"tool" message.
+// executeAgentTools runs each call against the owning MCP client. A failing
+// tool still yields a result: the model has to learn what went wrong.
+func (s *RouterService) executeAgentTools(ctx context.Context, calls []agentToolCall) []agentToolResult {
+	results := make([]agentToolResult, 0, len(calls))
 	for _, call := range calls {
-		if call.Function.Name == "" {
-			continue
-		}
-		result, err := s.MCP.Manager.ExecuteTool(ctx, call.Function.Name, call.Function.Arguments)
+		text, err := s.MCP.Manager.ExecuteTool(ctx, call.Name, call.Args)
 		if err != nil {
-			result = fmt.Sprintf("tool %q execution failed: %v", call.Function.Name, err)
+			text = fmt.Sprintf("tool %q execution failed: %v", call.Name, err)
 		}
-		toolMsg, err := json.Marshal(map[string]any{
-			"role":         "tool",
-			"tool_call_id": call.ID,
-			"content":      result,
-		})
-		if err != nil {
-			return nil, err
-		}
-		msgs = append(msgs, toolMsg)
+		results = append(results, agentToolResult{CallID: call.ID, Text: text})
 	}
-
-	merged, err := json.Marshal(msgs)
-	if err != nil {
-		return nil, err
-	}
-	return setField(prevBody, "messages", merged)
+	return results
 }
