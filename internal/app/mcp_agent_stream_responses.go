@@ -23,12 +23,17 @@ type responsesStream struct {
 	outputs []json.RawMessage // this turn's items, replayed to the upstream
 	visible []json.RawMessage // every item the client has seen
 
-	// Numbering is the gateway's, not the upstream's: an item takes the
-	// client's next free index, so withheld calls leave no holes and a
-	// continuation turn cannot renumber the items already delivered. index is
-	// per turn because upstreams recycle item ids across turns.
-	index map[string]int
-	next  int
+	// Numbering is the gateway's, not the upstream's. index maps the upstream's
+	// position of an item in this turn to the index the client sees it at, so a
+	// withheld call leaves no hole and a continuation turn cannot renumber what
+	// the client already has. It is keyed by position and not by item id
+	// because upstreams recycle ids, even within one turn.
+	index map[int]int
+	// next is the index the next delivered item takes: a running count of the
+	// items the client has seen.
+	next int
+	// held counts the items withheld in this turn.
+	held int
 
 	turn     int
 	seqShift int
@@ -50,24 +55,23 @@ func newResponsesStream(owned map[string]bool) *responsesStream {
 		proto:    responsesAgent{},
 		owned:    owned,
 		mcpItems: map[string]bool{},
-		index:    map[string]int{},
+		index:    map[int]int{},
 	}
 }
 
 func (a *responsesStream) StartTurn() {
 	a.streamTurnState.reset()
 	a.mcpItems = map[string]bool{}
-	a.index = map[string]int{}
+	a.index = map[int]int{}
+	a.held = 0
 	a.outputs = nil
 	a.events = 0
 }
 
 func (a *responsesStream) NextTurn() {
 	a.turn++
-	// The numbering base is the client's next free index, not what the
-	// upstream produced: a withheld tool call must not consume an index, or
-	// the client's items end up with a hole where the hidden call used to be.
-	a.outShift = a.next
+	// Only the sequence numbers keep an offset: they must merely stay
+	// monotonic, and the withheld events consumed numbers of their own.
 	a.seqShift += a.events
 }
 
@@ -92,6 +96,7 @@ func (a *responsesStream) Handle(ev sse.Event) streamStep {
 			if item.Name == "" || a.owned[item.Name] {
 				a.mcpItems[item.ID] = true
 				a.sawMCP = true
+				a.countHeld()
 				return a.hold(ev)
 			}
 			if !a.client {
@@ -101,7 +106,7 @@ func (a *responsesStream) Handle(ev sse.Event) streamStep {
 				return a.flush(ev)
 			}
 		}
-		a.noteItem(item.ID, outputIndexOf(ev.Data))
+		a.noteVisible(outputIndexOf(ev.Data))
 		return streamStep{Forward: a.rewrite(ev, nil)}
 	case "response.output_item.done":
 		item := itemOf(ev.Data)
@@ -118,7 +123,7 @@ func (a *responsesStream) Handle(ev sse.Event) streamStep {
 		if len(item.Raw) > 0 {
 			a.visible = append(a.visible, item.Raw)
 		}
-		a.noteItem(item.ID, outputIndexOf(ev.Data))
+		a.noteVisible(outputIndexOf(ev.Data))
 		return streamStep{Forward: a.rewrite(ev, nil)}
 	case "response.function_call_arguments.delta", "response.function_call_arguments.done":
 		if a.mcpItems[eventItemID(ev.Data)] && !a.client {
@@ -137,52 +142,29 @@ func (a *responsesStream) Handle(ev sse.Event) streamStep {
 	}
 }
 
-// noteItem remembers the index an item is delivered at. On the first turn the
-// upstream's own numbering is what the client sees; afterwards the gateway
-// hands out the numbers, so it decides where each new item goes.
-func (a *responsesStream) noteItem(id string, upstream float64) {
-	if id == "" {
+// countHeld records that an item was withheld from the client.
+func (a *responsesStream) countHeld() { a.held++ }
+
+// noteVisible gives a delivered item its place in the client's output.
+func (a *responsesStream) noteVisible(upstream float64) {
+	if _, seen := a.index[int(upstream)]; seen {
 		return
 	}
-	if _, seen := a.index[id]; seen {
-		return
-	}
-	at := a.next
-	if a.turn == 0 {
-		at = int(upstream)
-	}
-	a.index[id] = at
-	if at >= a.next {
-		a.next = at + 1
-	}
+	a.index[int(upstream)] = a.next
+	a.next++
 }
 
 // clientIndex resolves the index an event must carry: the one the item was
-// delivered at, falling back to the upstream's own numbering.
-func (a *responsesStream) clientIndex(data string, upstream float64) float64 {
-	if id := eventOrItemID(data); id != "" {
-		if i, ok := a.index[id]; ok {
-			return float64(i)
-		}
+// delivered at. An item's upstream position is the key, so events that follow
+// a withheld call shift down by the items the client never received.
+func (a *responsesStream) clientIndex(upstream float64) float64 {
+	if at, ok := a.index[int(upstream)]; ok {
+		return float64(at)
 	}
-	return float64(a.outShift) + upstream
-}
-
-// eventOrItemID reads the item an event refers to: deltas carry a top level
-// item_id, while item lifecycle events nest the item under "item".
-func eventOrItemID(data string) string {
-	if id := eventItemID(data); id != "" {
-		return id
+	if a.held > 0 && upstream >= float64(a.held) {
+		return upstream - float64(a.held)
 	}
-	var ev struct {
-		Item struct {
-			ID string `json:"id"`
-		} `json:"item"`
-	}
-	if json.Unmarshal([]byte(strings.TrimSpace(data)), &ev) != nil {
-		return ""
-	}
-	return ev.Item.ID
+	return upstream
 }
 
 // completedOutput rewrites response.completed so its output lists every item
@@ -207,32 +189,42 @@ func (a *responsesStream) completedOutput() func(map[string]any) {
 // rewrite shifts the numbering of a continuation turn's events onto the
 // response the client already sees. The first turn passes through verbatim.
 func (a *responsesStream) rewrite(ev sse.Event, extra func(map[string]any)) []byte {
-	if a.turn == 0 {
-		return ev.Raw
-	}
 	var obj map[string]any
 	if err := json.Unmarshal([]byte(ev.Data), &obj); err != nil {
 		return ev.Raw
 	}
+	changed := false
 	if a.responseID != "" {
-		if resp, ok := obj["response"].(map[string]any); ok {
+		if resp, ok := obj["response"].(map[string]any); ok && resp["id"] != a.responseID {
 			resp["id"] = a.responseID
+			changed = true
 		}
 	}
-	if seq, ok := obj["sequence_number"].(float64); ok {
+	if seq, ok := obj["sequence_number"].(float64); ok && a.seqShift != 0 {
 		obj["sequence_number"] = float64(a.seqShift) + seq
+		changed = true
 	}
 	if idx, ok := obj["output_index"].(float64); ok {
-		obj["output_index"] = a.clientIndex(ev.Data, idx)
+		if at := a.clientIndex(idx); at != idx {
+			obj["output_index"] = at
+			changed = true
+		}
 	}
 	if extra != nil {
 		extra(obj)
+		changed = true
+	}
+	if !changed {
+		return ev.Raw
 	}
 	out, err := json.Marshal(obj)
 	if err != nil {
 		return ev.Raw
 	}
-	return sse.BuildEvent(ev.Name, out)
+	if ev.Name == "" {
+		return []byte("data: " + string(out) + "\n\n")
+	}
+	return []byte("event: " + ev.Name + "\ndata: " + string(out) + "\n\n")
 }
 
 func (a *responsesStream) AppendTurn(prevBody []byte, results []agentToolResult) ([]byte, error) {

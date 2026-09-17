@@ -112,6 +112,50 @@ func TestResponsesStreamRecycledItemID(t *testing.T) {
 	}
 }
 
+// The real shape of a first turn: the upstream puts the message the client
+// keeps, then the gateway-owned call, then another message. The hidden call
+// must not push the trailing item out of place.
+func TestResponsesStreamHiddenCallMidTurn(t *testing.T) {
+	ad := newAgentStreamAdapter(domain.FormatResponses, map[string]bool{"lojateste__consultar_preco": true})
+
+	first := runTurn(t, ad, strings.Join([]string{
+		`event: response.created` + "\n" + `data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_1"}}` + "\n\n",
+		`event: response.output_item.added` + "\n" + `data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"msg_1","type":"message"}}` + "\n\n",
+		`event: response.output_text.delta` + "\n" + `data: {"type":"response.output_text.delta","sequence_number":2,"output_index":0,"item_id":"msg_1","delta":"vou ver"}` + "\n\n",
+		`event: response.output_item.done` + "\n" + `data: {"type":"response.output_item.done","sequence_number":3,"output_index":0,"item":{"id":"msg_1","type":"message","content":[{"type":"output_text","text":"vou ver"}]}}` + "\n\n",
+		`event: response.output_item.added` + "\n" + `data: {"type":"response.output_item.added","sequence_number":4,"output_index":1,"item":{"id":"fc_1","type":"function_call","name":"lojateste__consultar_preco","call_id":"call_1"}}` + "\n\n",
+		`event: response.function_call_arguments.delta` + "\n" + `data: {"type":"response.function_call_arguments.delta","sequence_number":5,"output_index":1,"item_id":"fc_1","delta":"{}"}` + "\n\n",
+		`event: response.output_item.done` + "\n" + `data: {"type":"response.output_item.done","sequence_number":6,"output_index":1,"item":{"id":"fc_1","type":"function_call","name":"lojateste__consultar_preco","call_id":"call_1","arguments":"{}"}}` + "\n\n",
+		`event: response.output_item.added` + "\n" + `data: {"type":"response.output_item.added","sequence_number":7,"output_index":2,"item":{"id":"msg_1","type":"message"}}` + "\n\n",
+		`event: response.output_text.delta` + "\n" + `data: {"type":"response.output_text.delta","sequence_number":8,"output_index":2,"item_id":"msg_1","delta":" "}` + "\n\n",
+		`event: response.output_item.done` + "\n" + `data: {"type":"response.output_item.done","sequence_number":9,"output_index":2,"item":{"id":"msg_1","type":"message","content":[{"type":"output_text","text":" "}]}}` + "\n\n",
+		`event: response.completed` + "\n" + `data: {"type":"response.completed","sequence_number":10,"response":{"id":"resp_1","output":[]}}` + "\n\n",
+	}, ""))
+
+	assertNotContains(t, first, "function_call")
+	assertNotContains(t, first, "response.completed")
+	for _, idx := range outputIndices(first) {
+		switch idx {
+		case 0, 1:
+		default:
+			t.Fatalf("output_index = %v, want 0 or 1 (the hidden call must not leave a hole); stream:\n%s", idx, first)
+		}
+	}
+
+	ad.NextTurn()
+	second := runTurn(t, ad, strings.Join([]string{
+		`event: response.output_item.added` + "\n" + `data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"msg_2","type":"message"}}` + "\n\n",
+		`event: response.output_text.delta` + "\n" + `data: {"type":"response.output_text.delta","sequence_number":2,"output_index":0,"item_id":"msg_2","delta":"4321"}` + "\n\n",
+		`event: response.output_item.done` + "\n" + `data: {"type":"response.output_item.done","sequence_number":3,"output_index":0,"item":{"id":"msg_2","type":"message","content":[{"type":"output_text","text":"4321"}]}}` + "\n\n",
+		`event: response.completed` + "\n" + `data: {"type":"response.completed","sequence_number":4,"response":{"id":"resp_2","output":[]}}` + "\n\n",
+	}, ""))
+	for _, idx := range outputIndices(second) {
+		if idx != 2 {
+			t.Fatalf("final answer output_index = %v, want 2; stream:\n%s", idx, second)
+		}
+	}
+}
+
 // outputIndices collects every output_index the client received, in order.
 func outputIndices(stream string) []float64 {
 	var out []float64
