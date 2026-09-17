@@ -90,19 +90,23 @@ type anthropicMessage struct {
 }
 
 func init() {
+	// The pair key is the conversion direction for every field: pair{a,b}
+	// translates a REQUEST from a->b and a RESPONSE from a->b (the registry
+	// is called with explicit from/to by the router, both for the pivot into
+	// OpenAI and for the pivot back out). Keep this convention identical to
+	// the Responses and Gemini pairs — registering a response converter in
+	// the opposite direction of its key silently mangles the client's body
+	// (an OpenAI body fed to an anthropic->openai reader yields an empty
+	// content and zeroed usage).
 	register(domain.FormatOpenAI, domain.FormatAnthropic, pair{
 		translateRequest:        translateOpenAIToAnthropicRequest,
-		translateResponseJSON:   translateAnthropicToOpenAIResponseJSON,
-		translateResponseStream: anthropicStreamToOpenAI,
-	})
-	register(domain.FormatAnthropic, domain.FormatOpenAI, pair{
-		// Client speaks Anthropic, upstream speaks OpenAI. We translate
-		// request only; the response path is not on the hot path for this
-		// direction (Anthropic-client to OpenAI-upstream is rare) and is
-		// stubbed.
-		translateRequest:        translateAnthropicToOpenAIRequest,
 		translateResponseJSON:   translateOpenAIToAnthropicResponseJSON,
 		translateResponseStream: openAIStreamToAnthropic,
+	})
+	register(domain.FormatAnthropic, domain.FormatOpenAI, pair{
+		translateRequest:        translateAnthropicToOpenAIRequest,
+		translateResponseJSON:   translateAnthropicToOpenAIResponseJSON,
+		translateResponseStream: anthropicStreamToOpenAI,
 	})
 }
 
