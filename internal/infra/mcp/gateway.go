@@ -47,10 +47,12 @@ type Gateway struct {
 // NewGateway builds an empty aggregated server. Sync must be called after
 // construction to populate tools.
 //
-// The transport is the library's Streamable HTTP server in stateful mode, so
-// a session survives across requests (Mcp-Session-Id), GET opens the
-// server-to-client stream notifications travel on, and DELETE ends a session.
-// State is per process: the service runs a single replica.
+// The transport is the library's Streamable HTTP server with a session store of
+// our own: initialize hands out an Mcp-Session-Id, GET opens the
+// server-to-client stream notifications travel on, and DELETE ends the session.
+// The library's default store never forgets an id it issued, so a session is
+// bounded here instead. Sessions live in this process: the service runs a
+// single replica.
 func NewGateway(manager *Manager, version string) *Gateway {
 	srv := server.NewMCPServer(
 		"gorouter",
@@ -58,9 +60,14 @@ func NewGateway(manager *Manager, version string) *Gateway {
 		server.WithToolCapabilities(true),
 	)
 	return &Gateway{
-		manager:    manager,
-		mcp:        srv,
-		handler:    server.NewStreamableHTTPServer(srv, server.WithStateful(true), server.WithHeartbeatInterval(sessionHeartbeat)),
+		manager: manager,
+		mcp:     srv,
+		handler: server.NewStreamableHTTPServer(srv,
+			// WithSessionIdManager alone (not WithStateful) because the only
+			// thing that flag does is install the library's unbounded store.
+			server.WithSessionIdManager(newSessionStore(sessionIdleTTL, sessionMaxLive)),
+			server.WithHeartbeatInterval(sessionHeartbeat),
+		),
 		version:    version,
 		registered: map[string]string{},
 	}
