@@ -12,6 +12,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -30,6 +31,10 @@ const (
 	// HealthInterval is the reconnect check interval for clients whose
 	// connection drops.
 	HealthInterval = 30 * time.Second
+
+	// HealthProbeTimeout bounds the ping that decides whether a connection is
+	// still usable.
+	HealthProbeTimeout = 5 * time.Second
 )
 
 // clientState holds a registered client's live connection and tool cache.
@@ -448,6 +453,23 @@ func (m *Manager) healthCheck(st *clientState) {
 		st.conn = nil
 		st.state = domain.MCPStateDisconnected
 		st.mu.Unlock()
+		m.dial(st)
+		return
+	}
+	// A live transport can still sit in front of a dead server: a stdio child
+	// that exited leaves the process pipes broken while the transport object
+	// stays intact. Probe it so the client is redialed instead of failing
+	// every tool call until the next restart.
+	ctx, cancel := context.WithTimeout(m.backgroundCtx(), HealthProbeTimeout)
+	err := conn.Ping(ctx)
+	cancel()
+	if err != nil {
+		st.mu.Lock()
+		st.conn = nil
+		st.state = domain.MCPStateDisconnected
+		st.lastError = fmt.Sprintf("health check: %v", err)
+		st.mu.Unlock()
+		_ = conn.Close()
 		m.dial(st)
 	}
 }

@@ -18,6 +18,7 @@ import (
 type mcpClient interface {
 	Start(ctx context.Context) error
 	Close() error
+	Ping(ctx context.Context) error
 	Initialize(ctx context.Context, req mcp.InitializeRequest) (*mcp.InitializeResult, error)
 	ListTools(ctx context.Context, req mcp.ListToolsRequest) (*mcp.ListToolsResult, error)
 	CallTool(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
@@ -29,6 +30,7 @@ type liveClient struct{ c *client.Client }
 
 func (l *liveClient) Start(ctx context.Context) error { return l.c.Start(ctx) }
 func (l *liveClient) Close() error                    { return l.c.Close() }
+func (l *liveClient) Ping(ctx context.Context) error  { return l.c.Ping(ctx) }
 func (l *liveClient) Initialize(ctx context.Context, req mcp.InitializeRequest) (*mcp.InitializeResult, error) {
 	return l.c.Initialize(ctx, req)
 }
@@ -52,7 +54,12 @@ func (m *Manager) dial(st *clientState) {
 	ctx, cancel := context.WithTimeout(m.backgroundCtx(), DialTimeout)
 	defer cancel()
 
-	conn, err := connect(ctx, cfg)
+	// The handshake is bounded by the dial timeout, but the connection itself
+	// is bound to the manager's lifetime: a stdio client ties its child
+	// process to the Start context, so passing the dial-timeout context here
+	// would kill the process the moment dialing finishes.
+	lifetime := m.backgroundCtx()
+	conn, err := connect(lifetime, ctx, cfg)
 	if err != nil {
 		st.mu.Lock()
 		if st.conn != nil {
@@ -88,8 +95,10 @@ func (m *Manager) dial(st *clientState) {
 	st.mu.Unlock()
 }
 
-// connect builds and starts the transport for the given config.
-func connect(ctx context.Context, cfg *domain.MCPClient) (mcpClient, error) {
+// connect builds and starts the transport for the given config. startCtx owns
+// the connection (it must outlive the dial: stdio binds the child process to
+// it), while dialCtx bounds only the initialize handshake.
+func connect(startCtx, dialCtx context.Context, cfg *domain.MCPClient) (mcpClient, error) {
 	headers := make(map[string]string, len(cfg.Headers)+1)
 	for k, v := range cfg.Headers {
 		headers[k] = v
@@ -115,7 +124,7 @@ func connect(ctx context.Context, cfg *domain.MCPClient) (mcpClient, error) {
 	}
 
 	c := client.NewClient(tr)
-	if err := c.Start(ctx); err != nil {
+	if err := c.Start(startCtx); err != nil {
 		return nil, fmt.Errorf("start transport: %w", err)
 	}
 	initReq := mcp.InitializeRequest{
@@ -128,7 +137,7 @@ func connect(ctx context.Context, cfg *domain.MCPClient) (mcpClient, error) {
 			},
 		},
 	}
-	if _, err := c.Initialize(ctx, initReq); err != nil {
+	if _, err := c.Initialize(dialCtx, initReq); err != nil {
 		_ = c.Close()
 		return nil, fmt.Errorf("initialize: %w", err)
 	}
