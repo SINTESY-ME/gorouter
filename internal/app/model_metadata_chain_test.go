@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -260,6 +261,47 @@ func TestSourceBuildersReportLimits(t *testing.T) {
 	}, domain.KindLLM, false)
 	if or.Context != 128000 || or.MaxOutputTokens != 16384 {
 		t.Errorf("openRouterEntry limits = (%d, %d), want (128000, 16384)", or.Context, or.MaxOutputTokens)
+	}
+}
+
+// TestModelInfoWireFormatKeepsThePublicContract pins the /v1/models shape. The
+// metadata a provider reports is internal bookkeeping: if the field ever loses
+// its `json:"-"` tag, every harness reading the model list starts seeing keys
+// it was not promised, so the leak has to fail here rather than in the wild.
+func TestModelInfoWireFormatKeepsThePublicContract(t *testing.T) {
+	info := domain.ModelInfo{
+		ID:      "command/command-r",
+		Object:  "model",
+		OwnedBy: "command",
+		Kind:    domain.KindLLM,
+		Metadata: domain.ModelMetadata{
+			Context:           128000,
+			MaxOutputTokens:   4096,
+			SupportsVision:    true,
+			SupportsToolCall:  true,
+			SupportsReasoning: true,
+		},
+	}
+
+	raw, err := json.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	want := map[string]bool{"id": true, "object": true, "owned_by": true, "kind": true}
+	for k := range got {
+		if !want[k] {
+			t.Errorf("model list leaks an extra key %q: %s", k, raw)
+		}
+	}
+	for k := range want {
+		if _, ok := got[k]; !ok {
+			t.Errorf("model list lost the promised key %q: %s", k, raw)
+		}
 	}
 }
 
