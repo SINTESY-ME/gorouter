@@ -132,6 +132,23 @@ type ModelInfo struct {
 	Object  string    `json:"object"`   // always "model"
 	OwnedBy string    `json:"owned_by"` // provider id, or "combo"
 	Kind    ModelKind `json:"kind,omitempty"`
+	// Metadata is what the model's own provider stated about it, filled by
+	// the model fetcher. It is not part of the public model list wire format.
+	Metadata ModelMetadata `json:"-" gorm:"-"`
+}
+
+// ModelMetadata is what a model can do, as reported by whoever knows it. A
+// zero field means "not stated" — never "no" — so the metadata chain can fill
+// a gap without one source erasing a fact another established.
+type ModelMetadata struct {
+	// Context is the usable input window, in tokens.
+	Context int `json:"context,omitempty"`
+	// MaxOutputTokens is the largest response the model may produce. It is
+	// distinct from Context: a model with a huge window still caps output.
+	MaxOutputTokens   int  `json:"max_output_tokens,omitempty"`
+	SupportsVision    bool `json:"supports_vision,omitempty"`
+	SupportsToolCall  bool `json:"supports_tool_call,omitempty"`
+	SupportsReasoning bool `json:"supports_reasoning,omitempty"`
 }
 
 // ReasoningCapabilities mirrors LiteLLM's per-model reasoning metadata. A
@@ -159,6 +176,7 @@ type ModelEntry struct {
 	Source                         string       `json:"source" gorm:"default:sync"` // "sync" | "manual"
 	IsActive                       bool         `json:"is_active" gorm:"column:is_active;default:true;index"`
 	Context                        int          `json:"context,omitempty"`
+	MaxOutputTokens                int          `json:"max_output_tokens,omitempty" gorm:"column:max_output_tokens"`
 	SupportsVision                 bool         `json:"supports_vision,omitempty"`
 	SupportsToolCall               bool         `json:"supports_tool_call,omitempty"`
 	SupportsReasoning              bool         `json:"supports_reasoning,omitempty"`

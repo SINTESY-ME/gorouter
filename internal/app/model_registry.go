@@ -36,11 +36,24 @@ type ModelRegistry struct {
 type registryEntry struct {
 	Kind              domain.ModelKind
 	Context           int
+	MaxOutputTokens   int
 	SupportsVision    bool
 	SupportsToolCall  bool
 	SupportsReasoning bool
 	Reasoning         domain.ReasoningCapabilities
 	Pricing           domain.ModelPricing
+}
+
+// metadata is the entry's view as chain metadata, for callers that fill gaps in
+// what a provider stated.
+func (e registryEntry) metadata() domain.ModelMetadata {
+	return domain.ModelMetadata{
+		Context:           e.Context,
+		MaxOutputTokens:   e.MaxOutputTokens,
+		SupportsVision:    e.SupportsVision,
+		SupportsToolCall:  e.SupportsToolCall,
+		SupportsReasoning: e.SupportsReasoning,
+	}
 }
 
 const registryTTL = 24 * time.Hour
@@ -67,6 +80,41 @@ func (r *ModelRegistry) ResolveKind(modelID string) (domain.ModelKind, int, bool
 	}
 	k := heuristicKind(modelID)
 	return k, 0, false, false, false
+}
+
+// ResolveMetadataForProvider returns what the chain knows about a model, with
+// the provider-specific entry preferred — the same model name can expose
+// different limits through different upstreams. Unknown fields are zero.
+func (r *ModelRegistry) ResolveMetadataForProvider(provider, modelID string) domain.ModelMetadata {
+	if !r.ensureLoaded() {
+		return domain.ModelMetadata{}
+	}
+	normModel := normalizeModelName(modelID)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if lp := mapGorouterToLitellmProvider(provider); lp != "" {
+		if e, ok := r.byProviderModel[lp+"/"+normModel]; ok {
+			return e.metadata()
+		}
+	}
+	if e, ok := r.entries[normModel]; ok {
+		return e.metadata()
+	}
+	return domain.ModelMetadata{}
+}
+
+// ResolveMetadata returns what the chain knows about a model by name alone.
+func (r *ModelRegistry) ResolveMetadata(modelID string) domain.ModelMetadata {
+	if !r.ensureLoaded() {
+		return domain.ModelMetadata{}
+	}
+	r.mu.RLock()
+	e, ok := r.entries[normalizeModelName(modelID)]
+	r.mu.RUnlock()
+	if !ok {
+		return domain.ModelMetadata{}
+	}
+	return e.metadata()
 }
 
 // ResolveReasoningCapabilities returns the best-known LiteLLM-compatible
@@ -203,18 +251,7 @@ func (r *ModelRegistry) loadLiteLLM(ctx context.Context, entries map[string]regi
 		if kind == "" {
 			continue
 		}
-		ctxLen := 0
-		if mi, ok := v["max_input_tokens"].(float64); ok {
-			ctxLen = int(mi)
-		}
-		e := registryEntry{Kind: kind, Context: ctxLen}
-		e.SupportsVision, _ = v["supports_vision"].(bool)
-		e.SupportsToolCall, _ = v["supports_function_calling"].(bool)
-		e.SupportsReasoning, _ = v["supports_reasoning"].(bool)
-		e.Reasoning = reasoningCapabilitiesFromMap(v)
-		e.Pricing = parseLiteLLMPricing(v)
-		e.Pricing.Source = "litellm"
-		e.Pricing.LastSyncedAt = time.Now()
+		e := liteLLMEntry(v, kind)
 		normModel := normalizeModelName(k)
 		entries[normModel] = e
 		// Also key by litellm_provider/model for provider-specific lookup.
@@ -222,6 +259,21 @@ func (r *ModelRegistry) loadLiteLLM(ctx context.Context, entries map[string]regi
 			byProvider[lp+"/"+normModel] = e
 		}
 	}
+}
+
+// liteLLMEntry builds the chain entry for one LiteLLM model spec: the window
+// comes from max_input_tokens and the response ceiling from max_output_tokens.
+func liteLLMEntry(v map[string]any, kind domain.ModelKind) registryEntry {
+	e := registryEntry{Kind: kind, Context: int(floatVal(v["max_input_tokens"]))}
+	e.MaxOutputTokens = firstPositiveInt(v, "max_output_tokens")
+	e.SupportsVision, _ = v["supports_vision"].(bool)
+	e.SupportsToolCall, _ = v["supports_function_calling"].(bool)
+	e.SupportsReasoning, _ = v["supports_reasoning"].(bool)
+	e.Reasoning = reasoningCapabilitiesFromMap(v)
+	e.Pricing = parseLiteLLMPricing(v)
+	e.Pricing.Source = "litellm"
+	e.Pricing.LastSyncedAt = time.Now()
+	return e
 }
 
 func (r *ModelRegistry) loadModelsDev(ctx context.Context, entries map[string]registryEntry, byProvider map[string]registryEntry) {
@@ -256,41 +308,48 @@ func (r *ModelRegistry) loadModelsDev(ctx context.Context, entries map[string]re
 				continue
 			}
 			key := normalizeModelName(modelID)
-			e := registryEntry{Kind: domain.KindLLM}
-			// Detect kind from output modalities: image-only output → KindImage,
-			// audio-only output → KindTTS, text+image output → LLM with vision.
-			if mods, ok := m["modalities"].(map[string]any); ok {
-				kind, vision := detectKindFromModalities(mods)
-				if kind != "" {
-					e.Kind = kind
-				}
-				if vision {
-					e.SupportsVision = true
-				}
-			}
-			if !e.SupportsVision {
-				e.SupportsVision, _ = m["attachment"].(bool)
-			}
-			e.SupportsToolCall, _ = m["tool_call"].(bool)
-			e.SupportsReasoning, _ = m["reasoning"].(bool)
-			e.Reasoning = reasoningCapabilitiesFromMap(m)
-			if e.SupportsReasoning {
-				e.Reasoning.SupportsReasoning = true
-			}
-			if limit, ok := m["limit"].(map[string]any); ok {
-				e.Context = int(floatVal(limit["context"]))
-			}
-			// Parse pricing (per-1M-tokens, convert to per-token)
-			if cost, ok := m["cost"].(map[string]any); ok {
-				e.Pricing = parseModelsDevPricing(cost)
-				e.Pricing.Source = "models.dev"
-				e.Pricing.LastSyncedAt = time.Now()
-			}
+			e := modelsDevEntry(m)
 			upsertEntry(entries, key, e)
 			pk := providerID + "/" + key
 			upsertEntry(byProvider, pk, e)
 		}
 	}
+}
+
+// modelsDevEntry builds the chain entry for one models.dev record. The window
+// and the response ceiling live together under limit ({context, output}).
+func modelsDevEntry(m map[string]any) registryEntry {
+	e := registryEntry{Kind: domain.KindLLM}
+	// Detect kind from output modalities: image-only output → KindImage,
+	// audio-only output → KindTTS, text+image output → LLM with vision.
+	if mods, ok := m["modalities"].(map[string]any); ok {
+		kind, vision := detectKindFromModalities(mods)
+		if kind != "" {
+			e.Kind = kind
+		}
+		if vision {
+			e.SupportsVision = true
+		}
+	}
+	if !e.SupportsVision {
+		e.SupportsVision, _ = m["attachment"].(bool)
+	}
+	e.SupportsToolCall, _ = m["tool_call"].(bool)
+	e.SupportsReasoning, _ = m["reasoning"].(bool)
+	e.Reasoning = reasoningCapabilitiesFromMap(m)
+	if e.SupportsReasoning {
+		e.Reasoning.SupportsReasoning = true
+	}
+	if limit, ok := m["limit"].(map[string]any); ok {
+		e.Context = int(floatVal(limit["context"]))
+		e.MaxOutputTokens = firstPositiveInt(limit, "output", "max_output_tokens")
+	}
+	if cost, ok := m["cost"].(map[string]any); ok {
+		e.Pricing = parseModelsDevPricing(cost)
+		e.Pricing.Source = "models.dev"
+		e.Pricing.LastSyncedAt = time.Now()
+	}
+	return e
 }
 
 // detectKindFromModalities inspects the modalities object (from models.dev)
@@ -371,20 +430,7 @@ func (r *ModelRegistry) loadOpenRouter(ctx context.Context, entries map[string]r
 				supportsVision = true
 			}
 		}
-		e := registryEntry{Kind: kind}
-		e.SupportsVision = supportsVision
-		e.SupportsToolCall = hasParam(m, "tools")
-		e.SupportsReasoning = hasParam(m, "reasoning") || hasParam(m, "reasoning_effort")
-		e.Reasoning = domain.ReasoningCapabilities{
-			Known:             true,
-			SupportsReasoning: e.SupportsReasoning,
-		}
-		// Parse pricing (per-token, but values are strings)
-		if pricing, ok := m["pricing"].(map[string]any); ok {
-			e.Pricing = parseOpenRouterPricing(pricing)
-			e.Pricing.Source = "openrouter"
-			e.Pricing.LastSyncedAt = time.Now()
-		}
+		e := openRouterEntry(m, kind, supportsVision)
 		// byModel: best-wins
 		upsertEntry(entries, key, e)
 		// byProvider: map OpenRouter provider to gorouter provider, best-wins
@@ -394,6 +440,32 @@ func (r *ModelRegistry) loadOpenRouter(ctx context.Context, entries map[string]r
 			upsertEntry(byProvider, pk, e)
 		}
 	}
+}
+
+// openRouterEntry builds the chain entry for one OpenRouter record.
+// OpenRouter publishes the window at the top level and the response ceiling
+// under top_provider; neither used to be read, so this source — which wins the
+// merge for most models — contributed no limits at all.
+func openRouterEntry(m map[string]any, kind domain.ModelKind, supportsVision bool) registryEntry {
+	e := registryEntry{Kind: kind}
+	e.Context = firstPositiveInt(m, "context_length", "context_window")
+	if e.Context == 0 {
+		e.Context = firstPositiveInt(obj(m, "top_provider"), "context_length")
+	}
+	e.MaxOutputTokens = firstPositiveInt(obj(m, "top_provider"), "max_completion_tokens", "max_output_tokens")
+	e.SupportsVision = supportsVision
+	e.SupportsToolCall = hasParam(m, "tools")
+	e.SupportsReasoning = hasParam(m, "reasoning") || hasParam(m, "reasoning_effort")
+	e.Reasoning = domain.ReasoningCapabilities{
+		Known:             true,
+		SupportsReasoning: e.SupportsReasoning,
+	}
+	if pricing, ok := m["pricing"].(map[string]any); ok {
+		e.Pricing = parseOpenRouterPricing(pricing)
+		e.Pricing.Source = "openrouter"
+		e.Pricing.LastSyncedAt = time.Now()
+	}
+	return e
 }
 
 // hasParam checks if supported_parameters contains the given value.
@@ -627,27 +699,39 @@ func strFloatVal(v any) float64 {
 	return 0
 }
 
-// upsertEntry inserts e into m at key if the key doesn't exist, or
-// overwrites if the existing entry has no pricing data (Source empty)
-// and the new entry does. This ensures free models ($0 with Source)
-// from later sources (models.dev, OpenRouter) don't get overwritten
-// by earlier sources that lack the model entirely, and that paid
-// variants take priority over free variants when both exist.
+// upsertEntry merges a source's entry into the map. Facts are merged field by
+// field, never replaced wholesale: a source that does not know a field must not
+// erase what an earlier one established. That is not hypothetical — OpenRouter
+// loads last and, before this, replaced the whole entry, wiping the window
+// LiteLLM had already provided for hundreds of models (the DB showed 678 models
+// priced by OpenRouter with only 4 carrying a context).
+//
+// Pricing keeps its own rule: a source that has pricing data replaces the
+// entry's, so the loader order is also the preference order for cost. That also
+// keeps free variants ($0 with a Source) from later sources from being
+// overwritten by earlier sources that lack the model, and paid variants ahead of
+// free ones when both exist.
 func upsertEntry(m map[string]registryEntry, key string, e registryEntry) {
 	existing, ok := m[key]
 	if !ok {
 		m[key] = e
 		return
 	}
-	// Preserve positive capability facts discovered by another registry. A
-	// later source can replace pricing without erasing LiteLLM's effort flags.
 	e.Reasoning = mergeReasoningCapabilities(existing.Reasoning, e.Reasoning)
 	e.SupportsReasoning = existing.SupportsReasoning || e.SupportsReasoning || e.Reasoning.SupportsReasoning
-	if HasPricingData(existing.Pricing) && !HasPricingData(e.Pricing) {
-		return
+	e.SupportsVision = existing.SupportsVision || e.SupportsVision
+	e.SupportsToolCall = existing.SupportsToolCall || e.SupportsToolCall
+	if e.Context == 0 {
+		e.Context = existing.Context
 	}
-	// Overwrite if existing has no data or new has pricing data.
-	if !HasPricingData(existing.Pricing) || HasPricingData(e.Pricing) {
-		m[key] = e
+	if e.MaxOutputTokens == 0 {
+		e.MaxOutputTokens = existing.MaxOutputTokens
 	}
+	if e.Kind == "" {
+		e.Kind = existing.Kind
+	}
+	if !HasPricingData(e.Pricing) {
+		e.Pricing = existing.Pricing
+	}
+	m[key] = e
 }

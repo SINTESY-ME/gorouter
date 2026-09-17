@@ -399,10 +399,11 @@ func (s *Server) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	providerID := chi.URLParam(r, "id")
 
 	var req struct {
-		ModelID string `json:"model_id"`
-		Name    string `json:"name"`
-		Kind    string `json:"kind"`
-		Context int    `json:"context"`
+		ModelID         string `json:"model_id"`
+		Name            string `json:"name"`
+		Kind            string `json:"kind"`
+		Context         int    `json:"context"`
+		MaxOutputTokens int    `json:"max_output_tokens"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -417,14 +418,15 @@ func (s *Server) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		kind = domain.ModelKind(req.Kind)
 	}
 	entry := &domain.ModelEntry{
-		ID:         providerID + "/" + req.ModelID,
-		ProviderID: providerID,
-		ModelID:    req.ModelID,
-		Name:       orDefault(req.Name, req.ModelID),
-		Kind:       kind,
-		Source:     "manual",
-		IsActive:   true,
-		Context:    req.Context,
+		ID:              providerID + "/" + req.ModelID,
+		ProviderID:      providerID,
+		ModelID:         req.ModelID,
+		Name:            orDefault(req.Name, req.ModelID),
+		Kind:            kind,
+		Source:          "manual",
+		IsActive:        true,
+		Context:         req.Context,
+		MaxOutputTokens: req.MaxOutputTokens,
 	}
 	if err := s.ModelRepo.Upsert(r.Context(), entry); err != nil {
 		writeError(w, statusForError(err), err.Error())

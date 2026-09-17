@@ -118,6 +118,10 @@ func mapModels(in []map[string]any) []domain.ModelInfo {
 		if k := providerModelTypeToKind(mt, ef); k != "" {
 			mi.Kind = k
 		}
+		// Whatever the provider stated about the model travels with it: it is
+		// the first link of the metadata chain, and a field it does not state
+		// is looked up in the external registries instead.
+		mi.Metadata = providerModelMetadata(m)
 		out = append(out, mi)
 	}
 	return out

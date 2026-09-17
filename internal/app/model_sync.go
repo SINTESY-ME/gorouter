@@ -91,14 +91,18 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 	activeIDs := make([]string, 0, len(fetched))
 	batch := make([]*domain.ModelEntry, 0, len(fetched))
 	for _, m := range fetched {
-		kind, contextLen, vision, toolCall, reasoning := s.resolveKind(m)
+		kind := s.resolveKind(m)
+		// The metadata chain: what the provider said about its own model comes
+		// first, and the external registries are consulted only for the fields
+		// it left out.
+		meta := s.modelMetadata(conn.ProviderID, m)
 		reasoningCaps := inferReasoningCapabilities(m.ID)
 		if s.Registry != nil {
 			if registered, ok := s.Registry.ResolveReasoningCapabilitiesForProvider(conn.ProviderID, m.ID); ok {
 				reasoningCaps = registered
 			}
 		}
-		if reasoning {
+		if meta.SupportsReasoning {
 			reasoningCaps.SupportsReasoning = true
 		}
 		entry := &domain.ModelEntry{
@@ -109,10 +113,11 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 			Kind:                           kind,
 			Source:                         "sync",
 			IsActive:                       true,
-			Context:                        contextLen,
-			SupportsVision:                 vision,
-			SupportsToolCall:               toolCall,
-			SupportsReasoning:              reasoningCaps.SupportsReasoning || reasoning,
+			Context:                        meta.Context,
+			MaxOutputTokens:                meta.MaxOutputTokens,
+			SupportsVision:                 meta.SupportsVision,
+			SupportsToolCall:               meta.SupportsToolCall,
+			SupportsReasoning:              reasoningCaps.SupportsReasoning || meta.SupportsReasoning,
 			SupportsMinimalReasoningEffort: reasoningCaps.SupportsMinimalReasoningEffort,
 			SupportsLowReasoningEffort:     reasoningCaps.SupportsLowReasoningEffort,
 			SupportsXHighReasoningEffort:   reasoningCaps.SupportsXHighReasoningEffort,
@@ -179,38 +184,53 @@ func (s *ModelSyncService) SyncProvider(ctx context.Context, conn *domain.Connec
 	return nil
 }
 
+// modelMetadata assembles what is known about a model, in chain order: the
+// provider's own statement first, then the external registries for whatever it
+// did not state. Later links only fill gaps — never overwrite.
+func (s *ModelSyncService) modelMetadata(providerID string, m domain.ModelInfo) domain.ModelMetadata {
+	meta := m.Metadata
+	if s.Registry == nil {
+		return meta
+	}
+	// The provider-specific entry is preferred over the model-only one: the
+	// same model name can expose different limits through different upstreams.
+	meta = fillMissingMetadata(meta, s.Registry.ResolveMetadataForProvider(providerID, m.ID))
+	return fillMissingMetadata(meta, s.Registry.ResolveMetadata(m.ID))
+}
+
+// fillMissingMetadata keeps every field base already states and takes the rest
+// from fallback. A zero field means "not stated", so a source that knows less
+// never erases a fact another source established.
+func fillMissingMetadata(base, fallback domain.ModelMetadata) domain.ModelMetadata {
+	if base.Context == 0 {
+		base.Context = fallback.Context
+	}
+	if base.MaxOutputTokens == 0 {
+		base.MaxOutputTokens = fallback.MaxOutputTokens
+	}
+	base.SupportsVision = base.SupportsVision || fallback.SupportsVision
+	base.SupportsToolCall = base.SupportsToolCall || fallback.SupportsToolCall
+	base.SupportsReasoning = base.SupportsReasoning || fallback.SupportsReasoning
+	return base
+}
+
 // resolveKind determines the ModelKind for a fetched model. Priority:
 //  1. Provider's own metadata (model_type/endpoint_format in the /v1/models JSON)
 //     — the provider is the source of truth for which endpoint to call.
 //  2. External registries (LiteLLM, models.dev, OpenRouter via ModelRegistry)
-//     — used when the provider doesn't expose metadata, and to enrich
-//     capability flags (vision, tool calls, reasoning, context) even when
-//     the provider does give a Kind.
 //  3. Name heuristic
-func (s *ModelSyncService) resolveKind(m domain.ModelInfo) (domain.ModelKind, int, bool, bool, bool) {
+func (s *ModelSyncService) resolveKind(m domain.ModelInfo) domain.ModelKind {
 	providerKind := m.Kind
+	if providerKind != "" && providerKind != domain.KindLLM {
+		return providerKind
+	}
 	if s.Registry != nil {
-		regKind, ctxLen, vision, toolCall, reasoning := s.Registry.ResolveKind(m.ID)
-		if providerKind != "" && providerKind != domain.KindLLM {
-			// Non-LLM kinds (image, tts, stt, embedding) are endpoint-specific;
-			// the provider knows best. Don't override with registry, but still
-			// return capability flags if the registry had them (rare for non-LLM).
-			return providerKind, ctxLen, vision, toolCall, reasoning
+		if regKind, _, _, _, _ := s.Registry.ResolveKind(m.ID); regKind != "" {
+			return regKind
 		}
-		if regKind != "" || providerKind == "" {
-			// Use registry kind (may be LLM with enriched capabilities) or
-			// fall back to registry when the provider gave no kind.
-			kind := regKind
-			if kind == "" {
-				kind = providerKind
-			}
-			return kind, ctxLen, vision, toolCall, reasoning
-		}
-		return providerKind, 0, false, false, false
 	}
 	if providerKind != "" {
-		return providerKind, 0, false, false, false
+		return providerKind
 	}
-	k := heuristicKind(m.ID)
-	return k, 0, false, false, false
+	return heuristicKind(m.ID)
 }
