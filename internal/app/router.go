@@ -1138,7 +1138,13 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 		// combo candidate on opencode-go/opencode-zen is a valid request.
 		if needsOpencodeHeaders(m.Provider) {
 			opencodeHeaders := map[string]string{}
-			if err := applyOpencodeHeaders(opencodeHeaders, m.Provider, time.Now()); err != nil {
+			routing := opencodeRouting{ClientSession: opencodeClientSessionFromCtx(ctx)}
+			// Only derive when the caller did not name a session: the derivation
+			// parses the body, and a caller-supplied ID is authoritative.
+			if routing.ClientSession == "" {
+				routing.ConversationKey = opencodeConversationKey(body)
+			}
+			if err := applyOpencodeHeaders(opencodeHeaders, m.Provider, routing, time.Now()); err != nil {
 				// Fail-open: a header-generation error must not block the call.
 				slog.Warn("opencode header generation failed", "provider", m.Provider, "err", err)
 			} else if len(opencodeHeaders) > 0 {
@@ -1264,7 +1270,7 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 		if execReq.Headers == nil {
 			execReq.Headers = map[string]string{}
 		}
-		if err := applyOpencodeHeaders(execReq.Headers, m.Provider, time.Now()); err != nil {
+		if err := applyOpencodeHeaders(execReq.Headers, m.Provider, opencodeRouting{ClientSession: opencodeClientSessionFromCtx(ctx)}, time.Now()); err != nil {
 			// Fail-open: a header-generation error must not block the call.
 			slog.Warn("opencode header generation failed", "provider", m.Provider, "err", err)
 		}

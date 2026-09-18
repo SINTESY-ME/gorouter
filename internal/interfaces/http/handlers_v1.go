@@ -69,6 +69,15 @@ func (s *Server) handleChatWithFormat(inputFormat domain.Format) http.HandlerFun
 				r = r.WithContext(app.WithUpstreamTimeout(r.Context(), time.Duration(secs)*time.Second))
 			}
 		}
+		// Preserve the caller's OpenCode session ID across the hop. The relay
+		// pins the requests sharing one x-opencode-session to a single backend
+		// for routing and prompt-cache affinity, and its docs tell proxies to
+		// preserve the header when forwarding. When the caller sends none, the
+		// router derives a conversation-stable one instead of minting a fresh
+		// ID per request (see opencodeConversationKey).
+		if v := r.Header.Get("x-opencode-session"); v != "" {
+			r = r.WithContext(app.WithOpencodeClientSession(r.Context(), v))
+		}
 		res, err := s.Router.RouteChat(r.Context(), body, modelStr, stream, apiKey, app.RouteOptions{InputFormat: inputFormat})
 		if err != nil {
 			writeError(w, statusForError(err), err.Error())
