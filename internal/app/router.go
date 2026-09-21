@@ -1376,8 +1376,11 @@ func (s *RouterService) wrapUsageTracking(ctx context.Context, res *RouterRespon
 			// on successful responses). We store the response in client
 			// format so it can be replayed regardless of which model
 			// generated it. The x-gr-cache: off opt-out also disables
-			// semantic cache writes.
-			if s.SemanticCache != nil && s.SemanticCache.Enabled() && endpoint == "" && res.StatusCode < 400 && len(buf) > 0 && !isCacheDisabled(ctx) {
+			// semantic cache writes. Same no-content guard as the
+			// deterministic cache: a similarity match on an empty answer
+			// is worse than the exact-key replay, because it reaches
+			// requests that were never identical in the first place.
+			if s.SemanticCache != nil && s.SemanticCache.Enabled() && endpoint == "" && res.StatusCode < 400 && !isCacheDisabled(ctx) && !responseHasNoContent(buf, res.Stream) {
 				modelStr := m.Provider + "/" + m.Model
 				cached := &domain.CachedResponse{
 					StatusCode: res.StatusCode,
@@ -1633,6 +1636,12 @@ func (b *readTailCloser) Close() error               { return b.c.Close() }
 // returning 200 with a zero-token stream) must NOT poison the response cache:
 // a cached empty answer replays to every identical retry, turning a transient
 // upstream hiccup into a hard failure for the client's retry policy.
+//
+// A turn that only carries reasoning (`reasoning_content`) is empty by this
+// definition: the client asked for an answer and got none, so caching it would
+// defeat its retries exactly like an empty stream (2026-09-21, summary_generate
+// retries served from cache with latency_ms=0). Reasoning that accompanies real
+// content does not change the verdict.
 func responseHasNoContent(buf []byte, isStream bool) bool {
 	if len(bytes.TrimSpace(buf)) == 0 {
 		return true
@@ -1663,10 +1672,20 @@ func responseHasNoContent(buf []byte, isStream bool) bool {
 }
 
 // sseHasContentDeltas scans buffered SSE events and reports whether at least
-// one delta carries non-empty content or a tool call. Tolerates both OpenAI
-// chunk format (choices[].delta) and Anthropic/Gemini-style event types that
-// embed content in different fields; anything unrecognized counts as content
-// so unknown formats are never mistaken for empty.
+// one delta carries a usable answer: non-empty content or a tool call.
+//
+// Reasoning deltas (`delta.reasoning_content`) are deliberately NOT content. A
+// thinking model can burn its whole turn on reasoning and emit no answer at
+// all — the opencode-go/deepseek-v4.1-flash case of 2026-09-21, 200 with 0
+// prompt/completion tokens (see TestRouteChat_ReasoningOnlyStreamNotCached).
+// Counting reasoning as content cached that empty answer and replayed it to
+// every identical retry. A turn that reasons AND answers still has content
+// deltas, so it stays cacheable.
+//
+// Events that do not parse as an OpenAI chunk (a provider error payload, a
+// partial line, an Anthropic-shaped event on a client in that format) count as
+// no content: the worst case is a cache miss — one extra upstream call — never
+// a poisoned cache entry.
 func sseHasContentDeltas(buf []byte) bool {
 	scanner := bufio.NewScanner(bytes.NewReader(buf))
 	scanner.Buffer(make([]byte, 0, 64*1024), 512*1024)
@@ -1683,20 +1702,15 @@ func sseHasContentDeltas(buf []byte) bool {
 			Choices []struct {
 				Delta struct {
 					Content   string          `json:"content"`
-					Reasoning string          `json:"reasoning_content"`
 					ToolCalls json.RawMessage `json:"tool_calls"`
 				} `json:"delta"`
 			} `json:"choices"`
 		}
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
-			// Unparseable event (provider error payload, partial line…).
-			// Treat as no content: the worst case is a cache miss (one extra
-			// upstream call), never a poisoned cache entry.
 			continue
 		}
 		for _, c := range ev.Choices {
 			if strings.TrimSpace(c.Delta.Content) != "" ||
-				strings.TrimSpace(c.Delta.Reasoning) != "" ||
 				len(c.Delta.ToolCalls) > 0 {
 				return true
 			}
