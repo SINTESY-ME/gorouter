@@ -43,6 +43,7 @@ func TestCodexExecutorSendsIdentityHeaders(t *testing.T) {
 		"Originator":                        "codex_cli_rs",
 		"Version":                           CodexClientVersion,
 		"User-Agent":                        "codex_cli_rs/" + CodexClientVersion,
+		"X-Codex-Beta-Features":             "responses_websockets",
 		"X-Openai-Internal-Codex-Residency": "",
 	} {
 		if key == "X-Openai-Internal-Codex-Residency" {
@@ -51,6 +52,57 @@ func TestCodexExecutorSendsIdentityHeaders(t *testing.T) {
 		if got.Get(key) != want {
 			t.Errorf("%s = %q, want %q", key, got.Get(key), want)
 		}
+	}
+}
+
+// TestCodexExecutorForwardsCallerVersion proves the caller's own Codex version
+// travels upstream when the caller reported one, and that the gateway claim is
+// kept when it did not (a non-Codex caller must not be given a fabricated
+// lower version, which would gate models off for callers that never asked).
+func TestCodexExecutorForwardsCallerVersion(t *testing.T) {
+	cases := []struct {
+		name string
+		ctx  context.Context
+		want string
+	}{
+		{
+			name: "caller reported a version",
+			ctx:  domain.WithCodexClientVersion(context.Background(), "0.154.0"),
+			want: "0.154.0",
+		},
+		{
+			name: "no caller identity",
+			ctx:  context.Background(),
+			want: CodexClientVersion,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got http.Header
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got = r.Header.Clone()
+				io.WriteString(w, "data: [DONE]\n\n")
+			}))
+			defer srv.Close()
+
+			e := &CodexExecutor{Client: srv.Client(), BaseURL: srv.URL}
+			res, err := e.Execute(tc.ctx, domain.ExecuteRequest{
+				Connection: &domain.Connection{APIKey: "tok"},
+				Body:       io.NopCloser(strings.NewReader(`{}`)),
+				Stream:     true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer res.Body.Close()
+
+			if got.Get("Version") != tc.want {
+				t.Errorf("Version = %q, want %q", got.Get("Version"), tc.want)
+			}
+			if wantUA := "codex_cli_rs/" + tc.want; got.Get("User-Agent") != wantUA {
+				t.Errorf("User-Agent = %q, want %q", got.Get("User-Agent"), wantUA)
+			}
+		})
 	}
 }
 

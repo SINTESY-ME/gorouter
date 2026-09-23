@@ -266,7 +266,6 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 	first := true
 	id := ""
 	model := ""
-	emittedContent := false
 	emittedToolCall := false
 	currentDeltaOrdinal := 0
 	var promptTokens, completionTokens int
@@ -317,7 +316,6 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 		case "response.output_text.delta":
 			chunk := openAIStreamChunk(id, model, ev.Delta, first, nil, "")
 			first = false
-			emittedContent = true
 			if _, err := w.Write([]byte("data: " + chunk + "\n\n")); err != nil {
 				return err
 			}
@@ -368,8 +366,6 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 				if _, err := w.Write([]byte("data: " + chunk + "\n\n")); err != nil {
 					return err
 				}
-			} else if item.Type == "message" {
-				emittedContent = true
 			}
 		case "response.function_call_arguments.delta":
 			var d struct {
@@ -433,8 +429,15 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 				"completion_tokens": completionTokens,
 				"total_tokens":      promptTokens + completionTokens,
 			}
+			// An incomplete response IS truncation, whatever rode along with
+			// it. The upstream says so explicitly, so it outranks the
+			// tool_calls guess: a partial function-call's arguments are cut
+			// mid-JSON, and reporting tool_calls there tells the client the
+			// turn succeeded — the client then executes (or rejects) an
+			// argument object that was never finished, instead of seeing
+			// length and retrying with more room.
 			finish := ""
-			if ev.Type == "response.incomplete" && resp.IncompleteDetails != nil && resp.IncompleteDetails.Reason != "" && !emittedContent && !emittedToolCall {
+			if ev.Type == "response.incomplete" {
 				finish = "length"
 			} else if emittedToolCall {
 				finish = "tool_calls"

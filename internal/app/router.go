@@ -1076,6 +1076,22 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 }
 
 func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *domain.Connection, body []byte, stream bool, opts RouteOptions, contentType string) (*RouterResponse, error) {
+	cfg := &domain.ProviderConfig{ID: m.Provider, Format: domain.FormatOpenAI}
+	if s.Selector != nil {
+		cfg = s.Selector.Config(m.Provider)
+	}
+	// The Codex route runs at a level the gateway names, not at whatever the
+	// upstream default happens to be, when the caller mentions none. Applied
+	// before the member pin and the per-model adaptation below so a pin still
+	// wins and the value still degrades to the closest level the candidate
+	// model can honour.
+	if opts.Endpoint == "" && isCodexProvider(cfg) && !bodyHasReasoningEffort(body) {
+		defaultedBody, err := forceReasoningEffort(body, codexDefaultReasoningEffort)
+		if err != nil {
+			return nil, err
+		}
+		body = defaultedBody
+	}
 	// A combo member may pin its own reasoning level. The pin is applied
 	// first and then adapted below, so a level the target model cannot honour
 	// (say max on a model whose ladder stops at high) still degrades to the
@@ -1092,7 +1108,7 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 	// A combo may reach this function with a different concrete model on each
 	// fallback attempt. Adapt reasoning at that boundary so each candidate gets
 	// its own closest supported effort (max -> xhigh -> high -> omitted).
-	if opts.Endpoint == "" && (bytes.Contains(body, []byte(`"reasoning_effort"`)) || bytes.Contains(body, []byte(`"reasoning"`))) {
+	if opts.Endpoint == "" && bodyHasReasoningEffort(body) {
 		caps := inferReasoningCapabilities(m.Provider + "/" + m.Model)
 		if s.Pricing != nil {
 			if cached, ok := s.Pricing.Reasoning(m); ok {
@@ -1110,11 +1126,6 @@ func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *
 			slog.Warn("oauth refresh failed", "provider", conn.ProviderID, "err", err)
 			// continue with existing token; upstream may 401
 		}
-	}
-
-	cfg := &domain.ProviderConfig{ID: m.Provider, Format: domain.FormatOpenAI}
-	if s.Selector != nil {
-		cfg = s.Selector.Config(m.Provider)
 	}
 
 	translated := body

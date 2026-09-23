@@ -78,6 +78,15 @@ func (s *Server) handleChatWithFormat(inputFormat domain.Format) http.HandlerFun
 		if v := r.Header.Get("x-opencode-session"); v != "" {
 			r = r.WithContext(app.WithOpencodeClientSession(r.Context(), v))
 		}
+		// Preserve the caller's Codex client identity across the hop when the
+		// caller IS a Codex client. The ChatGPT Codex backend gates models on
+		// the reported client version, so forwarding the caller's own version
+		// keeps a real Codex CLI on its true identity; every other caller
+		// (Hermes, LangChain, OpenAI-compatible clients) sends no codex
+		// identity and keeps the gateway's rolling-high claim.
+		if v := domain.CallerCodexClientVersion(r.Header.Get("version"), r.Header.Get("User-Agent")); v != "" {
+			r = r.WithContext(domain.WithCodexClientVersion(r.Context(), v))
+		}
 		res, err := s.Router.RouteChat(r.Context(), body, modelStr, stream, apiKey, app.RouteOptions{InputFormat: inputFormat})
 		if err != nil {
 			writeError(w, statusForError(err), err.Error())

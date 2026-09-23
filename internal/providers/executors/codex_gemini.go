@@ -59,9 +59,20 @@ func (e *CodexExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+req.Connection.APIKey)
 	httpReq.Header.Set("originator", "codex_cli_rs")
-	httpReq.Header.Set("User-Agent", "codex_cli_rs/"+CodexClientVersion)
+	// Identity follows the caller when the caller IS a Codex client, and falls
+	// back to the gateway's rolling-high claim otherwise (domain keeps the
+	// parser and the ctx key; see CallerCodexClientVersion).
+	version := domain.CodexClientVersionFromCtx(ctx)
+	if version == "" {
+		version = CodexClientVersion
+	}
+	httpReq.Header.Set("User-Agent", "codex_cli_rs/"+version)
 	httpReq.Header.Set("OpenAI-Beta", "responses=experimental")
-	httpReq.Header.Set("version", CodexClientVersion)
+	httpReq.Header.Set("version", version)
+	// Capability advertisement only: the reference client sends it on its
+	// standard HTTP calls too, so the backend sees the same feature set. The
+	// transport stays HTTP/SSE — this header does not switch it to WebSocket.
+	httpReq.Header.Set("X-Codex-Beta-Features", "responses_websockets")
 	if req.Stream {
 		httpReq.Header.Set("Accept", "text/event-stream")
 	}
