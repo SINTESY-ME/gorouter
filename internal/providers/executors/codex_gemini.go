@@ -20,6 +20,18 @@ func init() {
 	Register("gemini-cli", func() domain.Executor { return NewGeminiCLIExecutor() })
 }
 
+// CodexClientVersion is the codex_cli_rs version this executor claims on the
+// wire. The ChatGPT Codex backend gates both the model listing
+// (?client_version=) and calls (the version header) as a >= comparison against
+// each model's minimal_client_version — the listing itself publishes that
+// minimum per model. A rolling-high claim therefore lists and calls every
+// model the account's plan allows (probed 2026-09-22: the SSE shapes at the
+// pinned 0.144.1 and at 999.0.0 are identical), so models that ship later
+// appear without a code change. The model fetcher shares this constant: a
+// listing gate and a call gate that disagree would offer models that then
+// fail with "model is not supported".
+const CodexClientVersion = "999.0.0"
+
 // CodexExecutor talks to ChatGPT Codex backend (Responses API).
 type CodexExecutor struct {
 	Client *http.Client
@@ -47,9 +59,9 @@ func (e *CodexExecutor) Execute(ctx context.Context, req domain.ExecuteRequest) 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+req.Connection.APIKey)
 	httpReq.Header.Set("originator", "codex_cli_rs")
-	httpReq.Header.Set("User-Agent", "codex_cli_rs/0.144.1")
+	httpReq.Header.Set("User-Agent", "codex_cli_rs/"+CodexClientVersion)
 	httpReq.Header.Set("OpenAI-Beta", "responses=experimental")
-	httpReq.Header.Set("version", "0.144.1")
+	httpReq.Header.Set("version", CodexClientVersion)
 	if req.Stream {
 		httpReq.Header.Set("Accept", "text/event-stream")
 	}

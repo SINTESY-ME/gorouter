@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jhon/gorouter/internal/domain"
+	"github.com/jhon/gorouter/internal/providers/executors"
 )
 
 // HTTPModelFetcher implements domain.ModelFetcher by GETting <BaseURL>/models
@@ -36,6 +37,9 @@ func (f *HTTPModelFetcher) Fetch(ctx context.Context, c *domain.Connection, cfg 
 	// behind it. Their catalog lives at POST /v1internal:fetchAvailableModels.
 	if isCloudCodeProvider(cfg) {
 		return f.fetchCloudCode(ctx, c, cfg)
+	}
+	if isCodexProvider(cfg) {
+		return f.fetchCodex(ctx, c, cfg)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -185,6 +189,146 @@ func cloudCodeProject(c *domain.Connection) string {
 	}
 	project, _ := meta["project_id"].(string)
 	return project
+}
+
+// codexProviders are the product ids that speak the ChatGPT Codex backend.
+// The host check catches the same backend under another id or a proxy.
+var codexProviders = map[string]bool{"codex": true}
+
+func isCodexProvider(cfg *domain.ProviderConfig) bool {
+	if cfg == nil {
+		return false
+	}
+	if codexProviders[cfg.ID] {
+		return true
+	}
+	return strings.Contains(cfg.ResolvedBaseURL, "chatgpt.com/backend-api")
+}
+
+// fetchCodex lists the models the ChatGPT Codex backend offers the account.
+// The listing route is GET <base>/models?client_version=<ver> (probed
+// 2026-09-22): without the query param the server answers 400 "Field
+// required", which is exactly what the generic fetch surfaced as
+// "fetch models: status 400" — <base>/models is a valid route, it just has a
+// required parameter the generic fetcher cannot know. The response is
+// {"models":[{"slug":...}]} and each entry carries the catalog facts callers
+// need: context window, the reasoning ladder with its default level, and the
+// input modalities.
+func (f *HTTPModelFetcher) fetchCodex(ctx context.Context, c *domain.Connection, cfg *domain.ProviderConfig) ([]domain.ModelInfo, error) {
+	base := strings.TrimRight(cfg.ResolvedBaseURL, "/")
+	if base == "" {
+		return nil, nil
+	}
+	url := base + "/models?client_version=" + executors.CodexClientVersion
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	f.applyAuth(req, c, cfg)
+	req.Header.Set("User-Agent", "codex_cli_rs/"+executors.CodexClientVersion)
+	if id := codexAccountID(c); id != "" {
+		req.Header.Set("chatgpt-account-id", id)
+	}
+	resp, err := f.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
+		// No listing route: sync falls back to the catalog preset.
+		return nil, nil
+	}
+	if resp.StatusCode >= 400 {
+		// Unlike Cloud Code, this route exists — a refusal here is an auth or
+		// account problem the operator must see, not silence.
+		return nil, fmt.Errorf("fetch models: status %d", resp.StatusCode)
+	}
+	return parseCodexModels(raw)
+}
+
+// parseCodexModels reads the codex listing. Every entry the account's plan
+// exposes is kept, including the ones the CLI hides from its own picker
+// (visibility "hide" — gpt-reserve and the internal auto-review model): the
+// catalog is the operator's toolbox and the dashboard toggles decide what
+// routes. Levels are stored in canonical order; codex-specific levels outside
+// the ladder (gpt-5.6-terra states "ultra") are dropped by the same rule the
+// rest of the router applies — an unknown level would break combo validation
+// and effort degradation anyway.
+func parseCodexModels(raw []byte) ([]domain.ModelInfo, error) {
+	var payload struct {
+		Models []struct {
+			Slug                      string   `json:"slug"`
+			ContextWindow             int      `json:"context_window"`
+			InputModalities           []string `json:"input_modalities"`
+			SupportsParallelToolCalls bool     `json:"supports_parallel_tool_calls"`
+			DefaultReasoningLevel     string   `json:"default_reasoning_level"`
+			SupportedReasoningLevels  []struct {
+				Effort string `json:"effort"`
+			} `json:"supported_reasoning_levels"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("parse codex models: %w", err)
+	}
+	out := make([]domain.ModelInfo, 0, len(payload.Models))
+	for _, m := range payload.Models {
+		if m.Slug == "" {
+			continue
+		}
+		info := domain.ModelInfo{ID: m.Slug, Object: "model"}
+		if m.ContextWindow > 0 {
+			info.ContextLength = m.ContextWindow
+			info.Metadata.Context = m.ContextWindow
+		}
+		for _, modality := range m.InputModalities {
+			if modality == "image" {
+				info.Metadata.SupportsVision = true
+			}
+		}
+		if m.SupportsParallelToolCalls {
+			info.Metadata.SupportsToolCall = true
+		}
+		if len(m.SupportedReasoningLevels) > 0 {
+			levels := make([]string, 0, len(m.SupportedReasoningLevels))
+			for _, l := range m.SupportedReasoningLevels {
+				levels = append(levels, l.Effort)
+			}
+			ladder := domain.SortEfforts(levels)
+			if len(ladder) > 0 {
+				info.ReasoningEfforts = ladder
+				info.Metadata.SupportsReasoning = true
+				info.Metadata.Reasoning = domain.ReasoningCapabilities{
+					Known:             true,
+					SupportsReasoning: true,
+					Efforts:           ladder,
+					EffortsStated:     true,
+				}
+				if domain.EffortRank(m.DefaultReasoningLevel) >= 0 {
+					info.Metadata.Reasoning.DefaultEffort = m.DefaultReasoningLevel
+				}
+			}
+		}
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+// codexAccountID reads the ChatGPT account id the OAuth login stored; the
+// backend scopes its answers to it.
+func codexAccountID(c *domain.Connection) string {
+	if c == nil || c.Meta == "" {
+		return ""
+	}
+	var meta map[string]any
+	if err := json.Unmarshal([]byte(c.Meta), &meta); err != nil {
+		return ""
+	}
+	id, _ := meta["account_id"].(string)
+	return id
 }
 
 func truncateForLog(s string, n int) string {

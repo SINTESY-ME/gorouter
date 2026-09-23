@@ -41,7 +41,8 @@ func TestCodexExecutorSendsIdentityHeaders(t *testing.T) {
 		"Chatgpt-Account-Id":                "acct-123",
 		"Openai-Beta":                       "responses=experimental",
 		"Originator":                        "codex_cli_rs",
-		"Version":                           "0.144.1",
+		"Version":                           CodexClientVersion,
+		"User-Agent":                        "codex_cli_rs/" + CodexClientVersion,
 		"X-Openai-Internal-Codex-Residency": "",
 	} {
 		if key == "X-Openai-Internal-Codex-Residency" {
