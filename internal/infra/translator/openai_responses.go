@@ -267,17 +267,57 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 	id := ""
 	model := ""
 	emittedToolCall := false
-	currentDeltaOrdinal := 0
+	nextToolIdx := 0
 	var promptTokens, completionTokens int
-	// toolCalls tracks in-flight function_call items by their upstream
-	// output index so deltas can be streamed incrementally like OpenAI.
+	// toolCalls tracks in-flight function_call items. Deltas are routed by the
+	// upstream item_id (stable for the whole item) with the event's
+	// output_index as a fallback: the index is NOT inside the item payload, so
+	// reading it from there yields the zero value for every tool call and a
+	// call that follows another output item (a reasoning item, a message) can
+	// never be matched — its argument deltas are then dropped silently and the
+	// client receives a truncated argument object.
 	type tcState struct {
 		callID    string
 		name      string
 		arguments strings.Builder
 	}
-	toolCalls := map[int]*tcState{}
-	var toolOrder []int
+	toolCalls := map[int]*tcState{}     // OpenAI tool index -> state
+	toolIdxByItemID := map[string]int{} // upstream item_id -> OpenAI tool index
+	toolIdxByOutput := map[int]int{}    // upstream output_index -> OpenAI tool index
+
+	// resolveToolCall finds the OpenAI tool index a delta/done event belongs
+	// to, by item_id first and output_index second.
+	resolveToolCall := func(itemID string, outputIdx int) (int, bool) {
+		if itemID != "" {
+			if idx, ok := toolIdxByItemID[itemID]; ok {
+				return idx, true
+			}
+		}
+		if idx, ok := toolIdxByOutput[outputIdx]; ok {
+			return idx, true
+		}
+		return 0, false
+	}
+
+	// emitArgumentTail emits the part of a final argument string the client has
+	// not received yet. The upstream's function_call_arguments.done (and the
+	// closed item in output_item.done) carries the COMPLETE arguments, so a
+	// lost delta can be repaired here instead of shipping truncated JSON.
+	emitArgumentTail := func(ordinal int, full string) error {
+		tc := toolCalls[ordinal]
+		if tc == nil || full == "" {
+			return nil
+		}
+		sent := tc.arguments.String()
+		if len(full) <= len(sent) || !strings.HasPrefix(full, sent) {
+			return nil
+		}
+		tail := full[len(sent):]
+		tc.arguments.WriteString(tail)
+		chunk := openAIStreamToolCallDelta(id, model, ordinal, tail)
+		_, err := w.Write([]byte("data: " + chunk + "\n\n"))
+		return err
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -296,10 +336,11 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 			continue
 		}
 		var ev struct {
-			Type     string          `json:"type"`
-			Response json.RawMessage `json:"response"`
-			Item     json.RawMessage `json:"item"`
-			Delta    string          `json:"delta"`
+			Type      string          `json:"type"`
+			OutputIdx int             `json:"output_index"`
+			Response  json.RawMessage `json:"response"`
+			Item      json.RawMessage `json:"item"`
+			Delta     string          `json:"delta"`
 		}
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
 			continue
@@ -339,13 +380,14 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 			// no-op: the summary text is streamed via delta events above.
 		case "response.output_item.added":
 			// Track function_call items so subsequent argument deltas can
-			// be routed to the right tool call.
+			// be routed to the right tool call. The index lives on the
+			// EVENT envelope, not inside the item payload.
 			var item struct {
 				Type      string `json:"type"`
-				Index     int    `json:"index"`
-				OutputIdx int    `json:"output_index"`
+				ID        string `json:"id"`
 				CallID    string `json:"call_id"`
 				Name      string `json:"name"`
+				Arguments string `json:"arguments"`
 				Content   []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
@@ -353,13 +395,17 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 			}
 			_ = json.Unmarshal(ev.Item, &item)
 			if item.Type == "function_call" {
-				// output_index is the position in the Responses output
-				// array (may be >0 if a message preceded the tool call);
-				// OpenAI tool indices are ordinal among tools. Record the
-				// mapping and emit the header chunk.
-				ordinal := len(toolOrder)
-				toolOrder = append(toolOrder, item.OutputIdx)
-				toolCalls[item.OutputIdx] = &tcState{callID: item.CallID, name: item.Name}
+				// OpenAI tool indices are ordinal among tools; the
+				// upstream's output_index counts every output item
+				// (a reasoning item or message shifts it), so it is
+				// only used to route deltas, never as the client index.
+				ordinal := nextToolIdx
+				nextToolIdx++
+				toolCalls[ordinal] = &tcState{callID: item.CallID, name: item.Name}
+				if item.ID != "" {
+					toolIdxByItemID[item.ID] = ordinal
+				}
+				toolIdxByOutput[ev.OutputIdx] = ordinal
 				emittedToolCall = true
 				first = false
 				chunk := openAIStreamToolCallHeader(id, model, ordinal, item.CallID, item.Name)
@@ -382,35 +428,54 @@ func streamResponsesToOpenAI(ctx context.Context, br *bufio.Reader, w io.Writer)
 			if delta == "" {
 				continue
 			}
-			// Deltas arrive in tool order; match by output_index when
-			// present, else the ordinal of arrival.
-			toolIdx := -1
-			if d.OutputIdx >= 0 {
-				for i, oi := range toolOrder {
-					if oi == d.OutputIdx {
-						toolIdx = i
-						break
-					}
-				}
+			// Route by item_id, then by the event's output_index. An
+			// unresolvable delta is dropped rather than appended to
+			// whichever tool call happens to be next: the final
+			// arguments of the closed item repair the gap below.
+			ordinal, ok := resolveToolCall(d.ItemID, d.OutputIdx)
+			if !ok {
+				continue
 			}
-			if toolIdx < 0 {
-				toolIdx = currentDeltaOrdinal
-				if toolIdx >= len(toolOrder) {
-					continue
-				}
-			}
-			currentDeltaOrdinal = toolIdx + 1
-			tc := toolCalls[toolOrder[toolIdx]]
+			tc := toolCalls[ordinal]
 			if tc == nil {
 				continue
 			}
 			tc.arguments.WriteString(delta)
-			chunk := openAIStreamToolCallDelta(id, model, toolIdx, delta)
+			chunk := openAIStreamToolCallDelta(id, model, ordinal, delta)
 			if _, err := w.Write([]byte("data: " + chunk + "\n\n")); err != nil {
 				return err
 			}
 		case "response.function_call_arguments.done":
-			// no-op: final arguments ride on output_item.done/completed
+			// The complete arguments ride on this event: emit whatever the
+			// client has not received, so a dropped delta cannot leave the
+			// caller with truncated JSON.
+			var d struct {
+				ItemID    string `json:"item_id"`
+				OutputIdx int    `json:"output_index"`
+				Arguments string `json:"arguments"`
+			}
+			_ = json.Unmarshal([]byte(data), &d)
+			if ordinal, ok := resolveToolCall(d.ItemID, d.OutputIdx); ok {
+				if err := emitArgumentTail(ordinal, d.Arguments); err != nil {
+					return err
+				}
+			}
+		case "response.output_item.done":
+			// Same repair from the closed item, which carries the final
+			// arguments too.
+			var item struct {
+				Type      string `json:"type"`
+				ID        string `json:"id"`
+				Arguments string `json:"arguments"`
+			}
+			_ = json.Unmarshal(ev.Item, &item)
+			if item.Type == "function_call" {
+				if ordinal, ok := resolveToolCall(item.ID, ev.OutputIdx); ok {
+					if err := emitArgumentTail(ordinal, item.Arguments); err != nil {
+						return err
+					}
+				}
+			}
 		case "response.incomplete", "response.completed":
 			var resp struct {
 				IncompleteDetails *struct {
