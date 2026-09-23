@@ -1723,9 +1723,10 @@ func TestRouteSingle_Transient503_RetriesThenSucceeds(t *testing.T) {
 	}
 }
 
-// TestRouteSingle_Client400_NoRetry verifies that a deterministic client
-// error (400) on the single-model path is returned to the client without a
-// transient retry and without burning other connections.
+// TestRouteSingle_Client400_NoRetry verifies that a 400 on the single-model
+// path is not retried on the same connection (retryableStatus excludes it).
+// The request still walks the connection pool, and with no other connection
+// to fall back to the upstream 400 is surfaced as the request error.
 func TestRouteSingle_Client400_NoRetry(t *testing.T) {
 	exec := &mockExecutor{
 		status: http.StatusBadRequest,
@@ -1739,25 +1740,31 @@ func TestRouteSingle_Client400_NoRetry(t *testing.T) {
 
 	body := []byte(`{"model":"openai/gpt-4","messages":[{"role":"user","content":"hi"}]}`)
 	res, err := srv.RouteChat(context.Background(), body, extractModelMust(body), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if res != nil && res.Body != nil {
+		_, _ = io.Copy(io.Discard, res.Body)
+		res.Body.Close()
 	}
-	if res.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status: got %d want 400", res.StatusCode)
+	if err == nil {
+		t.Fatal("want upstream error for 400 with no alternative connection, got nil")
 	}
-	_, _ = io.Copy(io.Discard, res.Body)
-	res.Body.Close()
-	// Exactly one upstream call: no transient retry, no fallback to a
-	// second connection.
+	up, ok := err.(*domain.UpstreamError)
+	if !ok {
+		t.Fatalf("want *domain.UpstreamError, got %T (%v)", err, err)
+	}
+	if up.Status != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400", up.Status)
+	}
+	// A single call on the only connection: the 400 is not retried on the
+	// same connection (no transient retry).
 	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4"}) {
-		t.Fatalf("called = %v, want [gpt-4] (no retry on 400)", got)
+		t.Fatalf("called = %v, want [gpt-4] (no same-connection retry on 400)", got)
 	}
 }
 
-// TestRouteCombo_Client400_NoFallback verifies that a deterministic client
-// error (400) on the first combo member does NOT fall through to the next
-// model — it is returned to the client immediately.
-func TestRouteCombo_Client400_NoFallback(t *testing.T) {
+// TestRouteCombo_Client400_FallsThrough verifies that a 400 from the first
+// combo member falls through to the next model instead of being returned to
+// the client immediately: any upstream error follows the fallback chain.
+func TestRouteCombo_Client400_FallsThrough(t *testing.T) {
 	exec := &mockExecutor{
 		status: 200,
 		body:   `{"id":"1","choices":[{"message":{"content":"ok"}}]}`,
@@ -1783,13 +1790,13 @@ func TestRouteCombo_Client400_NoFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status: got %d want 400", res.StatusCode)
+	if res.StatusCode != 200 {
+		t.Fatalf("status: got %d want 200 (next combo member succeeds)", res.StatusCode)
 	}
 	_, _ = io.Copy(io.Discard, res.Body)
 	res.Body.Close()
-	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4"}) {
-		t.Fatalf("called = %v, want [gpt-4] (no fallback on 400)", got)
+	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4", "claude-3"}) {
+		t.Fatalf("called = %v, want [gpt-4 claude-3] (fallback on 400)", got)
 	}
 }
 

@@ -123,11 +123,11 @@ func transientBackoff(n int) time.Duration {
 }
 
 // retryableStatus reports whether an upstream HTTP status is worth a
-// same-connection retry. Successful statuses and deterministic client errors
-// (400/422/415 — a malformed request fails identically on every retry) never
-// retry. Every other failure status retries when the connection was healthy at
-// request start; health — not the specific error class — is what drives the
-// retry decision (see executeOneWithRetry).
+// same-connection retry. Successful statuses never retry; a deterministic
+// client error (400/422/415) is not retried on the SAME connection either,
+// but it still falls through to the next connection/model — retrying an
+// identical request on the same endpoint cannot change the answer, while a
+// different connection or model can.
 func retryableStatus(status int) bool {
 	switch status {
 	case http.StatusBadRequest, // 400

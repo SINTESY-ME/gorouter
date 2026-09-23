@@ -25,9 +25,9 @@ func TestShouldFallback(t *testing.T) {
 		{name: "403 forbidden", status: 403, want: true},
 		{name: "402 payment required", status: 402, want: true},
 		{name: "404 not found", status: 404, want: true},
-		{name: "400 bad request", status: 400, want: false},
-		{name: "422 unprocessable", status: 422, want: false},
-		{name: "415 unsupported media", status: 415, want: false},
+		{name: "400 bad request", status: 400, want: true},
+		{name: "422 unprocessable", status: 422, want: true},
+		{name: "415 unsupported media", status: 415, want: true},
 		{name: "200 ok", status: 200, want: false},
 	}
 	for _, tt := range tests {
@@ -48,9 +48,9 @@ func TestShouldFallbackWithMessage(t *testing.T) {
 	}{
 		{name: "400 insufficient credits falls through", status: 400, message: "You have insufficient credits to make this request. Please purchase more credits to continue using the service.", want: true},
 		{name: "400 insufficient balance falls through", status: 400, message: "Insufficient balance", want: true},
-		{name: "400 genuine bad request does not fall through", status: 400, message: "unexpected field 'foo'", want: false},
-		{name: "400 empty message does not fall through", status: 400, message: "", want: false},
-		{name: "422 with credit text does not fall through", status: 422, message: "insufficient credits", want: false},
+		{name: "400 genuine bad request falls through", status: 400, message: "unexpected field 'foo'", want: true},
+		{name: "400 empty message falls through", status: 400, message: "", want: true},
+		{name: "422 with credit text falls through", status: 422, message: "insufficient credits", want: true},
 		{name: "500 still falls through", status: 500, message: "internal error", want: true},
 		{name: "402 still falls through", status: 402, message: "", want: true},
 	}

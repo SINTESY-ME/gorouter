@@ -24,45 +24,18 @@ var (
 // error) should trigger falling through to the next model in a combo or the
 // next account in a connection pool.
 //
-// Fallback is only attempted when the failure might resolve on another model
-// or account: transient infrastructure errors (5xx, 408, 429), account-level
-// failures (401/403/402), or a model that is gone on this provider (404).
-// Deterministic client errors (400, 422, 415, …) fail on every provider the
-// same way, so falling through would only burn requests and latency — they
-// are returned to the client instead.
+// Any upstream failure is eligible for fallback by default. A different
+// policy must be selected explicitly by the caller; the default must not
+// strand a combo on a provider-specific 4xx response.
 func ShouldFallback(status int, err error) bool {
-	if err != nil {
-		return true // network / timeout
-	}
-	switch {
-	case status >= 500 && status <= 599:
-		return true // upstream transient failure
-	case status == http.StatusTooManyRequests:
-		return true // rate limited; try next account/model
-	case status == http.StatusRequestTimeout:
-		return true // timeout / unavailable
-	case status == http.StatusUnauthorized || status == http.StatusForbidden:
-		return true // bad account credentials; try next account
-	case status == http.StatusPaymentRequired:
-		return true // out of credit on this key; try next account
-	case status == http.StatusNotFound:
-		return true // model deprecated/removed on this provider; next may work
-	default:
-		return false // deterministic client error: do not fall through
-	}
+	return err != nil || status >= http.StatusBadRequest
 }
 
-// ShouldFallbackWithMessage is ShouldFallback plus response-body awareness: a
-// 400 whose message signals credit exhaustion on this key/account falls
-// through to the next connection/model instead of failing the request.
-// Some upstreams (e.g. CommandCode) report an empty balance as
-// 400 "You have insufficient credits..." instead of 402, and a pure
-// status-based check would wrongly treat it as a deterministic client error.
+// ShouldFallbackWithMessage preserves the message-aware API used by the
+// router. The default policy is status-independent: every upstream error
+// falls through, regardless of its response body.
 func ShouldFallbackWithMessage(status int, message string) bool {
-	if ShouldFallback(status, nil) {
-		return true
-	}
-	return status == http.StatusBadRequest && isCreditExhausted(message)
+	return ShouldFallback(status, nil)
 }
 
 // creditExhaustedMarkers matches upstream "out of credit" failures reported
