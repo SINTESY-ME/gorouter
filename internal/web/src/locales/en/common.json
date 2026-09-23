@@ -184,6 +184,7 @@
     "sync": "Sync",
     "connectionsTitle": "Connections / API Keys",
     "addKey": "Add Key",
+    "connectAccount": "Connect Account",
     "noKeys": "No keys configured for this provider.",
     "connAria": "connections",
     "colName": "Name",

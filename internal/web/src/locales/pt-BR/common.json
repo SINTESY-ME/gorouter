@@ -184,6 +184,7 @@
     "sync": "Sincronizar",
     "connectionsTitle": "Conexões / Chaves API",
     "addKey": "Adicionar Chave",
+    "connectAccount": "Conectar Conta",
     "noKeys": "Nenhuma chave configurada para este provider.",
     "connAria": "connections",
     "colName": "Nome",

@@ -40,6 +40,10 @@ export default function Providers() {
   const [confirmConnId, setConfirmConnId] = useState<string | null>(null);
 
   const [oauthProviders, setOauthProviders] = useState<string[]>([]);
+  // Where the OAuth step was entered from: the catalog picker keeps "back"
+  // returning to the picker; a card-level connect has no picker to go back
+  // to, so back closes the modal instead.
+  const [oauthFrom, setOauthFrom] = useState<"catalog" | "card">("catalog");
   const [oauthState, setOauthState] = useState("");
   const [oauthCode, setOauthCode] = useState("");
   const [oauthProviderId, setOauthProviderId] = useState("");
@@ -66,6 +70,13 @@ export default function Providers() {
 
   useEffect(() => { loadData(); }, []);
 
+  // The card-level "add key" needs to know synchronously — on the click —
+  // whether a provider authenticates through OAuth (a popup opened after an
+  // await gets blocked), so the list is fetched when the page mounts.
+  useEffect(() => {
+    api.oauth.list().then(setOauthProviders).catch(() => setOauthProviders([]));
+  }, []);
+
   const openNewProvider = () => {
     setProviderForm(emptyProvider);
     setProviderEditId(null);
@@ -87,44 +98,57 @@ export default function Providers() {
     setProviderOpen(true);
   };
 
-  const pickTemplate = async (def: ProviderDef) => {
-    if (def.id === "codex" && oauthProviders.includes(def.id)) {
-      setOauthProviderId(def.id);
-      setOauthAuthURL("https://auth.openai.com/codex/device");
-      setOauthDeviceCode("");
-      setOauthCode("");
-      setError("");
-      setProviderStep("oauth");
-      // Open immediately from the click handler so popup blockers do not hide
-      // the official device verification page while the API call is pending.
-      window.open("https://auth.openai.com/codex/device", "_blank", "noopener,noreferrer");
-      setSaving(true);
-      try {
-        const tokens = await runCodexDeviceFlow({
-          onUserCode: ({ userCode }) => setOauthDeviceCode(userCode),
-        });
-        await api.oauth.completeDevice("codex", tokens);
+  // startCodexDeviceFlow opens OpenAI's device login for codex. The
+  // verification page must be opened synchronously with the click that
+  // started the flow — a popup opened after an await is blocked as a
+  // pop-under by every mainstream browser.
+  const startCodexDeviceFlow = () => {
+    setOauthProviderId("codex");
+    setOauthAuthURL("https://auth.openai.com/codex/device");
+    setOauthDeviceCode("");
+    setOauthCode("");
+    setError("");
+    setProviderStep("oauth");
+    window.open("https://auth.openai.com/codex/device", "_blank", "noopener,noreferrer");
+    setSaving(true);
+    runCodexDeviceFlow({
+      onUserCode: ({ userCode }) => setOauthDeviceCode(userCode),
+    })
+      .then((tokens) => api.oauth.completeDevice("codex", tokens))
+      .then(() => {
         setProviderOpen(false);
         loadData();
-      } catch (e: any) {
-        setError(e?.message ?? t("providers.oauthCompleteFailed"));
-      } finally {
-        setSaving(false);
-      }
+      })
+      .catch((e: any) => setError(e?.message ?? t("providers.oauthCompleteFailed")))
+      .finally(() => setSaving(false));
+  };
+
+  // startBrowserOAuthFlow begins the browser flow for every OAuth provider
+  // that is not codex (gemini-cli, antigravity). The login URL comes from the
+  // server, so the page can only open after the start call resolves.
+  const startBrowserOAuthFlow = async (providerID: string) => {
+    setOauthProviderId(providerID);
+    setError("");
+    try {
+      const res = await api.oauth.start(providerID);
+      setOauthState(res.state);
+      setOauthAuthURL(res.auth_url);
+      setProviderStep("oauth");
+      window.open(res.auth_url, "_blank", "noopener,noreferrer");
+    } catch (e: any) {
+      setError(e?.message ?? t("providers.oauthStartFailed"));
+    }
+  };
+
+  const pickTemplate = async (def: ProviderDef) => {
+    if (def.id === "codex" && oauthProviders.includes(def.id)) {
+      setOauthFrom("catalog");
+      startCodexDeviceFlow();
       return;
     }
     if ((def.category === "oauth" || def.category === "free") && oauthProviders.includes(def.id)) {
-      setOauthProviderId(def.id);
-      setError("");
-      try {
-        const res = await api.oauth.start(def.id);
-        setOauthState(res.state);
-        setOauthAuthURL(res.auth_url);
-        setProviderStep("oauth");
-        window.open(res.auth_url, "_blank", "noopener,noreferrer");
-      } catch (e: any) {
-        setError(e?.message ?? t("providers.oauthStartFailed"));
-      }
+      setOauthFrom("catalog");
+      await startBrowserOAuthFlow(def.id);
       return;
     }
     setProviderForm({
@@ -214,6 +238,17 @@ export default function Providers() {
   };
 
   const openNewConnection = (providerId: string) => {
+    if (oauthProviders.includes(providerId)) {
+      // An OAuth provider has no key to paste: the card-level button opens
+      // the provider's own authentication (codex device flow, browser
+      // OAuth for the rest) instead of the generic API key form.
+      setProviderEditId(null);
+      setOauthFrom("card");
+      setProviderOpen(true);
+      if (providerId === "codex") startCodexDeviceFlow();
+      else void startBrowserOAuthFlow(providerId);
+      return;
+    }
     setConnProviderId(providerId);
     setConnForm(emptyConnection);
     setConnEditId(null);
@@ -446,7 +481,9 @@ export default function Providers() {
 
                     <div className="mb-3 text-sm font-semibold flex justify-between items-center">
                       {t("providers.connectionsTitle")}
-                      <Button size="sm" variant="outline" onPress={() => openNewConnection(provider.id)}><IconPlus className="w-4 h-4" /> {t("providers.addKey")}</Button>
+                      <Button size="sm" variant="outline" onPress={() => openNewConnection(provider.id)}>
+                        <IconPlus className="w-4 h-4" /> {oauthProviders.includes(provider.id) ? t("providers.connectAccount") : t("providers.addKey")}
+                      </Button>
                     </div>
 
                     {conns.length === 0 ? (
@@ -562,7 +599,7 @@ export default function Providers() {
 
                 {providerStep === "oauth" && (
                   <>
-                    <Button size="sm" variant="ghost" className="self-start" onPress={() => setProviderStep("pick")} isDisabled={saving}>{t("providers.back")}</Button>
+                    <Button size="sm" variant="ghost" className="self-start" onPress={() => { if (oauthFrom === "card") setProviderOpen(false); else setProviderStep("pick"); }} isDisabled={saving}>{t("providers.back")}</Button>
                     <div className="bg-accent/10 rounded-lg p-3 text-sm space-y-2">
                       <p className="font-medium">{t("providers.connecting", { provider: oauthProviderId })}</p>
                       {oauthProviderId === "codex" ? (
