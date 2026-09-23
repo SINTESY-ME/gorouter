@@ -170,6 +170,14 @@ type RouteOptions struct {
 	InputFormat domain.Format // client format of the request body; FormatOpenAI when unset
 	Endpoint    string        // "" = chat (format-based URL); "embeddings" | "images/generations" | ...
 	ContentType string        // for multipart passthrough bodies
+	// MemberEfforts pins a combo member's reasoning level, keyed by the member
+	// as written in the combo ("provider/model"). routeCombo fills it from the
+	// combo's model_meta; executeOne applies the pin to the candidate it is
+	// about to call, so each member runs at the level its author chose even on
+	// a fallback. A pin outranks the level the caller asked for, because the
+	// combo is the one deciding which model serves; an empty value means the
+	// request's own effort travels untouched.
+	MemberEfforts map[string]string
 }
 
 // RouteChat handles a chat/completions-style request. The body is in the
@@ -679,6 +687,25 @@ func (s *RouterService) measureModelTPSStreaming(ctx context.Context, modelStr s
 	return accumulated.String(), completionTokens, ttftMs, nil
 }
 
+// comboEffortPins reads the reasoning level each combo member is pinned to.
+// Members without an effort are left out: an absent pin means "whatever the
+// caller asked for", which is the behaviour every existing combo keeps.
+func comboEffortPins(combo *domain.Combo) map[string]string {
+	if combo == nil || len(combo.ModelMeta) == 0 {
+		return nil
+	}
+	pins := make(map[string]string, len(combo.ModelMeta))
+	for member, meta := range combo.ModelMeta {
+		if effort := strings.ToLower(strings.TrimSpace(meta.Effort)); effort != "" {
+			pins[member] = effort
+		}
+	}
+	if len(pins) == 0 {
+		return nil
+	}
+	return pins
+}
+
 func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, body []byte, stream bool, apiKey string, opts RouteOptions, endpoint string, depth int, comboChain []string, requestID string, attempt *int, contentType ...string) (*RouterResponse, error) {
 	start := time.Now()
 	ct := ""
@@ -695,6 +722,19 @@ func (s *RouterService) routeCombo(ctx context.Context, combo *domain.Combo, bod
 		}
 	}
 	models := combo.Models
+	// Reasoning pins travel with the request, not with the router: a nested
+	// combo merges its own members' pins over the outer ones, so each member
+	// keeps the level its own combo declared.
+	if pins := comboEffortPins(combo); len(pins) > 0 {
+		merged := make(map[string]string, len(opts.MemberEfforts)+len(pins))
+		for k, v := range opts.MemberEfforts {
+			merged[k] = v
+		}
+		for k, v := range pins {
+			merged[k] = v
+		}
+		opts.MemberEfforts = merged
+	}
 	var strat ComboStrategy
 	if s.Strategies != nil {
 		strat = s.Strategies.For(combo.Strategy)
@@ -1036,6 +1076,19 @@ func (s *RouterService) tryModelWithConns(ctx context.Context, m domain.ModelID,
 }
 
 func (s *RouterService) executeOne(ctx context.Context, m domain.ModelID, conn *domain.Connection, body []byte, stream bool, opts RouteOptions, contentType string) (*RouterResponse, error) {
+	// A combo member may pin its own reasoning level. The pin is applied
+	// first and then adapted below, so a level the target model cannot honour
+	// (say max on a model whose ladder stops at high) still degrades to the
+	// closest one it accepts instead of going upstream verbatim.
+	if opts.Endpoint == "" && len(opts.MemberEfforts) > 0 {
+		if pinned := opts.MemberEfforts[m.Provider+"/"+m.Model]; pinned != "" {
+			pinnedBody, err := forceReasoningEffort(body, pinned)
+			if err != nil {
+				return nil, err
+			}
+			body = pinnedBody
+		}
+	}
 	// A combo may reach this function with a different concrete model on each
 	// fallback attempt. Adapt reasoning at that boundary so each candidate gets
 	// its own closest supported effort (max -> xhigh -> high -> omitted).

@@ -3,12 +3,15 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/jhon/gorouter/internal/domain"
+	"github.com/jhon/gorouter/internal/infra/apikey"
 )
 
 // ConnectionService is the dashboard use case for managing connections.
@@ -183,6 +186,21 @@ func (s *ComboService) validateCombo(c *domain.Combo) error {
 			}
 		}
 	}
+	// A reasoning pin must be a level of the canonical ladder: the router
+	// degrades a pin it cannot honour, so a typo would silently do nothing
+	// instead of failing where it was made.
+	for member, meta := range c.ModelMeta {
+		effort := strings.ToLower(strings.TrimSpace(meta.Effort))
+		if effort == "" {
+			continue
+		}
+		if domain.EffortRank(effort) < 0 {
+			return fmtValidation(fmt.Sprintf("model %q has unknown reasoning effort %q (expected one of: %s)",
+				member, meta.Effort, strings.Join(domain.ReasoningEffortLevels, ", ")))
+		}
+		meta.Effort = effort
+		c.ModelMeta[member] = meta
+	}
 	return nil
 }
 
@@ -265,10 +283,38 @@ func (s *ComboService) Delete(ctx context.Context, id string) error {
 type ApiKeyService struct {
 	Repo   domain.ApiKeyRepo
 	Secret string
+
+	// cipherOnce guards the lazily built cipher. Building it from Secret
+	// keeps the instance secret as the single source of key material (no
+	// extra Swarm secret): KeySecret is always populated by config.FromEnv.
+	cipherOnce sync.Once
+	cipher     *apikey.Cipher
+}
+
+// keyCipher returns the at-rest cipher, or nil when it cannot be built (empty
+// secret). A nil cipher degrades to "not revealable" instead of failing
+// requests.
+func (s *ApiKeyService) keyCipher() *apikey.Cipher {
+	s.cipherOnce.Do(func() {
+		c, err := apikey.NewCipher(s.Secret)
+		if err != nil {
+			slog.Warn("api key cipher unavailable: keys will not be revealable", "err", err)
+			return
+		}
+		s.cipher = c
+	})
+	return s.cipher
 }
 
 func (s *ApiKeyService) List(ctx context.Context) ([]domain.ApiKey, error) {
-	return s.Repo.List(ctx)
+	ks, err := s.Repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range ks {
+		ks[i].Revealable = ks[i].KeyCipher != ""
+	}
+	return ks, nil
 }
 
 func (s *ApiKeyService) Create(ctx context.Context, name string, limits []domain.KeyLimit, allowedModels []string, createdBy ...string) (*domain.ApiKey, error) {
@@ -285,7 +331,7 @@ func (s *ApiKeyService) Create(ctx context.Context, name string, limits []domain
 	}
 	k := &domain.ApiKey{
 		ID:            uuid.NewString(),
-		Key:           key, // plaintext returned to caller once; not persisted
+		Key:           key, // plaintext returned to caller once
 		KeyHash:       apikeyHashKey(key),
 		Name:          name,
 		IsActive:      true,
@@ -293,9 +339,86 @@ func (s *ApiKeyService) Create(ctx context.Context, name string, limits []domain
 		AllowedModels: normalizeAllowedModels(allowedModels),
 		CreatedBy:     owner,
 	}
+	// Seal the plaintext so the dashboard can show the key again later. A
+	// cipher failure must not block key creation — the key just won't be
+	// revealable and the dashboard offers rotation instead.
+	if c := s.keyCipher(); c != nil {
+		if sealed, err := c.Seal(key); err == nil {
+			k.KeyCipher = sealed
+		} else {
+			slog.Warn("api key seal failed; key will not be revealable", "err", err)
+		}
+	}
 	if err := s.Repo.Create(ctx, k); err != nil {
 		return nil, err
 	}
+	k.Revealable = k.KeyCipher != ""
+	return k, nil
+}
+
+// Get returns a key by ID, nil when absent.
+func (s *ApiKeyService) Get(ctx context.Context, id string) (*domain.ApiKey, error) {
+	k, err := s.Repo.Get(ctx, id)
+	if err != nil || k == nil {
+		return k, err
+	}
+	k.Revealable = k.KeyCipher != ""
+	return k, nil
+}
+
+// Reveal returns the plaintext of an existing key. Keys created before the
+// cipher existed (or sealed with a secret that has since rotated) have no
+// recoverable plaintext: the caller is told to rotate instead.
+func (s *ApiKeyService) Reveal(ctx context.Context, id string) (string, error) {
+	k, err := s.Repo.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if k == nil {
+		return "", fmt.Errorf("%w: api key not found", domain.ErrNotFound)
+	}
+	if k.KeyCipher == "" {
+		return "", fmt.Errorf("%w: this key predates revealable storage — rotate it to get a copy", domain.ErrValidation)
+	}
+	c := s.keyCipher()
+	if c == nil {
+		return "", fmt.Errorf("%w: key storage is not configured", domain.ErrValidation)
+	}
+	plain, err := c.Open(k.KeyCipher)
+	if err != nil {
+		return "", fmt.Errorf("%w: stored key cannot be decrypted (instance secret changed?) — rotate the key", domain.ErrValidation)
+	}
+	return plain, nil
+}
+
+// Rotate issues a fresh key for an existing record: the old value stops
+// working the moment the new hash is written. The plaintext is returned once.
+func (s *ApiKeyService) Rotate(ctx context.Context, id string) (*domain.ApiKey, error) {
+	k, err := s.Repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if k == nil {
+		return nil, fmt.Errorf("%w: api key not found", domain.ErrNotFound)
+	}
+	key, err := apikeyGenerate(s.Secret)
+	if err != nil {
+		return nil, err
+	}
+	sealed := ""
+	if c := s.keyCipher(); c != nil {
+		sealed, err = c.Seal(key)
+		if err != nil {
+			return nil, fmt.Errorf("seal rotated key: %w", err)
+		}
+	}
+	if err := s.Repo.UpdateSecret(ctx, id, apikeyHashKey(key), sealed); err != nil {
+		return nil, err
+	}
+	k.Key = key
+	k.KeyHash = apikeyHashKey(key)
+	k.KeyCipher = sealed
+	k.Revealable = sealed != ""
 	return k, nil
 }
 

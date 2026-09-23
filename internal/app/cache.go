@@ -101,6 +101,22 @@ func (c *apiKeyCache) Validate(ctx context.Context, key string) (bool, error) {
 	return ak != nil && ak.IsActive, nil
 }
 
+// Get is uncached: reveal/rotate are rare dashboard paths and the cached
+// entries are keyed by the client key, not by ID.
+func (c *apiKeyCache) Get(ctx context.Context, id string) (*domain.ApiKey, error) {
+	return c.repo.Get(ctx, id)
+}
+
+// UpdateSecret rotates the stored secret; every cached lookup is keyed by the
+// old client key and must go.
+func (c *apiKeyCache) UpdateSecret(ctx context.Context, id, keyHash, keyCipher string) error {
+	if err := c.repo.UpdateSecret(ctx, id, keyHash, keyCipher); err != nil {
+		return err
+	}
+	c.invalidateAll()
+	return nil
+}
+
 // connCache wraps a ConnectionRepo with a TTL cache for ListByProvider —
 // the hot-path lookup that runs on every chat/passthrough request. The full
 // provider list is cached as one snapshot keyed by providerID. Writes

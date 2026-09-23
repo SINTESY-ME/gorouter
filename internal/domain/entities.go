@@ -316,6 +316,12 @@ type ComboCapabilities struct {
 type ComboModelMeta struct {
 	Weight      int    `json:"weight,omitempty"`
 	Description string `json:"description,omitempty"`
+	// Effort pins the reasoning level this member runs at. A combo author
+	// sets it when a model should always think at one level regardless of
+	// what the caller asked; empty leaves the request's own effort alone. The
+	// value is a level of ReasoningEffortLevels, and the router still degrades
+	// it to the closest level the model can honour.
+	Effort string `json:"effort,omitempty"`
 }
 
 // ApiKey is a client-facing key created in the dashboard. Clients send it
@@ -336,6 +342,13 @@ type ApiKey struct {
 	// (or nil) means all models are allowed. Entries match a model id
 	// ("openai/gpt-4o"), a bare model name ("gpt-4o"), or a combo name.
 	AllowedModels []string `json:"allowed_models,omitempty" gorm:"serializer:json;type:text"`
+	// KeyCipher is the plaintext key sealed with AES-GCM (see
+	// apikey.Cipher) so the dashboard can show it again. Empty for keys
+	// created before that existed — those can only be rotated.
+	KeyCipher string `json:"-" gorm:"column:key_cipher"`
+	// Revealable tells the dashboard whether the full key can be copied.
+	// Computed on read from KeyCipher, never stored.
+	Revealable bool `json:"revealable" gorm:"-"`
 	// CreatedBy is the dashboard user ID that owns this key. Empty means
 	// admin-owned.
 	CreatedBy string    `json:"-" gorm:"column:created_by;index"`

@@ -119,6 +119,10 @@ func (s *Server) Routes() http.Handler {
 			r.Use(s.requireApiKey)
 		}
 		r.Get("/models", s.handleListModels)
+		// /v1/chat is the short form we advertise to clients: same handler,
+		// no /completions suffix for a caller to get wrong. Clients that
+		// build "/chat/completions" themselves keep working unchanged.
+		r.Post("/chat", s.handleChatWithFormat(domain.FormatOpenAI))
 		r.Post("/chat/completions", s.handleChatWithFormat(domain.FormatOpenAI))
 		r.Post("/completions", s.handleChatWithFormat(domain.FormatOpenAI))  // alias
 		r.Post("/messages", s.handleChatWithFormat(domain.FormatAnthropic))  // anthropic-style
@@ -198,6 +202,8 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/keys", s.handleCreateKey)
 			r.Put("/keys/{id}", s.handleUpdateKey)
 			r.Delete("/keys/{id}", s.handleDeleteKey)
+			r.Get("/keys/{id}/reveal", s.handleRevealKey)
+			r.Post("/keys/{id}/rotate", s.handleRotateKey)
 
 			// Logout must run through auth so it can revoke the session.
 			r.Post("/auth/logout", s.handleAuthLogout)

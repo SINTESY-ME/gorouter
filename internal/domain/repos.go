@@ -45,6 +45,12 @@ type ApiKeyRepo interface {
 	Delete(ctx context.Context, id string) error
 	Validate(ctx context.Context, key string) (bool, error)
 	GetByKey(ctx context.Context, key string) (*ApiKey, error) // nil if not found
+	// Get returns a key by its ID (nil when absent).
+	Get(ctx context.Context, id string) (*ApiKey, error)
+	// UpdateSecret replaces the stored hash and sealed plaintext together:
+	// the two must move in one write or the row stops matching the key the
+	// caller holds.
+	UpdateSecret(ctx context.Context, id, keyHash, keyCipher string) error
 }
 
 // UsageStatsQuery specifies the time range and bucket granularity for a

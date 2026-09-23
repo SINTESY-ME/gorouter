@@ -100,6 +100,8 @@ export interface ModelEntry {
 export interface ComboModelMeta {
   weight?: number;
   description?: string;
+  /** Reasoning level this member is pinned to; empty follows the caller. */
+  effort?: string;
 }
 export interface Combo {
   id: string; name: string; models: string[]; strategy: string; kind?: string;
@@ -115,7 +117,10 @@ export interface KeyLimit {
   duration: string;
 }
 export interface ApiKey {
-  id: string; key: string; name: string; is_active: boolean; limits: KeyLimit[]; allowed_models?: string[]; created_at: string;
+  id: string; key: string; name: string; is_active: boolean; limits: KeyLimit[]; allowed_models?: string[];
+  /** Whether the full key can still be copied (false for keys created before revealable storage). */
+  revealable?: boolean;
+  created_at: string;
 }
 export interface UserPermissions {
   can_manage_own_providers: boolean;
@@ -308,6 +313,13 @@ export const api = {
     create: (k: { name: string; limits?: KeyLimit[]; allowed_models?: string[] }) => request<ApiKey>("/api/keys", { method: "POST", body: JSON.stringify(k) }),
     update: (id: string, k: { name?: string; is_active?: boolean; limits?: KeyLimit[]; allowed_models?: string[] }) => request<ApiKey>(`/api/keys/${id}`, { method: "PUT", body: JSON.stringify(k) }),
     remove: (id: string) => request<void>(`/api/keys/${id}`, { method: "DELETE" }),
+    // reveal returns the plaintext for copying. Keys created before the
+    // cipher existed have none: the server answers with an error and the UI
+    // offers rotation instead.
+    reveal: (id: string) => request<{ key: string }>(`/api/keys/${id}/reveal`),
+    // rotate issues a fresh value for an existing key; the old one stops
+    // working at once, and the response carries the new plaintext once.
+    rotate: (id: string) => request<ApiKey>(`/api/keys/${id}/rotate`, { method: "POST" }),
   },
   users: {
     list: () => request<User[]>("/api/users"),

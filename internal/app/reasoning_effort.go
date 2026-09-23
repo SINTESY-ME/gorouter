@@ -79,6 +79,35 @@ func ladderFromFlags(caps domain.ReasoningCapabilities) []string {
 	return domain.SortEfforts(ladder)
 }
 
+// forceReasoningEffort sets a request's reasoning level regardless of what it
+// already asked for, so a combo member can pin the effort it runs at. The
+// field is added when the body carries none: a pin is a routing decision, and
+// it has to hold for callers that never mention reasoning.
+//
+// Both shapes are written because the effort travels either top-level (OpenAI
+// and most providers) or nested under "reasoning" (OpenRouter). The per-model
+// adaptation that runs right after this replaces or drops the value when the
+// target model cannot honour it, so nothing unsupported reaches upstream.
+func forceReasoningEffort(body []byte, effort string) ([]byte, error) {
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	if effort == "" {
+		return body, nil
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(body, &wire); err != nil {
+		return nil, fmt.Errorf("pin reasoning: parse request: %w", err)
+	}
+	wire["reasoning_effort"] = effort
+	if raw, ok := wire["reasoning"]; ok {
+		if reasoning, ok := raw.(map[string]any); ok {
+			reasoning["effort"] = effort
+		} else {
+			wire["reasoning"] = map[string]any{"effort": effort}
+		}
+	}
+	return json.Marshal(wire)
+}
+
 // normalizeReasoningBodyForModel returns a copy of a request body whose
 // reasoning effort is adapted for one concrete model. If that model has no
 // reasoning capability, the effort is removed instead of being sent as an

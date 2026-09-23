@@ -721,6 +721,51 @@ func (s *Server) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleRevealKey returns the full client key so the dashboard can copy it.
+// Keys created before the at-rest cipher existed (or sealed with a secret
+// that has since changed) have nothing to reveal — the caller rotates instead.
+func (s *Server) handleRevealKey(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	existing, err := lookupKey(s.Keys, r.Context(), id)
+	if err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	if !s.ownsResource(r, existing.CreatedBy) {
+		writeError(w, http.StatusForbidden, "you can only read keys you created")
+		return
+	}
+	key, err := s.Keys.Reveal(r.Context(), id)
+	if err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	key = strings.TrimSpace(key)
+	writeJSON(w, http.StatusOK, map[string]string{"key": key})
+}
+
+// handleRotateKey issues a fresh key for an existing record and returns the
+// plaintext exactly once, like creation does. The previous value stops working
+// as soon as the new hash is written.
+func (s *Server) handleRotateKey(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	existing, err := lookupKey(s.Keys, r.Context(), id)
+	if err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	if !s.ownsResource(r, existing.CreatedBy) {
+		writeError(w, http.StatusForbidden, "you can only rotate keys you created")
+		return
+	}
+	k, err := s.Keys.Rotate(r.Context(), id)
+	if err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, k)
+}
+
 // ---- Usage ----
 
 func (s *Server) handleUsageStats(w http.ResponseWriter, r *http.Request) {
