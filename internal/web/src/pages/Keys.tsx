@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { api, type ApiKey, type KeyLimit } from "../api";
 import { ModelComboBox, type ModelComboBoxItem } from "../components/ModelComboBox";
-import { IconPlus, IconTrash, IconPencil, IconApi, IconCopy, IconCheck, IconX, IconGauge, IconDollar, IconBox } from "../icons";
+import { IconPlus, IconTrash, IconPencil, IconApi, IconCopy, IconCheck, IconX, IconGauge, IconDollar, IconBox, IconLayers } from "../icons";
 
 type LimitKind = "rate" | "budget";
 
@@ -165,7 +165,7 @@ export default function Keys() {
   // feature is an independent ToggleButton; only active features show their
   // configuration section. This keeps the modal clean as more features are
   // added.
-  const [features, setFeatures] = useState<{ rate: boolean; budget: boolean; allowedModels: boolean }>({ rate: false, budget: false, allowedModels: false });
+  const [features, setFeatures] = useState<{ rate: boolean; budget: boolean; allowedModels: boolean; combosOnly: boolean }>({ rate: false, budget: false, allowedModels: false, combosOnly: false });
   const [drafts, setDrafts] = useState<Record<LimitKind, Draft>>({ rate: emptyDraft(), budget: emptyDraft() });
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -178,7 +178,14 @@ export default function Keys() {
 
   useEffect(() => {
     api.models.list()
-      .then((ms) => setModelItems(ms.filter((m) => m.owned_by !== "combo").map((m) => ({ id: m.id, itemType: "model", kind: m.kind || "llm", isActive: true }))))
+      // Combos ride in the same list: to a caller a combo IS a model. Which
+      // of them the key may pick is decided by the "combos only" toggle.
+      .then((ms) => setModelItems(ms.map((m): ModelComboBoxItem => ({
+        id: m.id,
+        itemType: m.owned_by === "combo" ? "combo" : "model",
+        kind: m.kind || "llm",
+        isActive: true,
+      }))))
       .catch(() => {});
   }, []);
 
@@ -197,7 +204,7 @@ export default function Keys() {
     setFormName("");
     setFormLimits([]);
     setFormAllowed([]);
-    setFeatures({ rate: false, budget: false, allowedModels: false });
+    setFeatures({ rate: false, budget: false, allowedModels: false, combosOnly: false });
     setDrafts({ rate: emptyDraft(), budget: emptyDraft() });
     setError(null);
     setModalOpen(true);
@@ -213,6 +220,7 @@ export default function Keys() {
       rate: limits.some((l) => l.kind === "rate"),
       budget: limits.some((l) => l.kind === "budget"),
       allowedModels: !!(k.allowed_models && k.allowed_models.length),
+      combosOnly: !!k.combos_only,
     });
     setDrafts({ rate: emptyDraft(), budget: emptyDraft() });
     setError(null);
@@ -224,11 +232,11 @@ export default function Keys() {
     setError(null);
     try {
       if (editing) {
-        await api.keys.update(editing.id, { name: formName, limits: formLimits, allowed_models: formAllowed });
+        await api.keys.update(editing.id, { name: formName, limits: formLimits, allowed_models: formAllowed, combos_only: features.combosOnly });
         setModalOpen(false);
         load();
       } else {
-        const k = await api.keys.create({ name: formName, limits: formLimits, allowed_models: formAllowed });
+        const k = await api.keys.create({ name: formName, limits: formLimits, allowed_models: formAllowed, combos_only: features.combosOnly });
         setModalOpen(false);
         load();
         setCopied(k.key);
@@ -251,6 +259,18 @@ export default function Keys() {
 
   const toggleAllowedModel = (id: string) => {
     setFormAllowed((prev) => (prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]));
+  };
+
+  const comboIds = new Set(modelItems.filter((i) => i.itemType === "combo").map((i) => i.id));
+
+  // "Combos only" narrows what this key may use to combo names. Turning it
+  // on also opens the allow-list so the combos are visible right away, and
+  // drops raw models from it — they would be rejected by the gateway anyway.
+  const toggleCombosOnly = (on: boolean) => {
+    setFeatures((prev) => ({ ...prev, combosOnly: on, allowedModels: on ? true : prev.allowedModels }));
+    if (on && modelItems.length > 0) {
+      setFormAllowed((prev) => prev.filter((m) => comboIds.has(m)));
+    }
   };
 
   const addLimit = (kind: LimitKind) => {
@@ -404,11 +424,16 @@ export default function Keys() {
                       <Table.Cell>
                         {k.allowed_models && k.allowed_models.length > 0 ? (
                           <div className="flex flex-wrap gap-1 max-w-[220px]">
+                            {k.combos_only && (
+                              <Chip size="sm" variant="soft" color="accent" className="text-[10px]">{t("keys.combosOnlyAll")}</Chip>
+                            )}
                             {k.allowed_models.slice(0, 3).map((m) => (
                               <Chip key={m} size="sm" variant="soft" className="text-[10px]">{m}</Chip>
                             ))}
                             {k.allowed_models.length > 3 && <Chip size="sm" variant="soft" className="text-[10px]">+{k.allowed_models.length - 3}</Chip>}
                           </div>
+                        ) : k.combos_only ? (
+                          <Chip size="sm" variant="soft" color="accent">{t("keys.combosOnlyAll")}</Chip>
                         ) : (
                           <span className="text-xs text-muted">{t("keys.all")}</span>
                         )}
@@ -454,9 +479,14 @@ export default function Keys() {
 
                 <div className="flex flex-col gap-1">
                   <Label>{t("keys.accessLabel")}</Label>
-                  <ToggleButton isSelected={features.allowedModels} onChange={(v) => toggleFeature("allowedModels", v)}>
-                    <IconBox className="w-4 h-4" /> {t("keys.allowedModels")}
-                  </ToggleButton>
+                  <div className="flex flex-wrap gap-2">
+                    <ToggleButton isSelected={features.allowedModels} onChange={(v) => toggleFeature("allowedModels", v)}>
+                      <IconBox className="w-4 h-4" /> {t("keys.allowedModels")}
+                    </ToggleButton>
+                    <ToggleButton isSelected={features.combosOnly} onChange={toggleCombosOnly}>
+                      <IconLayers className="w-4 h-4" /> {t("keys.combosOnly")}
+                    </ToggleButton>
+                  </div>
                 </div>
 
                 {features.allowedModels && (
@@ -483,9 +513,9 @@ export default function Keys() {
                       </div>
                     )}
                     <ModelComboBox
-                      items={modelItems.filter((i) => !formAllowed.includes(i.id))}
-                      ariaLabel={t("keys.addModelAria")}
-                      inputPlaceholder={t("keys.addModelPlaceholder")}
+                      items={modelItems.filter((i) => !formAllowed.includes(i.id) && (!features.combosOnly || i.itemType === "combo"))}
+                      ariaLabel={features.combosOnly ? t("keys.addComboAria") : t("keys.addModelAria")}
+                      inputPlaceholder={features.combosOnly ? t("keys.addComboPlaceholder") : t("keys.addModelPlaceholder")}
                       inputClassName="text-xs"
                       selectedKey={null}
                       onSelectionChange={toggleAllowedModel}
@@ -493,6 +523,9 @@ export default function Keys() {
                     <Description>
                       {t("keys.allowedDesc")}
                     </Description>
+                    {features.combosOnly && (
+                      <Description>{t("keys.combosOnlyDesc")}</Description>
+                    )}
                   </div>
                 )}
 

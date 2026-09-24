@@ -45,6 +45,7 @@ func (r *fakeApiKeyRepo) Update(_ context.Context, k *domain.ApiKey) error {
 	stored.IsActive = k.IsActive
 	stored.Limits = k.Limits
 	stored.AllowedModels = k.AllowedModels
+	stored.CombosOnly = k.CombosOnly
 	return nil
 }
 
@@ -89,7 +90,7 @@ func TestApiKeyServiceCreateSealsForReveal(t *testing.T) {
 	svc := &ApiKeyService{Repo: repo, Secret: "instance-secret"}
 	ctx := context.Background()
 
-	created, err := svc.Create(ctx, "opencodex", nil, []string{"openai/gpt-4o", "my-combo"})
+	created, err := svc.Create(ctx, "opencodex", nil, []string{"openai/gpt-4o", "my-combo"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,6 +172,7 @@ func TestApiKeyServiceUpdatePersistsLimitsAndModels(t *testing.T) {
 		IsActive:      false,
 		Limits:        []domain.KeyLimit{{ID: "l1", Kind: domain.KeyLimitRate, Max: 25, Duration: "1d"}},
 		AllowedModels: []string{"openai/gpt-4o", "sintesy-combo"},
+		CombosOnly:    true,
 	}
 	if err := svc.Update(context.Background(), updated); err != nil {
 		t.Fatal(err)
@@ -184,5 +186,8 @@ func TestApiKeyServiceUpdatePersistsLimitsAndModels(t *testing.T) {
 	}
 	if len(stored.AllowedModels) != 2 || stored.AllowedModels[1] != "sintesy-combo" {
 		t.Fatalf("allowed models not persisted: %+v", stored.AllowedModels)
+	}
+	if !stored.CombosOnly {
+		t.Fatal("combos_only not persisted")
 	}
 }

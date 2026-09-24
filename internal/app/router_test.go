@@ -2218,3 +2218,85 @@ func TestModelAllowed(t *testing.T) {
 		t.Fatal("an empty allowed list allows everything")
 	}
 }
+
+// combosOnlyService builds a router with one combo ("smart" → openai/gpt-4o)
+// and one active openai connection, for combos-only key tests.
+func combosOnlyService(exec *mockExecutor) *RouterService {
+	return NewRouterService(
+		&mockComboRepo{combos: map[string]*domain.Combo{
+			"smart": {ID: "s", Name: "smart", Models: []string{"openai/gpt-4o"}, Strategy: StrategyOrderedFallback},
+			"other": {ID: "o", Name: "other", Models: []string{"openai/gpt-4o"}, Strategy: StrategyOrderedFallback},
+		}},
+		&mockConnectionRepo{conns: []domain.Connection{{ID: "c1", ProviderID: "openai", Name: "test", IsActive: true}}},
+		exec,
+		&mockTranslator{},
+		&mockUsageRepo{},
+	)
+}
+
+// A combos-only key may only address combos: a raw provider/model id is
+// rejected even when the allowed list names it — the list narrows WHICH
+// combos are usable, it never re-opens direct model access.
+func TestModelAllowedCombosOnly(t *testing.T) {
+	srv := combosOnlyService(&mockExecutor{})
+
+	// No list: every combo, no raw model.
+	ctx := WithCombosOnly(context.Background())
+	if !srv.modelAllowed(ctx, "smart") {
+		t.Fatal("a combo must be allowed for a combos-only key")
+	}
+	if srv.modelAllowed(ctx, "openai/gpt-4o") {
+		t.Fatal("a raw model id must be rejected for a combos-only key")
+	}
+	if srv.modelAllowed(ctx, "gpt-4o") {
+		t.Fatal("a bare model name must be rejected for a combos-only key")
+	}
+	if srv.modelAllowed(ctx, "no-such-combo") {
+		t.Fatal("an unknown name must be rejected: it does not resolve to a combo")
+	}
+
+	// With a list: only the listed combos.
+	ctxList := WithCombosOnly(WithAllowedModels(context.Background(), []string{"smart"}))
+	if !srv.modelAllowed(ctxList, "smart") {
+		t.Fatal("the listed combo must be allowed")
+	}
+	if srv.modelAllowed(ctxList, "other") {
+		t.Fatal("a combo outside the list must be rejected")
+	}
+	if srv.modelAllowed(ctxList, "openai/gpt-4o") {
+		t.Fatal("a raw model id listed by hand must still be rejected: combos-only wins")
+	}
+
+	// A key without the flag keeps the permissive behaviour.
+	if !srv.modelAllowed(WithAllowedModels(context.Background(), []string{"openai/gpt-4o"}), "openai/gpt-4o") {
+		t.Fatal("a non-combos-only key must keep direct model access")
+	}
+}
+
+// End-to-end shape of the same rule: 403 before any upstream call, while the
+// combo on the same key routes normally.
+func TestRouteChat_CombosOnlyKey(t *testing.T) {
+	exec := &mockExecutor{status: 200, body: `{"id":"1","choices":[{"message":{"content":"ok"}}]}`}
+	srv := combosOnlyService(exec)
+	ctx := WithCombosOnly(context.Background())
+
+	raw := []byte(`{"model":"openai/gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
+	_, err := srv.RouteChat(ctx, raw, extractModelMust(raw), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
+	if !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("raw model on a combos-only key: err = %v; want ErrForbidden", err)
+	}
+	if got := calledSnapshot(exec); len(got) != 0 {
+		t.Fatalf("no upstream call expected for a forbidden model, got %v", got)
+	}
+
+	combo := []byte(`{"model":"smart","messages":[{"role":"user","content":"hi"}]}`)
+	res, err := srv.RouteChat(ctx, combo, extractModelMust(combo), false, "", RouteOptions{InputFormat: domain.FormatOpenAI})
+	if err != nil {
+		t.Fatalf("combo on a combos-only key must route: %v", err)
+	}
+	_, _ = io.Copy(io.Discard, res.Body)
+	res.Body.Close()
+	if got := calledSnapshot(exec); !equalSeq(t, got, []string{"gpt-4o"}) {
+		t.Fatalf("called = %v, want [gpt-4o]", got)
+	}
+}

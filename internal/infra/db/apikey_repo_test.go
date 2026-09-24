@@ -49,6 +49,7 @@ func TestApiKeyRepoUpdatePersistsLimitsAndAllowedModels(t *testing.T) {
 	k.IsActive = false
 	k.Limits = []domain.KeyLimit{{ID: "l1", Kind: domain.KeyLimitRate, Max: 25, Duration: "1d"}}
 	k.AllowedModels = []string{"openai/gpt-4o", "sintesy-combo"}
+	k.CombosOnly = true
 	if err := repo.Update(ctx, k); err != nil {
 		t.Fatal(err)
 	}
@@ -71,11 +72,16 @@ func TestApiKeyRepoUpdatePersistsLimitsAndAllowedModels(t *testing.T) {
 	if len(stored.AllowedModels) != 2 || stored.AllowedModels[1] != "sintesy-combo" {
 		t.Fatalf("allowed models not persisted: %+v", stored.AllowedModels)
 	}
+	if !stored.CombosOnly {
+		t.Fatal("combos_only=true not persisted")
+	}
 
 	// Clearing them must stick too — the old struct-based Updates skipped
-	// zero values, so "remove all limits" was a no-op.
+	// zero values, so "remove all limits" was a no-op. combos_only is a
+	// BOOL, so flipping it back to false is exactly that zero-value trap.
 	stored.Limits = nil
 	stored.AllowedModels = nil
+	stored.CombosOnly = false
 	if err := repo.Update(ctx, stored); err != nil {
 		t.Fatal(err)
 	}
@@ -85,6 +91,9 @@ func TestApiKeyRepoUpdatePersistsLimitsAndAllowedModels(t *testing.T) {
 	}
 	if len(cleared.Limits) != 0 || len(cleared.AllowedModels) != 0 {
 		t.Fatalf("clearing limits/models did not persist: %+v", cleared)
+	}
+	if cleared.CombosOnly {
+		t.Fatal("combos_only=false not persisted: the key would stay combos-only forever")
 	}
 }
 

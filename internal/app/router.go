@@ -2196,6 +2196,9 @@ type ModelsService struct {
 
 func (s *ModelsService) List(ctx context.Context) ([]domain.ModelInfo, error) {
 	var out []domain.ModelInfo
+	// A combos-only key sees a catalog of combos: raw model entries would
+	// advertise ids the gateway rejects for it (see modelAllowed).
+	combosOnly := combosOnlyFromCtx(ctx)
 	combos, err := s.Combos.List(ctx)
 	if err != nil {
 		return nil, err
@@ -2223,7 +2226,8 @@ func (s *ModelsService) List(ctx context.Context) ([]domain.ModelInfo, error) {
 	}
 	// Read active models from the catalog (no live fetch). Models whose
 	// provider is disabled are excluded — the list mirrors what can route.
-	if s.Models != nil {
+	// Combos-only keys skip the raw catalog entirely.
+	if s.Models != nil && !combosOnly {
 		entries, err := s.Models.ListActive(ctx)
 		if err != nil {
 			return nil, err
@@ -2313,6 +2317,9 @@ func upstreamTimeoutFromCtx(ctx context.Context) time.Duration {
 // allowedModelsCtxKey stores the authenticated key's allowed-models list.
 type allowedModelsCtxKey struct{}
 
+// combosOnlyCtxKey stores the authenticated key's combos-only restriction.
+type combosOnlyCtxKey struct{}
+
 // WithAllowedModels marks the context with a key's allowed-models restriction
 // (empty = all models allowed).
 func WithAllowedModels(ctx context.Context, models []string) context.Context {
@@ -2324,11 +2331,34 @@ func allowedModelsFromCtx(ctx context.Context) []string {
 	return m
 }
 
+// WithCombosOnly marks the context with a key's combos-only restriction:
+// that key may only address combos, never a raw provider/model id.
+func WithCombosOnly(ctx context.Context) context.Context {
+	return context.WithValue(ctx, combosOnlyCtxKey{}, true)
+}
+
+func combosOnlyFromCtx(ctx context.Context) bool {
+	v, _ := ctx.Value(combosOnlyCtxKey{}).(bool)
+	return v
+}
+
 // modelAllowed reports whether the key on this request may use modelStr. An
 // empty allowed list allows everything. Matches the model id, its bare name,
 // a combo name, or any combo member.
+//
+// A combos-only key is stricter: the requested name must RESOLVE TO A COMBO,
+// so a raw provider/model id is rejected with 403 even when it sits in the
+// allowed list — the list narrows which combos are usable, it never re-opens
+// direct model access.
 func (s *RouterService) modelAllowed(ctx context.Context, modelStr string) bool {
 	allowed := allowedModelsFromCtx(ctx)
+	if combosOnlyFromCtx(ctx) {
+		combo, err := s.Combos.GetByName(ctx, modelStr)
+		if err != nil || combo == nil {
+			return false
+		}
+		return len(allowed) == 0 || containsStr(allowed, modelStr)
+	}
 	if len(allowed) == 0 {
 		return true
 	}

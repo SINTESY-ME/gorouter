@@ -221,3 +221,31 @@ func TestModelsServiceListUnknownProviderFailOpen(t *testing.T) {
 		t.Fatalf("unknown provider must fail open, got %+v", got)
 	}
 }
+
+// A combos-only key must see a catalog of combos: advertising raw model ids
+// it cannot call would make the list a lie (the gateway answers 403 for them).
+func TestModelsServiceListCombosOnly(t *testing.T) {
+	modelRepo := &fakeModelRepo{entries: []domain.ModelEntry{
+		{ID: "openai/gpt-x", ProviderID: "openai", ModelID: "gpt-x", IsActive: true},
+	}}
+	comboRepo := &fakeComboRepo{combos: []domain.Combo{
+		{ID: "c1", Name: "smart", Models: []string{"openai/gpt-x"}, Strategy: StrategyOrderedFallback},
+	}}
+	svc := &ModelsService{Combos: comboRepo, Models: modelRepo, Selector: nil}
+
+	all, err := svc.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("without the flag both entries must show, got %+v", all)
+	}
+
+	got, err := svc.List(WithCombosOnly(context.Background()))
+	if err != nil {
+		t.Fatalf("List(combos-only): %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "smart" || got[0].OwnedBy != "combo" {
+		t.Fatalf("combos-only key must see only combos, got %+v", got)
+	}
+}

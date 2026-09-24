@@ -353,6 +353,9 @@ func withApiKey(ctx context.Context, key string, apiKey *domain.ApiKey) context.
 	if len(apiKey.AllowedModels) > 0 {
 		ctx = app.WithAllowedModels(ctx, apiKey.AllowedModels)
 	}
+	if apiKey.CombosOnly {
+		ctx = app.WithCombosOnly(ctx)
+	}
 	return ctx
 }
 

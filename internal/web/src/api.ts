@@ -118,6 +118,8 @@ export interface KeyLimit {
 }
 export interface ApiKey {
   id: string; key: string; name: string; is_active: boolean; limits: KeyLimit[]; allowed_models?: string[];
+  /** When true the key may only use combos — raw provider/model ids are rejected with 403. */
+  combos_only?: boolean;
   /** Whether the full key can still be copied (false for keys created before revealable storage). */
   revealable?: boolean;
   created_at: string;
@@ -310,8 +312,8 @@ export const api = {
   },
   keys: {
     list: () => request<ApiKey[]>("/api/keys"),
-    create: (k: { name: string; limits?: KeyLimit[]; allowed_models?: string[] }) => request<ApiKey>("/api/keys", { method: "POST", body: JSON.stringify(k) }),
-    update: (id: string, k: { name?: string; is_active?: boolean; limits?: KeyLimit[]; allowed_models?: string[] }) => request<ApiKey>(`/api/keys/${id}`, { method: "PUT", body: JSON.stringify(k) }),
+    create: (k: { name: string; limits?: KeyLimit[]; allowed_models?: string[]; combos_only?: boolean }) => request<ApiKey>("/api/keys", { method: "POST", body: JSON.stringify(k) }),
+    update: (id: string, k: { name?: string; is_active?: boolean; limits?: KeyLimit[]; allowed_models?: string[]; combos_only?: boolean }) => request<ApiKey>(`/api/keys/${id}`, { method: "PUT", body: JSON.stringify(k) }),
     remove: (id: string) => request<void>(`/api/keys/${id}`, { method: "DELETE" }),
     // reveal returns the plaintext for copying. Keys created before the
     // cipher existed have none: the server answers with an error and the UI

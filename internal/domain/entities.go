@@ -342,6 +342,11 @@ type ApiKey struct {
 	// (or nil) means all models are allowed. Entries match a model id
 	// ("openai/gpt-4o"), a bare model name ("gpt-4o"), or a combo name.
 	AllowedModels []string `json:"allowed_models,omitempty" gorm:"serializer:json;type:text"`
+	// CombosOnly restricts the key to combo names: a raw provider/model id
+	// is rejected with 403 even when it appears in AllowedModels, and the
+	// model list this key sees (/v1/models) carries combos only. An empty
+	// AllowedModels still means "every combo".
+	CombosOnly bool `json:"combos_only" gorm:"column:combos_only;default:false"`
 	// KeyCipher is the plaintext key sealed with AES-GCM (see
 	// apikey.Cipher) so the dashboard can show it again. Empty for keys
 	// created before that existed — those can only be rotated.

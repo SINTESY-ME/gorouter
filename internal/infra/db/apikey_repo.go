@@ -47,7 +47,7 @@ func (r *ApiKeyRepo) Create(ctx context.Context, k *domain.ApiKey) error {
 // allowed_models were missing from the update entirely.
 func (r *ApiKeyRepo) Update(ctx context.Context, k *domain.ApiKey) error {
 	res := r.db.WithContext(ctx).Model(&domain.ApiKey{}).Where("id = ?", k.ID).
-		Select("name", "is_active", "limits", "allowed_models").
+		Select("name", "is_active", "limits", "allowed_models", "combos_only").
 		Updates(k)
 	if res.Error != nil {
 		return res.Error

@@ -635,6 +635,9 @@ type keyDTO struct {
 	IsActive      *bool             `json:"is_active"`
 	Limits        []domain.KeyLimit `json:"limits,omitempty"`
 	AllowedModels []string          `json:"allowed_models,omitempty"`
+	// CombosOnly is a pointer so a partial update (e.g. toggling is_active
+	// alone) leaves the flag untouched, while false still clears it.
+	CombosOnly *bool `json:"combos_only"`
 }
 
 func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request) {
@@ -657,7 +660,7 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	k, err := s.Keys.Create(r.Context(), req.Name, req.Limits, req.AllowedModels, s.createdByFor(r))
+	k, err := s.Keys.Create(r.Context(), req.Name, req.Limits, req.AllowedModels, req.CombosOnly != nil && *req.CombosOnly, s.createdByFor(r))
 	if err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
@@ -694,6 +697,9 @@ func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.AllowedModels != nil {
 		existing.AllowedModels = req.AllowedModels
+	}
+	if req.CombosOnly != nil {
+		existing.CombosOnly = *req.CombosOnly
 	}
 	if err := s.Keys.Update(r.Context(), existing); err != nil {
 		writeError(w, statusForError(err), err.Error())

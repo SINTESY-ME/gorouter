@@ -317,7 +317,7 @@ func (s *ApiKeyService) List(ctx context.Context) ([]domain.ApiKey, error) {
 	return ks, nil
 }
 
-func (s *ApiKeyService) Create(ctx context.Context, name string, limits []domain.KeyLimit, allowedModels []string, createdBy ...string) (*domain.ApiKey, error) {
+func (s *ApiKeyService) Create(ctx context.Context, name string, limits []domain.KeyLimit, allowedModels []string, combosOnly bool, createdBy ...string) (*domain.ApiKey, error) {
 	key, err := apikeyGenerate(s.Secret)
 	if err != nil {
 		return nil, err
@@ -337,6 +337,7 @@ func (s *ApiKeyService) Create(ctx context.Context, name string, limits []domain
 		IsActive:      true,
 		Limits:        limits,
 		AllowedModels: normalizeAllowedModels(allowedModels),
+		CombosOnly:    combosOnly,
 		CreatedBy:     owner,
 	}
 	// Seal the plaintext so the dashboard can show the key again later. A
